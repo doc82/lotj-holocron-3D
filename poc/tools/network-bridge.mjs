@@ -14,7 +14,7 @@ const DEFAULT_HTTP_PORT = 8788;
 const MAX_CLIENTS = 8;
 const rendererRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../renderer",
+  "../../renderer/dist",
 );
 
 function option(name, fallback) {
@@ -171,12 +171,11 @@ server.on("connection", (client) => {
   });
 });
 
-const rendererFiles = new Map([
-  ["/", ["index.html", "text/html; charset=utf-8"]],
-  ["/index.html", ["index.html", "text/html; charset=utf-8"]],
-  ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
-  ["/core.js", ["core.js", "text/javascript; charset=utf-8"]],
-  ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
+const rendererContentTypes = new Map([
+  [".html", "text/html; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
+  [".map", "application/json; charset=utf-8"],
 ]);
 
 const httpServer = http.createServer(async (request, response) => {
@@ -198,21 +197,22 @@ const httpServer = http.createServer(async (request, response) => {
     return;
   }
 
-  const asset = rendererFiles.get(pathname);
-  if (!asset) {
+  const relativeAsset = pathname === "/" ? "index.html" : pathname.slice(1);
+  const assetPath = path.resolve(rendererRoot, relativeAsset);
+  if (!assetPath.startsWith(`${rendererRoot}${path.sep}`)) {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found\n");
     return;
   }
 
   try {
-    const body = await readFile(path.join(rendererRoot, asset[0]));
-    response.writeHead(200, { "Content-Type": asset[1] });
+    const body = await readFile(assetPath);
+    const contentType = rendererContentTypes.get(path.extname(assetPath)) || "application/octet-stream";
+    response.writeHead(200, { "Content-Type": contentType });
     response.end(body);
-  } catch (error) {
-    diagnostic("error", `could not serve renderer asset: ${error.message}`);
-    response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end("Renderer asset unavailable\n");
+  } catch {
+    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Not found\n");
   }
 });
 

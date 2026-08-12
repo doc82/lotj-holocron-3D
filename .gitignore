@@ -10,3 +10,4 @@ relay/bin/
 mudlet-package/build/
 mudlet-package/.output
 mudlet-package/src/resources/
+renderer/dist/

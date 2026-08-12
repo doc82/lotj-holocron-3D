@@ -16,7 +16,8 @@ import { ensureRelayToken, validateRelayAuth } from "../shared/relay-auth.mjs";
 import { appDataPaths } from "../shared/windows-paths.mjs";
 
 const root = app.getAppPath();
-const rendererEntry = path.join(root, "renderer", "index.html");
+const rendererEntry = path.join(root, "renderer", "dist", "index.html");
+const rendererDevUrl = !app.isPackaged ? process.env.HOLOCRON_RENDERER_URL : undefined;
 const preloadEntry = path.join(root, "electron", "preload", "preload.cjs");
 const requestedPort = Number(process.env.HOLOCRON_WS_PORT || 8787);
 const requestedRelayPort = Number(process.env.HOLOCRON_RELAY_PORT || 8786);
@@ -194,7 +195,7 @@ websocketServer.on("error", (error) => {
 function validRenderer(frame) {
   if (!frame?.url) return false;
   try {
-    const expected = pathToFileURL(rendererEntry).href;
+    const expected = rendererDevUrl || pathToFileURL(rendererEntry).href;
     const actual = new URL(frame.url);
     actual.hash = "";
     return actual.href === expected;
@@ -227,7 +228,8 @@ ipcMain.handle("holocron:send-intent", (event, request) => {
 });
 
 function createWindow() {
-  debug(`creating renderer window from ${rendererEntry} (exists=${fs.existsSync(rendererEntry)})`);
+  const rendererUrl = rendererDevUrl || pathToFileURL(rendererEntry).href;
+  debug(`creating renderer window from ${rendererUrl} (production entry exists=${fs.existsSync(rendererEntry)})`);
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -246,9 +248,10 @@ function createWindow() {
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (url !== pathToFileURL(rendererEntry).href) event.preventDefault();
+    if (url !== rendererUrl) event.preventDefault();
   });
-  mainWindow.loadFile(rendererEntry);
+  if (rendererDevUrl) mainWindow.loadURL(rendererDevUrl);
+  else mainWindow.loadFile(rendererEntry);
   mainWindow.webContents.on("did-finish-load", () => debug("renderer loaded"));
   mainWindow.webContents.on("did-fail-load", (_event, code, description) => {
     debug(`renderer load failed ${code}: ${description}`);

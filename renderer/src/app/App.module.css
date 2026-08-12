@@ -1,0 +1,233 @@
+.experience {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #03050a;
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0) brightness(1);
+  transition:
+    opacity 480ms ease,
+    transform 680ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 520ms ease;
+}
+
+.startupActive {
+  opacity: 0;
+  transform: scale(1.12);
+  filter: blur(12px) brightness(1.8);
+}
+
+.scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.22;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 3px,
+    rgba(55, 203, 229, 0.035) 4px
+  );
+}
+
+.panel {
+  position: absolute;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.25), inset 0 0 24px rgba(28, 132, 151, 0.035);
+  backdrop-filter: blur(12px);
+}
+
+.topbar {
+  top: 22px;
+  left: 22px;
+  right: 22px;
+  min-height: 72px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+}
+
+.experience h1,
+.experience h2 {
+  margin: 0;
+  font-weight: 500;
+}
+
+.experience h1 {
+  font-size: clamp(18px, 2.1vw, 27px);
+  letter-spacing: 0.035em;
+}
+
+.experience h2 {
+  font-size: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: var(--cyan);
+  font: 600 10px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.18em;
+}
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #8cb3bb;
+  font: 600 10px ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.12em;
+}
+
+.light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef6070;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.light.live {
+  color: var(--cyan);
+  background: currentColor;
+}
+
+.telemetry,
+.selection {
+  top: 116px;
+  width: min(290px, calc(100vw - 44px));
+  padding: 17px;
+}
+
+.telemetry {
+  left: 22px;
+}
+
+.selection {
+  right: 22px;
+}
+
+.muted {
+  margin: 6px 0 15px;
+  color: #76929a;
+  font-size: 12px;
+}
+
+.readouts {
+  margin: 0;
+}
+
+.readouts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(91, 219, 243, 0.12);
+}
+
+.readouts dt,
+.readouts dd {
+  margin: 0;
+  font: 11px/1.2 ui-monospace, "Cascadia Mono", monospace;
+}
+
+.readouts dt {
+  color: #688890;
+}
+
+.readouts dd {
+  color: #ccf7ff;
+  text-align: right;
+}
+
+.controls {
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px 10px 16px;
+  color: #72969e;
+  white-space: nowrap;
+  font: 10px ui-monospace, "Cascadia Mono", monospace;
+}
+
+.controls kbd {
+  color: #d9f8ff;
+  font: inherit;
+}
+
+.controls button {
+  border: 1px solid rgba(82, 220, 244, 0.46);
+  padding: 8px 12px;
+  color: var(--cyan);
+  background: rgba(24, 97, 111, 0.18);
+  font: 600 10px ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.controls button:hover {
+  background: rgba(42, 172, 195, 0.2);
+}
+
+.landed {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 310px;
+  padding: 18px 22px;
+  border: 1px solid rgba(255, 217, 87, 0.5);
+  color: var(--gold);
+  text-align: center;
+  background: rgba(17, 13, 3, 0.88);
+  font: 600 13px ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.12em;
+}
+
+.landed small {
+  display: block;
+  margin-top: 8px;
+  color: #ac9e69;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+@media (max-width: 760px) {
+  .controls span {
+    display: none;
+  }
+
+  .controls {
+    left: 22px;
+    transform: none;
+  }
+
+  .selection {
+    top: auto;
+    right: 12px;
+    bottom: 78px;
+  }
+
+  .topbar {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+  }
+
+  .telemetry {
+    top: 96px;
+    left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .experience {
+    transition-duration: 120ms;
+  }
+}

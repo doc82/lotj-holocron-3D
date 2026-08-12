@@ -10,7 +10,7 @@ import {
   perspective,
   project,
   scenesHaveMotion,
-} from "../renderer/core.js";
+} from "../renderer/src/domain/scene.ts";
 
 test("renderer scene stays centered on the observer", () => {
   const scene = buildScene({

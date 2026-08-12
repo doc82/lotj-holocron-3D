@@ -78,7 +78,7 @@ test("network bridge proxies snapshots and serves the renderer", async (t) => {
 
   const rendererResponse = await fetch(ready.rendererUrl);
   assert.equal(rendererResponse.status, 200);
-  assert.match(await rendererResponse.text(), /HOLOCRON 3D/);
+  assert.match(await rendererResponse.text(), /Holocron 3D/i);
   const configResponse = await fetch(`${ready.rendererUrl}/config.json`);
   assert.deepEqual(await configResponse.json(), {
     v: 1,

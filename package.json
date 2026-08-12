@@ -8,18 +8,23 @@
   "type": "module",
   "main": "electron/main/bootstrap.mjs",
   "scripts": {
-    "check": "node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check renderer/core.js && node --check renderer/app.js && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/windows-paths.mjs && node --check electron/preload/preload.cjs && node --check forge.config.cjs",
-    "electron:dev": "electron .",
-    "electron:smoke": "node tools/electron-smoke.mjs",
-    "package": "pnpm relay:build && pnpm mudlet:package && electron-forge package",
-    "make": "pnpm relay:build && pnpm mudlet:package && electron-forge make",
+    "check": "pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/windows-paths.mjs && node --check electron/preload/preload.cjs && node --check forge.config.cjs",
+    "renderer:dev": "vite --config vite.renderer.config.ts",
+    "renderer:build": "vite build --config vite.renderer.config.ts",
+    "renderer:typecheck": "tsc --noEmit",
+    "electron:dev": "node tools/electron-dev.mjs",
+    "electron:smoke": "pnpm renderer:build && node tools/electron-smoke.mjs",
+    "package": "pnpm renderer:build && pnpm relay:build && pnpm mudlet:package && electron-forge package",
+    "make": "pnpm renderer:build && pnpm relay:build && pnpm mudlet:package && electron-forge make",
     "mudlet:package": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-mudlet-package.ps1",
     "relay:build": "go -C relay build -trimpath -ldflags=\"-s -w\" -o bin/holocron-relay.exe .",
     "relay:test": "go -C relay test ./...",
-    "test": "node --test"
+    "test": "pnpm renderer:build && node --experimental-strip-types --test"
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "ws": "^8.18.3"
   },
   "devDependencies": {
@@ -27,6 +32,11 @@
     "@electron-forge/maker-squirrel": "^7.11.2",
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron/fuses": "^2.1.3",
-    "electron": "^43.4.0"
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "electron": "^43.4.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   }
 }
