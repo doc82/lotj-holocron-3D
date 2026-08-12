@@ -137,6 +137,15 @@ assert(snapshots[3].observer.name == "Forrestal")
 assert(snapshots[3].observer.x == 10)
 assert(snapshots[3].observer.speed.maximum == 300)
 
+scraper.handleOutgoingCommand("sysDataSendRequest", "info")
+scraper.captureLine("Hatchway: 94599        Hangar Bays: 47894      Docking: 62351")
+scraper.captureLine("Sensor Array: 7       Shield Boosters: 0       Communications: 0")
+assert(scraper.finishCapture("test prompt"))
+assert(snapshots[4].observer.sensorArray == 7)
+assert(snapshots[4].observer.radarRange == 570)
+assert(snapshots[4].observer.hatchway == nil, "access codes must not enter snapshots")
+assert(scraper.lastCapture.lines[1]:find("redacted", 1, true), "info diagnostics must be redacted")
+
 scraper.handleOutgoingCommand("sysDataSendRequest", "fleetradar")
 scraper.captureLine("Ship                     Squadron Leader          Position")
 scraper.captureLine("Wayfarer                 Resolute                 Screen")
@@ -144,13 +153,13 @@ scraper.captureLine("Rojan-class Patrol Craft 'Forrestal' |  | (Ctr) 10 20 -5")
 scraper.captureLine("Unknown-class Ship 'Not On Radar' |  | (Out) 100 200 300")
 assert(scraper.finishCapture("test prompt"))
 local fleetWayfarer
-for _, entity in ipairs(snapshots[4].entities) do
+for _, entity in ipairs(snapshots[5].entities) do
   if entity.name == "Wayfarer" then fleetWayfarer = entity end
 end
 assert(fleetWayfarer and fleetWayfarer.leader == "Resolute")
 assert(fleetWayfarer.position == "Screen")
-assert(snapshots[4].observer.position == "Ctr")
-for _, entity in ipairs(snapshots[4].entities) do
+assert(snapshots[5].observer.position == "Ctr")
+for _, entity in ipairs(snapshots[5].entities) do
   assert(entity.name ~= "Forrestal", "observer must not be duplicated by fleetradar")
   assert(entity.name ~= "Not On Radar", "fleetradar must not expand a radar-owned contact list")
 end
@@ -160,7 +169,7 @@ scraper.captureLine("Wait until after you launch!")
 assert(scraper.setInSpace(false, "LotJ reports that the ship has not launched"))
 assert(scraper.active == nil, "landed state should abandon an active capture")
 assert(spaceStates[2].inSpace == false)
-assert(#snapshots[5].entities == 0, "landing should clear stale space entities")
+assert(#snapshots[6].entities == 0, "landing should clear stale space entities")
 scraper.handleOutgoingCommand("sysDataSendRequest", "radar")
 assert(scraper.active == nil, "landed state should suppress new captures")
 

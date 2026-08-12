@@ -104,6 +104,25 @@ equal(liveStatus.name, "Forrestal")
 equal(liveStatus.class, "Rojan-class Invincible Firespray Patrol Craft")
 equal(liveStatus.id, "forrestal")
 
+local info = assert(parsers.parseInfo([[
+[Class: Transport] : Rojan-class Invincible Firespray Patrol Craft 'Forrestal'
+Hatchway: 94599        Hangar Bays:  47894      Docking: 62351
+--------: 34073        Selfdestruct: 11553      -------: 23792
+Max Hull:      150     Max Shields:     150     Max Energy(fuel): 5000
+Maximum Speed: 200     Hyperspeed:      200     Maneuver:         200
+Sensor Array:  7       Shield Boosters: 0       Communications:   0
+Cloaking Device: Not Installed
+]]))
+equal(info.source, "info")
+equal(info.sensorArray, 7)
+equal(info.radarRange, 570)
+equal(info.hatchway, nil, "info parser must not retain access codes")
+local allowedInfoKeys = {source = true, sensorArray = true, radarRange = true, recognizedLines = true}
+for key in pairs(info) do
+  assert(allowedInfoKeys[key], "info parser exposed unexpected field: " .. tostring(key))
+end
+equal(assert(parsers.parse("info", "Sensor Array: 0")).radarRange, 500)
+
 local fleet = assert(parsers.parseFleetRadar([[
 Ship                     Squadron Leader          Position
 Wayfarer                 Resolute                 Screen

@@ -19,3 +19,24 @@
   pointer-events: none;
   font: 11px ui-monospace, "Cascadia Mono", monospace;
 }
+
+.clusterCount {
+  position: absolute;
+  z-index: 4;
+  min-width: 18px;
+  border: 0;
+  padding: 3px;
+  transform: translate(-50%, -50%);
+  color: #e9fbff;
+  text-align: center;
+  text-shadow: 0 0 7px #43bfff, 0 0 12px #168cff;
+  background: transparent;
+  cursor: pointer;
+  font: 700 11px/1 ui-monospace, "Cascadia Mono", monospace;
+}
+
+.clusterCount:hover,
+.clusterCount:focus-visible {
+  outline: 1px solid rgba(103, 215, 255, 0.7);
+  background: rgba(18, 107, 152, 0.38);
+}

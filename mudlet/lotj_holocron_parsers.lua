@@ -327,6 +327,26 @@ function Parsers.parseStatus(input)
   return resultOrError(result, recognized, "status")
 end
 
+function Parsers.parseInfo(input)
+  local lines, err = linesFrom(input)
+  if not lines then return nil, err end
+
+  -- Ship info also contains private access codes. Deliberately allow-list only
+  -- the sensor value required by the tactical renderer.
+  local result = {source = "info"}
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local sensorArray = line:match("[Ss]ensor%s+[Aa]rray:%s*([%d,]+)")
+    if sensorArray then
+      result.sensorArray = math.max(0, number(sensorArray) or 0)
+      result.radarRange = 500 + (result.sensorArray * 10)
+      recognized = recognized + 1
+    end
+  end
+
+  return resultOrError(result, recognized, "info")
+end
+
 local function splitColumns(line)
   local columns = {}
   for value in (line .. "  "):gmatch("(.-)%s%s+") do
@@ -433,6 +453,7 @@ function Parsers.parse(command, input)
     ["prox speed"] = Parsers.parseProxVelocity,
     ["proximity speed"] = Parsers.parseProxVelocity,
     status = Parsers.parseStatus,
+    info = Parsers.parseInfo,
     fleetradar = Parsers.parseFleetRadar,
     ["fleetradar targets"] = Parsers.parseFleetRadar,
   }

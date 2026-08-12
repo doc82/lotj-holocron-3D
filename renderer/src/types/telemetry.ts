@@ -22,6 +22,8 @@ export interface TelemetryEntity {
 
 export interface Observer extends TelemetryEntity {
   coordinates?: { x?: number; y?: number; z?: number };
+  sensorArray?: number;
+  radarRange?: number;
 }
 
 export interface PollingState {

@@ -1,6 +1,8 @@
 import type { Color3, SystemSnapshot, TelemetryEntity, Vector3 } from "../types/telemetry";
 
 const TAU = Math.PI * 2;
+export const BASE_SENSOR_RANGE = 500;
+export const SENSOR_RANGE_PER_ARRAY = 10;
 
 export interface ScenePoint extends TelemetryEntity {
   name: string;
@@ -9,6 +11,8 @@ export interface ScenePoint extends TelemetryEntity {
   worldPosition: Vector3;
   color: Color3;
   pointSize: number;
+  members?: ScenePoint[];
+  memberCount?: number;
 }
 
 export interface TacticalScene {
@@ -17,6 +21,7 @@ export interface TacticalScene {
   system: string;
   sequence: number;
   observedAt?: number;
+  contactCount: number;
 }
 
 export function clamp(value: number, minimum: number, maximum: number): number {
@@ -51,7 +56,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
     pointSize: 15,
   };
 
-  const points = [observerPoint];
+  const contacts: ScenePoint[] = [];
   for (const entity of snapshot?.entities ?? []) {
     if (![entity?.x, entity?.y, entity?.z].every((value) => Number.isFinite(Number(value)))) continue;
     const position3d: Vector3 = [
@@ -59,7 +64,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       finite(entity.y) - origin[1],
       finite(entity.z) - origin[2],
     ];
-    points.push({
+    contacts.push({
       ...entity,
       name: entity.name || entity.id,
       kind: entity.kind || "unknown",
@@ -70,6 +75,59 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
     });
   }
 
+  const colocatedShips = new Map<string, ScenePoint[]>();
+  for (const contact of contacts) {
+    if (contact.kind !== "ship") continue;
+    const key = contact.worldPosition.join(":");
+    const members = colocatedShips.get(key) ?? [];
+    members.push(contact);
+    colocatedShips.set(key, members);
+  }
+
+  const clusters = new Map<string, ScenePoint>();
+  for (const [coordinateKey, unsortedMembers] of colocatedShips) {
+    if (unsortedMembers.length === 1) continue;
+    const members = [...unsortedMembers].sort((left, right) => left.name.localeCompare(
+      right.name,
+      undefined,
+      { numeric: true, sensitivity: "base" },
+    ));
+    const representative = unsortedMembers[0];
+    clusters.set(coordinateKey, {
+      id: `cluster:${coordinateKey}`,
+      name: `${members.length} ships`,
+      kind: "cluster",
+      x: representative.x,
+      y: representative.y,
+      z: representative.z,
+      position3d: [...representative.position3d],
+      worldPosition: [...representative.worldPosition],
+      color: [0.18, 0.72, 1],
+      pointSize: Math.min(34, 13 + Math.sqrt(members.length) * 4.5),
+      members,
+      memberCount: members.length,
+    });
+  }
+
+  const renderedContacts: ScenePoint[] = [];
+  const emittedClusters = new Set<string>();
+  for (const contact of contacts) {
+    if (contact.kind !== "ship") {
+      renderedContacts.push(contact);
+      continue;
+    }
+    const coordinateKey = contact.worldPosition.join(":");
+    const cluster = clusters.get(coordinateKey);
+    if (!cluster) {
+      renderedContacts.push(contact);
+    } else if (!emittedClusters.has(coordinateKey)) {
+      renderedContacts.push(cluster);
+      emittedClusters.add(coordinateKey);
+    }
+  }
+
+  const points = [observerPoint, ...renderedContacts];
+
   const radius = points.reduce((largest, point) => Math.max(largest, Math.hypot(...point.position3d)), 0);
   return {
     points,
@@ -77,7 +135,18 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
     system: snapshot?.metadata?.system || "Unknown system",
     sequence: snapshot?.sequence ?? 0,
     observedAt: snapshot?.observedAt,
+    contactCount: contacts.length,
   };
+}
+
+export function findScenePoint(scene: TacticalScene, id: string | null): ScenePoint | null {
+  if (!id) return null;
+  for (const point of scene.points) {
+    if (point.id === id) return point;
+    const member = point.members?.find((candidate) => candidate.id === id);
+    if (member) return member;
+  }
+  return null;
 }
 
 function lerpVector(from: Vector3, to: Vector3, amount: number): Vector3 {
@@ -131,6 +200,22 @@ export class SceneInterpolator {
       }),
     };
   }
+
+  isAnimating(now: number): boolean {
+    return this.duration > 0 && now < this.startedAt + this.duration;
+  }
+}
+
+export function sensorRangeFor(observer: SystemSnapshot["observer"]): number {
+  const sensorArray = Number(observer?.sensorArray);
+  if (Number.isFinite(sensorArray)) {
+    return BASE_SENSOR_RANGE + Math.max(0, sensorArray) * SENSOR_RANGE_PER_ARRAY;
+  }
+
+  const reportedRange = Number(observer?.radarRange);
+  return Number.isFinite(reportedRange) && reportedRange >= BASE_SENSOR_RANGE
+    ? reportedRange
+    : BASE_SENSOR_RANGE;
 }
 
 export class OrbitCamera {
@@ -170,6 +255,13 @@ export class OrbitCamera {
     this.yaw += (this.targetYaw - this.yaw) * blend;
     this.pitch += (this.targetPitch - this.pitch) * blend;
     this.distance += (this.targetDistance - this.distance) * blend;
+  }
+
+  isMoving(): boolean {
+    const distanceTolerance = Math.max(0.001, this.distance * 0.0001);
+    return Math.abs(this.targetYaw - this.yaw) > 0.0001
+      || Math.abs(this.targetPitch - this.pitch) > 0.0001
+      || Math.abs(this.targetDistance - this.distance) > distanceTolerance;
   }
 
   eye(): Vector3 {
