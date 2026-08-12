@@ -29,10 +29,10 @@ importers:
         version: 7.11.2(bluebird@3.7.2)(supports-color@8.1.1)
       '@electron-forge/plugin-fuses':
         specifier: ^7.11.2
-        version: 7.11.2(@electron/fuses@2.1.3)(bluebird@3.7.2)(supports-color@8.1.1)
+        version: 7.11.2(@electron/fuses@1.8.0)(bluebird@3.7.2)(supports-color@8.1.1)
       '@electron/fuses':
-        specifier: ^2.1.3
-        version: 2.1.3
+        specifier: ^1.8.0
+        version: 1.8.0
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
@@ -126,9 +126,8 @@ packages:
     engines: {node: '>=10.12.0'}
     hasBin: true
 
-  '@electron/fuses@2.1.3':
-    resolution: {integrity: sha512-LoKJUXNiJ4JM8IIrUltSHI+8pkogaGj5wmJx81jE/Wk3g2w1/kfMbTEKNoY5kitGE8hiC12h32R/1SlywFtxXg==}
-    engines: {node: '>=22.12.0'}
+  '@electron/fuses@1.8.0':
+    resolution: {integrity: sha512-zx0EIq78WlY/lBb1uXlziZmDZI4ubcCXIMJ4uGjXzZW0nS19TjSPeXPAjzzTmKQlJUZm0SbmZhPKP7tuQ1SsEw==}
     hasBin: true
 
   '@electron/get@3.1.0':
@@ -2558,11 +2557,11 @@ snapshots:
       - bluebird
       - supports-color
 
-  '@electron-forge/plugin-fuses@7.11.2(@electron/fuses@2.1.3)(bluebird@3.7.2)(supports-color@8.1.1)':
+  '@electron-forge/plugin-fuses@7.11.2(@electron/fuses@1.8.0)(bluebird@3.7.2)(supports-color@8.1.1)':
     dependencies:
       '@electron-forge/plugin-base': 7.11.2(bluebird@3.7.2)(supports-color@8.1.1)
       '@electron-forge/shared-types': 7.11.2(bluebird@3.7.2)(supports-color@8.1.1)
-      '@electron/fuses': 2.1.3
+      '@electron/fuses': 1.8.0
     transitivePeerDependencies:
       - bluebird
       - supports-color
@@ -2660,7 +2659,11 @@ snapshots:
       glob: 7.2.3
       minimatch: 3.1.5
 
-  '@electron/fuses@2.1.3': {}
+  '@electron/fuses@1.8.0':
+    dependencies:
+      chalk: 4.1.2
+      fs-extra: 9.1.0
+      minimist: 1.2.8
 
   '@electron/get@3.1.0(supports-color@8.1.1)':
     dependencies:

@@ -34,7 +34,10 @@ module.exports = {
   }],
   plugins: [new FusesPlugin({
     version: FuseVersion.V1,
-    strictlyRequireAllFuses: true,
+    // @electron/fuses@1.x (pinned by @electron-forge/plugin-fuses's peer dep) predates
+    // Electron's WasmTrapHandlers fuse, so it can't cover all fuses Electron 43 exposes.
+    // Leaving this false lets that fuse keep Electron's own (enabled) default.
+    strictlyRequireAllFuses: false,
     [FuseV1Options.RunAsNode]: false,
     [FuseV1Options.EnableCookieEncryption]: true,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,

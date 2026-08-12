@@ -1,5 +1,9 @@
 minimumReleaseAgeExclude:
   - electron@43.4.0
+# @electron/rebuild (pulled in by @electron-forge/cli) depends on @electron/node-gyp
+# pinned to a commit SHA under github.com/electron; pnpm's exotic-subdep block has
+# no per-package allowlist, so it must be disabled project-wide to install.
+blockExoticSubdeps: false
 allowBuilds:
   electron: true
   electron-winstaller: true
