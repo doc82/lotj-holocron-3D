@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050810">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+    <title>LotJ Holocron 3D</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main id="viewport">
+      <canvas id="space" aria-label="3D system map"></canvas>
+      <div class="scanlines" aria-hidden="true"></div>
+
+      <header class="topbar panel">
+        <div>
+          <p class="eyebrow">HOLOCRON 3D // LIVE TACTICAL</p>
+          <h1 id="system-name">Awaiting telemetry</h1>
+        </div>
+        <div class="connection">
+          <span id="connection-light" class="light"></span>
+          <span id="connection-label">CONNECTING</span>
+        </div>
+      </header>
+
+      <aside class="telemetry panel">
+        <p class="eyebrow">OBSERVER LOCK</p>
+        <h2 id="observer-name">Player Ship</h2>
+        <p id="observer-class" class="muted">Identity pending</p>
+        <dl>
+          <div><dt>WORLD XYZ</dt><dd id="observer-coordinates">0 / 0 / 0</dd></div>
+          <div><dt>SPEED</dt><dd id="observer-speed">—</dd></div>
+          <div><dt>POLLING</dt><dd id="polling-status">STARTING</dd></div>
+          <div><dt>CONTACTS</dt><dd id="contact-count">0</dd></div>
+          <div><dt>SEQUENCE</dt><dd id="sequence">—</dd></div>
+          <div><dt>RANGE</dt><dd id="range">—</dd></div>
+        </dl>
+      </aside>
+
+      <aside id="selection" class="selection panel hidden">
+        <p class="eyebrow">SELECTED CONTACT</p>
+        <h2 id="selection-name">—</h2>
+        <p id="selection-class" class="muted">—</p>
+        <dl id="selection-details"></dl>
+      </aside>
+
+      <section id="landed-notice" class="landed hidden" role="status">
+        <span>SPACE TELEMETRY PAUSED</span>
+        <small id="landed-reason">Ship is landed</small>
+      </section>
+
+      <div id="tooltip" class="tooltip hidden"></div>
+
+      <footer class="controls panel">
+        <span><kbd>DRAG</kbd> orbit</span>
+        <span><kbd>WHEEL</kbd> zoom</span>
+        <span><kbd>F</kbd> fit system</span>
+        <span><kbd>R</kbd> reset view</span>
+        <button id="fit-button" type="button">FIT SYSTEM</button>
+      </footer>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

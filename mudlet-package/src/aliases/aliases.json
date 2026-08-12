@@ -1,0 +1,9 @@
+[
+  {
+    "name": "holocron3d.command",
+    "isActive": "yes",
+    "regex": "^h3d(?:\\s+(start|stop|status|snapshot|help))?$",
+    "script": "",
+    "isFolder": "no"
+  }
+]

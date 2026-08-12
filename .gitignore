@@ -1,0 +1,12 @@
+node_modules/
+.vscode/
+.DS_Store
+*.log
+.electron-smoke-profile/
+out/
+relay/bin/
+.gocache/
+.pnpm-store/
+mudlet-package/build/
+mudlet-package/.output
+mudlet-package/src/resources/

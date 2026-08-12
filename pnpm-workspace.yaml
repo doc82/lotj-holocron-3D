@@ -1,0 +1,7 @@
+minimumReleaseAgeExclude:
+  - electron@43.4.0
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+nodeLinker: hoisted
+confirmModulesPurge: false

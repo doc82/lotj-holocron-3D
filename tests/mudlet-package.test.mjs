@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+test("Muddler project declares the Holocron3D bootstrap and command alias", async () => {
+  const mfile = JSON.parse(await readFile("mudlet-package/mfile", "utf8"));
+  const scripts = JSON.parse(await readFile("mudlet-package/src/scripts/scripts.json", "utf8"));
+  const aliases = JSON.parse(await readFile("mudlet-package/src/aliases/aliases.json", "utf8"));
+  const bootstrap = await readFile("mudlet-package/src/scripts/holocron3d.bootstrap.lua", "utf8");
+  const build = await readFile("tools/build-mudlet-package.ps1", "utf8");
+
+  assert.equal(mfile.package, "Holocron3D");
+  assert.equal(scripts[0].name, "holocron3d.bootstrap");
+  assert.equal(aliases[0].name, "holocron3d.command");
+  assert.match(aliases[0].regex, /h3d/);
+  assert.match(bootstrap, /Holocron3D\.exe/);
+  assert.match(bootstrap, /tempTimer\(0, function\(\) Package\.start\(\) end\)/);
+  for (const source of ["parsers", "proxy", "scraper"]) {
+    assert.match(build, new RegExp(`lotj_holocron_${source}\\.lua`));
+  }
+});
