@@ -45,6 +45,8 @@ const messages = [
     y: -259,
     z: 450,
     speed: { current: 50, maximum: 200 },
+    sensorArray: 7,
+    radarRange: 570,
   },
   entities: [
     { id: "dromund-kaas", kind: "celestial", name: "Dromund Kaas", x: 0, y: 0, z: 0 },

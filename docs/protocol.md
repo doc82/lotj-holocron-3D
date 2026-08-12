@@ -49,13 +49,19 @@ remain in game/world units; projection belongs to the renderer.
   "type": "system_snapshot",
   "sequence": 12,
   "observedAt": 1786359123,
-  "observer": {"id":"player-ship","x":1250,"y":-400,"z":80},
+  "observer": {"id":"player-ship","x":1250,"y":-400,"z":80,"sensorArray":7,"radarRange":570},
   "entities": [
     {"id":"ship-123","kind":"ship","name":"YT-1300","x":1500,"y":-250,"z":110}
   ],
   "metadata": {"system":"Prototype"}
 }
 ```
+
+`radarRange` represents the maximum range at which the observer can issue
+remote `status` and `info` scans. It is always at least 500 units and grows as
+`500 + (10 × sensorArray)`. Sensor strength may also unlock details such as
+onboard lifeform counts. The `info` parser allow-lists these two numeric fields;
+ship access codes and all raw `info` output are excluded from the protocol.
 
 ### `intent_ack`
 

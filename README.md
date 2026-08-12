@@ -27,7 +27,7 @@ is not code-signed, so Windows SmartScreen may display a warning.
 
 ## Current capabilities
 
-- Parses live `radar`, `prox`, `prox velocity`, `status`, and `fleetradar` output.
+- Parses live `info`, `radar`, `prox`, `prox velocity`, `status`, and `fleetradar` output.
 - Polls those commands sequentially while suppressing automated command output.
 - Preserves manually entered command output for normal Mudlet use.
 - Tracks the player ship separately from radar contacts and updates its position,
@@ -37,6 +37,15 @@ is not code-signed, so Windows SmartScreen may display a warning.
 - Detects launch and landing state, pauses polling while landed, and clears stale
   space presentation.
 - Renders simple 3D contacts with an observer-locked Homeworld-style orbit camera.
+- Derives remote `status`/`info` scan range as `500 + (10 × Sensor Array)` and
+  renders it as a toggleable blue sensor bubble instead of an infinite floor grid.
+- Provides an optional three-plane coordinate grid centered on the system's true
+  `0 / 0 / 0`. It extends at least 3,000 units along every positive and negative
+  axis, then expands with coarser spacing for strategic-scale coordinates.
+- Collapses ships at identical coordinates into a larger numbered marker. Clicking
+  it opens a member grid; hovering previews a ship and clicking pins its details.
+- Retains only the safe Sensor Array value from `info`; private ship access codes
+  are excluded from snapshots and capture diagnostics.
 - Interpolates contact movement between telemetry ticks.
 - Opens with a cinematic gold-title and hyperspace transition into the tactical view.
 - Presents a dedicated captain-facing uplink standby display while Mudlet is disconnected.
@@ -83,9 +92,20 @@ preserved under `poc/` solely for regression work.
 | Click a contact | Select and inspect it. |
 | `F` | Fit the observed system. |
 | `R` | Reset the camera. |
+| `RADAR ON/OFF` | Show or hide the player ship's sensor-range bubble. |
+| `ORIGIN GRID ON/OFF` | Show or hide the true world-origin coordinate planes. |
 
 The player ship remains the camera focus and visual origin; entity positions are
 rendered relative to its current world coordinates.
+
+### Coordinate scale
+
+One LotJ coordinate unit maps to one renderer world unit. There is no constant
+pixels-per-unit ratio because perspective projection changes apparent size with
+camera distance, field of view, viewport size, and depth. Camera fitting and zoom
+provide the screen-space scale, allowing the same scene to cover fighter combat
+inside 1,000 units, fleet engagements around 2,000 units, and strategic movement
+at 50,000 units or more without changing telemetry coordinates.
 
 ## Runtime architecture
 

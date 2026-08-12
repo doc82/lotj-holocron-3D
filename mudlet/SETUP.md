@@ -32,8 +32,10 @@ Mudlet <- Holocron3D proxy <- network bridge <- WebSocket client
 ```
 
 If it works, Mudlet will say that the bridge connected. Holocron3D polls
-`status`, `radar`, `prox`, `prox velocity`, and `fleetradar` sequentially while
+`status`, `info`, `radar`, `prox`, `prox velocity`, and `fleetradar` sequentially while
 hiding automated output. Typing one yourself still performs a visible refresh.
+Only `Sensor Array` is retained from `info`; access codes are discarded and
+redacted from the package's last-capture diagnostics.
 
 ## Development Step 1: Make sure the files are present
 
@@ -120,7 +122,7 @@ The following messages should appear in Mudlet, usually within a second:
 
 ```text
 [Holocron3D] Bridge process started; waiting for its reply...
-[Holocron3D] live scraping enabled for radar, prox, status, and fleetradar
+[Holocron3D] live scraping enabled for info, radar, prox, status, and fleetradar
 [Holocron3D] bridge is ready: network-bridge
 [Holocron3D] Mudlet and the bridge are connected.
 [Holocron3D] WebSocket endpoint: ws://127.0.0.1:8787
@@ -146,6 +148,7 @@ commands may still be typed normally:
 
 ```text
 status
+info
 radar
 prox
 prox velocity

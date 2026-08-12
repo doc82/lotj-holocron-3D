@@ -5,7 +5,7 @@ local Scraper = {
   CAPTURE_TIMEOUT_SECONDS = 8,
   MAX_CAPTURE_LINES = 300,
   MAX_CAPTURE_BYTES = 256 * 1024,
-  POLL_COMMANDS = {"status", "radar", "prox", "prox velocity", "fleetradar"},
+  POLL_COMMANDS = {"status", "info", "radar", "prox", "prox velocity", "fleetradar"},
   POLL_COMMAND_GAP_SECONDS = 1,
   POLL_CYCLE_DELAY_SECONDS = 5,
   eventHandlerIds = {},
@@ -173,6 +173,9 @@ function Scraper.applyResult(result, sentCommand)
     replaceRadarEntities(result.entities or {})
   elseif source == "status" then
     applyStatus(result, sentCommand)
+  elseif source == "info" then
+    Scraper.state.observer.sensorArray = result.sensorArray
+    Scraper.state.observer.radarRange = result.radarRange
   else
     if result.observer then
       Scraper.state.observer.x = result.observer.x
@@ -226,6 +229,13 @@ local function clearCaptureHandles(capture)
   capture.timeoutTimerId = nil
 end
 
+local function captureRecordLines(capture)
+  if capture.parserCommand == "info" then
+    return {"[info output redacted; only Sensor Array is retained]"}
+  end
+  return copyTable(capture.lines)
+end
+
 local function abandonCapture(reason)
   local capture = Scraper.active
   if not capture then return end
@@ -234,7 +244,7 @@ local function abandonCapture(reason)
   Scraper.lastCapture = {
     command = capture.sentCommand,
     parserCommand = capture.parserCommand,
-    lines = copyTable(capture.lines),
+    lines = captureRecordLines(capture),
     reason = reason,
   }
   if capture.polled and scheduleNextPoll then
@@ -301,7 +311,7 @@ function Scraper.finishCapture(reason)
   Scraper.lastCapture = {
     command = capture.sentCommand,
     parserCommand = capture.parserCommand,
-    lines = copyTable(capture.lines),
+    lines = captureRecordLines(capture),
     reason = reason or "completed",
   }
 
@@ -406,6 +416,7 @@ end
 local function parserForCommand(command)
   local normalized = trim(command):lower():gsub("%s+", " ")
   if normalized == "radar" then return "radar" end
+  if normalized == "info" then return "info" end
   if normalized == "status" or normalized:match("^status .+") then return "status" end
   if normalized == "fleetradar" or normalized == "fleetradar targets" then
     return "fleetradar"
@@ -575,7 +586,7 @@ function Scraper.setup(proxy, options)
     end),
   }
   proxy.scraper = Scraper
-  diagnostic("info", "live scraping enabled for radar, prox, status, and fleetradar")
+  diagnostic("info", "live scraping enabled for info, radar, prox, status, and fleetradar")
   if not options or options.polling ~= false then
     local pollingOptions = options and options.polling or nil
     local pollingReady, pollingError = Scraper.startPolling(pollingOptions)
