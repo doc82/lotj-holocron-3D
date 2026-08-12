@@ -12,6 +12,8 @@ module.exports = {
     ],
     ignore: [
       /^\/(docs|mudlet|poc|relay|tests|tools)(\/|$)/,
+      /^\/renderer\/(src|index\.html|styles\.css)(\/|$)/,
+      /^\/(tsconfig\.json|vite\.renderer\.config\.ts)$/,
       /^\/\.electron-smoke-profile(\/|$)/,
       /^\/\.gocache(\/|$)/,
       /^\/\.pnpm-store(\/|$)/,
@@ -23,7 +25,7 @@ module.exports = {
     platforms: ["win32"],
     config: {
       name: "Holocron3D",
-      authors: "LotJ Holocron 3D contributors",
+      authors: "Veska",
       description: "A real-time 3D tactical renderer for Legends of the Jedi space telemetry.",
       exe: "Holocron3D.exe",
       setupExe: "Holocron3D-Setup.exe",

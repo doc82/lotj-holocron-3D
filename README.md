@@ -3,7 +3,8 @@
 LotJ Holocron 3D is a Windows desktop tactical renderer for space telemetry from
 [Legends of the Jedi](https://www.legendsofthejedi.com/). A Mudlet package polls
 the game's read-only ship and contact commands, normalizes their output, and
-streams snapshots through a native local relay to a sandboxed Electron renderer.
+streams snapshots through a native local relay to a sandboxed React renderer in
+Electron.
 
 ## Project status
 
@@ -15,7 +16,7 @@ LotJ
   -> Mudlet Holocron3D package
   -> authenticated native relay
   -> Electron main process
-  -> sandboxed WebGL renderer
+  -> sandboxed React + WebGL renderer
 ```
 
 End users do not need Node.js, Go, Java, or a repository checkout. Those tools
@@ -37,6 +38,8 @@ is not code-signed, so Windows SmartScreen may display a warning.
   space presentation.
 - Renders simple 3D contacts with an observer-locked Homeworld-style orbit camera.
 - Interpolates contact movement between telemetry ticks.
+- Opens with a cinematic gold-title and hyperspace transition into the tactical view.
+- Presents a dedicated captain-facing uplink standby display while Mudlet is disconnected.
 - Supports orbit, zoom, fit-to-system, hover details, and contact selection.
 - Replays the latest snapshot to newly connected local clients.
 - Packages the Mudlet integration and native relay inside the Windows installer.
@@ -90,6 +93,9 @@ Mudlet spawns `holocron-relay.exe` and exchanges newline-delimited JSON through
 stdin/stdout. The relay authenticates to Electron over loopback TCP before it can
 send telemetry or replace an existing Mudlet connection. Electron forwards
 validated snapshots to the renderer through a narrow preload API and typed IPC.
+React and TypeScript own application state and feature composition. An
+imperative WebGL engine owns the high-frequency render loop, interpolation,
+picking, and camera controls.
 
 Electron also exposes a compatibility WebSocket endpoint at
 `ws://127.0.0.1:8787` for local third-party clients. It is not used by the
@@ -150,6 +156,9 @@ sibling `AutoPilot` checkout.
 | --- | --- |
 | `pnpm test` | Run Node protocol, renderer, package, and archived POC tests. |
 | `pnpm check` | Syntax-check active code and archived POC JavaScript. |
+| `pnpm renderer:dev` | Run the Vite renderer alone with hot module replacement. |
+| `pnpm renderer:build` | Build the production renderer in `renderer/dist`. |
+| `pnpm renderer:typecheck` | Type-check the React renderer without emitting files. |
 | `pnpm relay:test` | Run Go relay tests. |
 | `pnpm relay:build` | Build `relay/bin/holocron-relay.exe`. |
 | `pnpm mudlet:package` | Build `out/mudlet/Holocron3D.mpackage`. |
@@ -180,7 +189,7 @@ Generated outputs are ignored by Git:
 | --- | --- |
 | `electron/` | Main process, preload API, authentication, and Windows bootstrap. |
 | `relay/` | Dependency-free Go relay and tests. |
-| `renderer/` | Dependency-free WebGL scene, camera, interpolation, and UI. |
+| `renderer/` | React features with co-located CSS Modules, typed telemetry domain, and the WebGL tactical engine. |
 | `mudlet/` | Authoritative Lua parser, proxy, scraper, and setup guide. |
 | `mudlet-package/` | AutoPilot-style Muddler package source. |
 | `tests/` | Active protocol, renderer, parser, scraper, and packaging tests. |
