@@ -212,24 +212,147 @@ If the desktop window is blank or fails to launch, inspect
 
 ## Development setup
 
-Windows release development currently requires:
+Holocron3D currently supports development and release builds on Windows x64.
+The clean-build baseline is Node.js 24.19.0, pnpm 11.19.0, Go 1.25.3, and JDK
+17. A second successful setup used JDK 21. The minimum versions imposed by the
+project are Node.js 22.12, Go 1.22, and Java 17.
 
-- a current Node.js installation;
-- [pnpm](https://pnpm.io/);
-- Go for the native relay;
-- Java plus [Muddler](https://github.com/demonnic/muddler) when building the
-  Mudlet package.
+### 1. Install the prerequisites
 
-Install JavaScript dependencies and run the application:
+Install the following tools and restart PowerShell so their `PATH` changes take
+effect:
+
+- [Git for Windows](https://git-scm.com/download/win);
+- [Node.js](https://nodejs.org/) 22.12 or newer;
+- [pnpm](https://pnpm.io/installation) 11.19;
+- [Go](https://go.dev/dl/) 1.22 or newer;
+- a Java 17 or 21 JDK;
+- [Muddler](https://github.com/demonnic/muddler) 1.1 when building the Mudlet
+  package or a Windows release.
+
+If pnpm is not already installed, enable the copy distributed through Corepack:
+
+```powershell
+corepack enable
+corepack prepare pnpm@11.19.0 --activate
+```
+
+If `corepack` is unavailable, install the same pnpm version with
+`npm.cmd install --global pnpm@11.19.0`. The `.cmd` form avoids a common Windows
+PowerShell execution-policy error involving `npm.ps1`.
+
+Verify the toolchain before installing dependencies:
+
+```powershell
+node --version
+pnpm --version
+go version
+java -version
+```
+
+### 2. Clone and install
+
+```powershell
+git clone https://github.com/doc82/lotj-holocron-3D.git
+Set-Location .\lotj-holocron-3D
+pnpm install --frozen-lockfile
+```
+
+pnpm is the repository's package manager. Do not run `npm install` or commit a
+`package-lock.json`; `pnpm-lock.yaml` is the authoritative dependency lockfile.
+
+### 3. Configure Muddler
+
+Download and extract a Muddler 1.1 distribution such as
+`muddle-shadow-1.1.0`. Set `MUDDLER_HOME` to that extracted directory—not its
+`bin` directory. The following file must exist:
 
 ```text
-pnpm install
+%MUDDLER_HOME%\bin\muddle.bat
+```
+
+Set the value for the current PowerShell session:
+
+```powershell
+$env:MUDDLER_HOME = "C:\tools\muddle-shadow-1.1.0"
+Test-Path -LiteralPath "$env:MUDDLER_HOME\bin\muddle.bat"
+```
+
+The final command must print `True`. To persist the value for future terminals,
+run this once and then open a new PowerShell window:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "MUDDLER_HOME",
+  "C:\tools\muddle-shadow-1.1.0",
+  "User"
+)
+```
+
+The build script also recognizes `..\AutoPilot\muddler` automatically when the
+AutoPilot repository is checked out directly beside this repository. It does
+not search Downloads or other arbitrary directories.
+
+Confirm that all build prerequisites work:
+
+```powershell
+pnpm check
+pnpm test
+pnpm relay:test
+pnpm mudlet:package
+```
+
+### 4. Run the development application
+
+```powershell
 pnpm electron:dev
 ```
 
-Build Muddler artifacts by setting `MUDDLER_HOME` to a Muddler distribution. For
-local compatibility, the build script also recognizes the bundled Muddler in a
-sibling `AutoPilot` checkout.
+This starts Vite and Electron together. Close the Electron window or press
+`Ctrl+C` in the terminal to stop both processes. To test live Mudlet telemetry,
+also run `pnpm relay:build`, import `out\mudlet\Holocron3D.mpackage` into Mudlet,
+and start the package with `h3d start`.
+
+### 5. Build Windows artifacts
+
+Close every running Holocron3D development or packaged window before building;
+Windows will otherwise keep files beneath `out\` locked.
+
+```powershell
+pnpm package
+pnpm make
+```
+
+`pnpm package` creates the unpacked application. `pnpm make` creates the Squirrel
+installer at `out\make\squirrel.windows\x64\Holocron3D-Setup.exe`.
+
+For a clean dependency reinstall, close Holocron3D and run:
+
+```powershell
+Remove-Item -LiteralPath .\node_modules -Recurse -Force
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm make
+```
+
+### Clean-setup troubleshooting
+
+Several independent prerequisite errors can appear during the same first build:
+
+| Symptom | Resolution |
+| --- | --- |
+| `go` is not recognized | Install Go 1.22 or newer, reopen PowerShell, and confirm `go version` works. |
+| `java` is not recognized or `muddle.bat` immediately exits | Install a Java 17 or 21 JDK, reopen PowerShell, and confirm `java -version` works. |
+| `Set MUDDLER_HOME to a Muddler distribution directory` | Point `MUDDLER_HOME` at the extracted distribution containing `bin\muddle.bat`; use the `Test-Path` check above. |
+| pnpm reports a blocked exotic Electron dependency | Confirm `pnpm --version` reports 11.19.x, remove `node_modules`, and rerun `pnpm install --frozen-lockfile`. The committed lockfile passes the supported pnpm policy; do not disable the policy project-wide as a first step. |
+| Forge reports missing or mismatched Electron fuses | Run `pnpm list electron @electron/fuses @electron-forge/plugin-fuses --depth 0`. The verified set is Electron 43.4.0, `@electron/fuses` 2.1.3, and Forge plugin 7.11.2. Restore it with a clean frozen-lockfile install before changing fuse enforcement. |
+| Files beneath `out\` are locked | Close all running Holocron3D windows and rerun the build. |
+
+If a clean install still fails, include the four version commands from Step 1,
+the exact `pnpm install --frozen-lockfile` error, and the output of the dependency
+list command above when reporting the problem. Avoid adding an npm lockfile or
+changing security policy until that environment information has been captured.
 
 ### Development commands
 
