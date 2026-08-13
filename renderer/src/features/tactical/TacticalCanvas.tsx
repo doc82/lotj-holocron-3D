@@ -1,24 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { formatCoordinate } from "../../domain/scene";
+import { RangeMeter } from "../telemetry/RangeMeter";
 import type { CombatEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
 import { TacticalEngine, type ClusterLabel, type CourseLabel, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
-
-function HealthBar({ label, reading }: { label: string; reading?: { current?: number; maximum?: number } }) {
-  const known = Number.isFinite(reading?.current) && Number.isFinite(reading?.maximum) && Number(reading?.maximum) > 0;
-  const percent = known ? Math.max(0, Math.min(100, Number(reading?.current) / Number(reading?.maximum) * 100)) : 0;
-  return (
-    <div className={styles.health} title={known
-      ? `${label}: ${formatCoordinate(reading?.current)} / ${formatCoordinate(reading?.maximum)}`
-      : `${label}: Unknown`}>
-      <span>{label}</span>
-      <div className={`${styles.healthTrack} ${known ? "" : styles.unknown}`}>
-        {known ? <i style={{ width: `${percent}%` }} /> : <b>UNKNOWN // ?</b>}
-      </div>
-    </div>
-  );
-}
 
 export interface TacticalCanvasHandle {
   fitSystem(): void;
@@ -140,8 +126,8 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             <span>DIST {formatCoordinate(tooltip.distance)} u</span>
             <span>XYZ {tooltip.worldPosition.map(formatCoordinate).join(" / ")}</span>
             {!tooltip.memberCount && <>
-              <HealthBar label="SHIELD" reading={tooltip.shields} />
-              <HealthBar label="HULL" reading={tooltip.hull} />
+              <RangeMeter label="SHIELD" reading={tooltip.shields} tone="shield" />
+              <RangeMeter label="HULL" reading={tooltip.hull} />
             </>}
           </div>
         )}

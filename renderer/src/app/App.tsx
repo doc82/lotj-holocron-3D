@@ -6,6 +6,7 @@ import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
 import { UplinkNotice } from "../features/connection/UplinkNotice";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
+import { RangeMeter, type RangeReading } from "../features/telemetry/RangeMeter";
 import { useTelemetry } from "../features/telemetry/useTelemetry";
 import { WeaponsPanel } from "../features/weapons/WeaponsPanel";
 import styles from "./App.module.css";
@@ -27,29 +28,23 @@ function speedLabel(speed: ScenePoint["speed"]): string {
 
 function detailRows(point: ScenePoint): Array<[string, string]> {
   const worldCoordinates = point.worldPosition.map(formatCoordinate).join(" / ");
-  const rows: Array<[string, string]> = [["TYPE", point.kind || "unknown"]];
-  if (point.shipCategory) rows.push(["SHIP CLASS", String(point.shipCategory).toUpperCase()]);
+  const rows: Array<[string, string]> = [];
   if (point.id === "player-ship") {
     rows.push(["WORLD XYZ", worldCoordinates], ["CAMERA FOCUS", "LOCKED"]);
   } else {
-    rows.push(
-      ["SYSTEM XYZ", worldCoordinates],
-      ["RELATIVE XYZ", point.position3d.map(formatCoordinate).join(" / ")],
-    );
+    rows.push(["SYSTEM XYZ", worldCoordinates]);
   }
   if (point.distance !== undefined) rows.push(["PROXIMITY", formatCoordinate(point.distance)]);
-  if (point.speed !== undefined) rows.push(["VELOCITY", speedLabel(point.speed)]);
+  if (point.speed !== undefined && typeof point.speed !== "object") {
+    rows.push(["VELOCITY", speedLabel(point.speed)]);
+  }
   if (point.heading && typeof point.heading === "object") {
     rows.push(["HEADING", [point.heading.x, point.heading.y, point.heading.z].map(formatCoordinate).join(" / ")]);
   }
   if (point.position) rows.push(["FORMATION", point.position]);
   if (point.condition) rows.push(["CONDITION", String(point.condition)]);
-  for (const [label, key] of [["HULL", "hull"], ["SHIELDS", "shields"], ["ENERGY", "energy"]] as const) {
-    const reading = point[key];
-    if (typeof reading === "object" && reading) {
-      const value = reading as { current?: number; maximum?: number };
-      rows.push([label, `${formatCoordinate(value.current)} / ${formatCoordinate(value.maximum)}`]);
-    }
+  if (point.energy !== undefined && typeof point.energy !== "object") {
+    rows.push(["ENERGY", formatCoordinate(point.energy)]);
   }
   if (point.target) rows.push(["TARGET", String(point.target)]);
   if (point.lifeforms) rows.push(["LIFEFORMS", String(point.lifeforms)]);
@@ -828,10 +823,19 @@ export function App() {
             </section>
 
             <section className={`${styles.selectedVessel} ${selected ? "" : styles.playerVessel}`} aria-label="Selected vessel telemetry">
-              <p className={styles.eyebrow}>{selected ? "SELECTED CONTACT" : "PLAYER SHIP"}</p>
+              {selected && <p className={styles.eyebrow}>SELECTED CONTACT</p>}
               <div className={styles.vesselHeading}>
                 <div><h2>{displayedSelection.name}</h2><p className={styles.muted}>{displayedSelection.class || displayedSelection.kind || "Unknown contact"}</p></div>
-                <span>{selected ? displayedSelection.shipCategory?.toUpperCase() || "UNCLASSIFIED" : "YOUR SHIP"}</span>
+                <div className={styles.vesselTags}>
+                  <span>{displayedSelection.shipCategory?.toUpperCase() || "UNCLASSIFIED"}</span>
+                  {!selected && <span className={styles.ownershipTag}>YOUR SHIP</span>}
+                </div>
+              </div>
+              <div className={styles.vesselRanges}>
+                <RangeMeter label="HULL" reading={displayedSelection.hull as RangeReading | undefined} />
+                <RangeMeter label="SHIELD" reading={displayedSelection.shields as RangeReading | undefined} tone="shield" />
+                <RangeMeter label="SPEED" reading={typeof displayedSelection.speed === "object" ? displayedSelection.speed as RangeReading : undefined} tone="speed" />
+                <RangeMeter label="ENERGY" reading={displayedSelection.energy as RangeReading | undefined} tone="energy" />
               </div>
               <dl className={`${styles.readouts} ${styles.compactReadouts}`}>
                 {detailRows(displayedSelection).slice(0, 8).map(([label, value]) => (
