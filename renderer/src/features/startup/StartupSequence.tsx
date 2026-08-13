@@ -17,8 +17,8 @@ interface Star {
 export function StartupSequence({ onComplete }: StartupSequenceProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<
-    "intro" | "jumping" | "dissolving" | "departing" | "skipping"
-  >("intro");
+    "lotj" | "lotjDeparting" | "intro" | "jumping" | "departing" | "skipping"
+  >("lotj");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -136,16 +136,19 @@ export function StartupSequence({ onComplete }: StartupSequenceProps) {
     window.addEventListener("keydown", skip);
     animationFrame = requestAnimationFrame(draw);
     if (reducedMotion) {
-      schedule(() => setPhase("departing"), 420);
-      schedule(complete, 560);
+      schedule(() => setPhase("lotjDeparting"), 600);
+      schedule(() => setPhase("intro"), 720);
+      schedule(() => setPhase("departing"), 1_140);
+      schedule(complete, 1_280);
     } else {
+      schedule(() => setPhase("lotjDeparting"), 4_000);
+      schedule(() => setPhase("intro"), 4_550);
       schedule(() => {
         jumpStartedAt = performance.now();
         setPhase("jumping");
-      }, 1900);
-      schedule(() => setPhase("dissolving"), 2750);
-      schedule(() => setPhase("departing"), 3850);
-      schedule(complete, 4480);
+      }, 8_450);
+      schedule(() => setPhase("departing"), 9_750);
+      schedule(complete, 10_450);
     }
 
     return () => {
@@ -158,17 +161,23 @@ export function StartupSequence({ onComplete }: StartupSequenceProps) {
   }, [onComplete]);
 
   return (
-    <section className={`${styles.sequence} ${styles[phase]}`} aria-label="Holocron3D startup sequence">
+    <section className={`${styles.sequence} ${styles[phase]}`} aria-label="LotJ and Holocron3D startup sequence">
       <canvas ref={canvasRef} className={styles.hyperspace} aria-hidden="true" />
       <div className={styles.vignette} aria-hidden="true" />
-      <div className={styles.titleStage}>
-        <p className={styles.kicker}>LOTJ TACTICAL SYSTEMS</p>
-        <h1 className={styles.title} data-text="Holocron3D" aria-label="Holocron3D">
-          <span className={styles.word}>Holocron</span><span className={styles.threeD}>3D</span>
-        </h1>
-        <div className={styles.rule} aria-hidden="true" />
-        <p className={styles.status}>NAVIGATION CORE INITIALIZING</p>
-      </div>
+      {(phase === "lotj" || phase === "lotjDeparting") ? (
+        <div className={styles.lotjStage}>
+          <p className={styles.lotjIntro}>A long time ago in a galaxy far, far away....</p>
+          <h1 className={styles.lotjTitle}>Legends of<br />the Jedi</h1>
+          <p className={styles.lotjSubtitle}>The Galaxy Awaits</p>
+        </div>
+      ) : (
+        <div className={styles.titleStage}>
+          <h1 className={styles.title} aria-label="Holocron3D">
+            <span className={styles.word}>Holocron</span><span className={styles.threeD}>3D</span>
+          </h1>
+          <p className={styles.veska}>Crafted by Veska</p>
+        </div>
+      )}
     </section>
   );
 }

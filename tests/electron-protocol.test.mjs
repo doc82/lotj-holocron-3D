@@ -23,15 +23,17 @@ test("Electron telemetry host preserves the Mudlet protocol contract", () => {
     shutdown: () => { stopped = true; },
   });
 
-  host.setWebsocketUrl("ws://127.0.0.1:8787");
+  // The primary authenticated Mudlet pipe must become ready even when the
+  // optional third-party WebSocket endpoint could not bind.
   host.handleMudletMessage({ v: 1, type: "hello", source: "test" });
   assert.deepEqual(written[0], {
     v: 1,
     type: "ready",
     bridge: "electron-host",
-    websocketUrl: "ws://127.0.0.1:8787",
     renderer: "electron",
   });
+  host.setWebsocketUrl("ws://127.0.0.1:8787");
+  assert.equal(host.initialState().websocketUrl, "ws://127.0.0.1:8787");
 
   const snapshot = {
     v: 1,

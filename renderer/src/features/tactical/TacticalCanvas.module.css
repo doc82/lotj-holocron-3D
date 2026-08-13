@@ -9,6 +9,83 @@
   cursor: grabbing;
 }
 
+.playerShipLabel {
+  position: absolute;
+  top: calc(50% + 30px);
+  left: 50%;
+  z-index: 3;
+  padding: 3px 6px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(128, 241, 255, 0.38);
+  color: #dffcff;
+  background: rgba(2, 16, 28, 0.7);
+  box-shadow: 0 0 11px rgba(76, 221, 255, 0.16);
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 0 7px rgba(125, 239, 255, 0.7);
+  font: 800 8px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.12em;
+}
+
+.playerShipLabel::before {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(123, 235, 255, 0.48);
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(76, 221, 255, 0.2), inset 0 0 8px rgba(76, 221, 255, 0.12);
+  content: "";
+}
+
+.playerShipLabel span {
+  color: #6db8c4;
+}
+
+.fidelity {
+  position: absolute;
+  right: 22px;
+  bottom: 286px;
+  z-index: 3;
+  padding: 4px 7px;
+  border: 1px solid rgba(73, 183, 231, 0.22);
+  color: rgba(123, 211, 242, 0.72);
+  background: rgba(2, 12, 24, 0.72);
+  pointer-events: none;
+  font: 700 8px/1 ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.15em;
+}
+
+.courseLabel {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  gap: 9px;
+  padding: 4px 7px;
+  transform: translate(-50%, calc(-100% - 12px));
+  border: 1px solid rgba(75, 200, 255, 0.48);
+  color: #dff8ff;
+  background: rgba(2, 14, 27, 0.84);
+  box-shadow: 0 0 12px rgba(32, 163, 255, 0.2);
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 0 7px rgba(84, 209, 255, 0.78);
+  font: 700 9px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.08em;
+}
+
+.courseLabel::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: 12px;
+  background: rgba(75, 200, 255, 0.62);
+  content: "";
+}
+
 .tooltip {
   position: absolute;
   z-index: 5;
@@ -18,6 +95,55 @@
   background: rgba(2, 8, 16, 0.9);
   pointer-events: none;
   font: 11px ui-monospace, "Cascadia Mono", monospace;
+}
+
+.tooltip > strong,
+.tooltip > span {
+  display: block;
+}
+
+.tooltip > span {
+  margin-top: 4px;
+  color: #7ea8b1;
+  font-size: 9px;
+}
+
+.health {
+  display: grid;
+  grid-template-columns: 44px 118px;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  color: #7ea8b1;
+  font-size: 8px;
+}
+
+.healthTrack {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(101, 218, 239, 0.28);
+  background: rgba(9, 27, 35, 0.9);
+}
+
+.healthTrack i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ed4356, #efca4c 45%, #4ee6a0 78%);
+}
+
+.healthTrack.unknown {
+  border-color: rgba(162, 178, 184, 0.25);
+  background: repeating-linear-gradient(135deg, #252b2f 0 4px, #30383d 4px 8px);
+}
+
+.healthTrack b {
+  position: absolute;
+  inset: 0;
+  color: #b4c0c4;
+  text-align: center;
+  font: 700 6px/7px ui-monospace, monospace;
+  letter-spacing: 0.08em;
 }
 
 .clusterCount {

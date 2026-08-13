@@ -90,7 +90,10 @@ function Package.status()
     and lotjHolocron3D.scraper.getPollingState()
   say(connected and "green" or "yellow", connected and "bridge connected" or "bridge stopped")
   if polling then
-    say("cyan", polling.enabled and "telemetry polling enabled" or "telemetry polling disabled")
+    local pollingMessage = not polling.enabled and "telemetry polling disabled"
+      or polling.active and "telemetry polling active"
+      or "telemetry polling armed; waiting for confirmed space activity"
+    say("cyan", pollingMessage)
   end
 end
 

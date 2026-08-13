@@ -3,6 +3,7 @@ import type { Color3, SystemSnapshot, TelemetryEntity, Vector3 } from "../types/
 const TAU = Math.PI * 2;
 export const BASE_SENSOR_RANGE = 500;
 export const SENSOR_RANGE_PER_ARRAY = 10;
+export const DEFAULT_PIXELS_PER_DISTANCE_UNIT = 10;
 
 export interface ScenePoint extends TelemetryEntity {
   name: string;
@@ -13,6 +14,9 @@ export interface ScenePoint extends TelemetryEntity {
   pointSize: number;
   members?: ScenePoint[];
   memberCount?: number;
+  memberSummary?: string;
+  markerShape: number;
+  shipSize?: number;
 }
 
 export interface TacticalScene {
@@ -34,17 +38,62 @@ function finite(value: unknown, fallback = 0): number {
 }
 
 export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position">): Color3 {
-  if (entity.id === "player-ship") return [1, 0.86, 0.34];
+  if (entity.id === "player-ship") return [0.5, 0.96, 1];
   if (["celestial", "planet", "star"].includes(entity.kind ?? "")) return [0.66, 0.5, 1];
+  if (entity.kind === "ship") {
+    const disposition = (entity as TelemetryEntity).disposition;
+    if (disposition === "enemy") return [1, 0.16, 0.2];
+    if (disposition === "ally") return [0.16, 0.58, 1];
+    return [1, 0.76, 0.12];
+  }
   if (entity.position === "Ctr") return [0.29, 0.91, 1];
   if (entity.position === "Mid") return [0.25, 0.72, 1];
   if (entity.position === "Out") return [0.22, 0.55, 0.88];
   return [0.36, 0.82, 0.96];
 }
 
+export function summarizeContacts(members: Array<Pick<ScenePoint, "kind">>): string {
+  const counts = { ships: 0, planets: 0, stars: 0, contacts: 0 };
+  for (const member of members) {
+    if (member.kind === "ship") counts.ships += 1;
+    else if (member.kind === "star") counts.stars += 1;
+    else if (["planet", "celestial"].includes(member.kind)) counts.planets += 1;
+    else counts.contacts += 1;
+  }
+  const label = (count: number, singular: string): string => `${count} ${singular}${count === 1 ? "" : "S"}`;
+  return [
+    counts.ships ? label(counts.ships, "SHIP") : "",
+    counts.planets ? label(counts.planets, "PLANET") : "",
+    counts.stars ? label(counts.stars, "STAR") : "",
+    counts.contacts ? label(counts.contacts, "CONTACT") : "",
+  ].filter(Boolean).join(", ");
+}
+
+const SHIP_CLASSES: Record<string, { hangarSize: number; markerPixels: number; shape: number }> = {
+  vehicle: { hangarSize: 1, markerPixels: 1, shape: 1 },
+  starfighter: { hangarSize: 2, markerPixels: 1, shape: 2 },
+  transport: { hangarSize: 5, markerPixels: 3, shape: 3 },
+  freighter: { hangarSize: 15, markerPixels: 4, shape: 4 },
+  gunboat: { hangarSize: 20, markerPixels: 5, shape: 5 },
+  corvette: { hangarSize: 30, markerPixels: 6, shape: 6 },
+  frigate: { hangarSize: 35, markerPixels: 7, shape: 7 },
+  cruiser: { hangarSize: 50, markerPixels: 8, shape: 8 },
+  battleship: { hangarSize: 65, markerPixels: 9, shape: 9 },
+  battlestation: { hangarSize: 100, markerPixels: 10, shape: 10 },
+  platform: { hangarSize: 200, markerPixels: 11, shape: 11 },
+};
+
+function shipVisual(category: unknown): { size?: number; shape: number; pixels: number } {
+  const normalized = String(category || "").toLowerCase();
+  const shipClass = SHIP_CLASSES[normalized];
+  if (!shipClass) return { shape: 0, pixels: 5 };
+  return { size: shipClass.hangarSize, shape: shipClass.shape, pixels: shipClass.markerPixels };
+}
+
 export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
   const observer = snapshot?.observer ?? { id: "player-ship" };
   const origin: Vector3 = [finite(observer.x), finite(observer.y), finite(observer.z)];
+  const observerVisual = shipVisual(observer.shipCategory);
   const observerPoint: ScenePoint = {
     ...observer,
     id: "player-ship",
@@ -53,7 +102,9 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
     position3d: [0, 0, 0],
     worldPosition: [...origin],
     color: colorFor({ id: "player-ship" }),
-    pointSize: 15,
+    pointSize: observerVisual.pixels,
+    markerShape: observerVisual.shape,
+    shipSize: observerVisual.size,
   };
 
   const contacts: ScenePoint[] = [];
@@ -64,6 +115,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       finite(entity.y) - origin[1],
       finite(entity.z) - origin[2],
     ];
+    const visual = shipVisual(entity.shipCategory);
     contacts.push({
       ...entity,
       name: entity.name || entity.id,
@@ -71,22 +123,23 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       position3d,
       worldPosition: [finite(entity.x), finite(entity.y), finite(entity.z)],
       color: colorFor(entity),
-      pointSize: entity.kind === "celestial" ? 13 : 10,
+      pointSize: ["celestial", "planet", "star"].includes(entity.kind || "") ? 13 : visual.pixels,
+      markerShape: entity.kind === "ship" ? visual.shape : 0,
+      shipSize: visual.size,
     });
   }
 
-  const colocatedShips = new Map<string, ScenePoint[]>();
+  const colocatedContacts = new Map<string, ScenePoint[]>();
   for (const contact of contacts) {
-    if (contact.kind !== "ship") continue;
     const key = contact.worldPosition.join(":");
-    const members = colocatedShips.get(key) ?? [];
+    const members = colocatedContacts.get(key) ?? [];
     members.push(contact);
-    colocatedShips.set(key, members);
+    colocatedContacts.set(key, members);
   }
 
   const clusters = new Map<string, ScenePoint>();
-  for (const [coordinateKey, unsortedMembers] of colocatedShips) {
-    if (unsortedMembers.length === 1) continue;
+  for (const [coordinateKey, unsortedMembers] of colocatedContacts) {
+    if (unsortedMembers.length === 1 || !unsortedMembers.some((member) => member.kind === "ship")) continue;
     const members = [...unsortedMembers].sort((left, right) => left.name.localeCompare(
       right.name,
       undefined,
@@ -95,7 +148,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
     const representative = unsortedMembers[0];
     clusters.set(coordinateKey, {
       id: `cluster:${coordinateKey}`,
-      name: `${members.length} ships`,
+      name: `${members.length} contacts`,
       kind: "cluster",
       x: representative.x,
       y: representative.y,
@@ -106,16 +159,14 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       pointSize: Math.min(34, 13 + Math.sqrt(members.length) * 4.5),
       members,
       memberCount: members.length,
+      memberSummary: summarizeContacts(members),
+      markerShape: 0,
     });
   }
 
   const renderedContacts: ScenePoint[] = [];
   const emittedClusters = new Set<string>();
   for (const contact of contacts) {
-    if (contact.kind !== "ship") {
-      renderedContacts.push(contact);
-      continue;
-    }
     const coordinateKey = contact.worldPosition.join(":");
     const cluster = clusters.get(coordinateKey);
     if (!cluster) {
@@ -218,6 +269,28 @@ export function sensorRangeFor(observer: SystemSnapshot["observer"]): number {
     : BASE_SENSOR_RANGE;
 }
 
+export function pointerToXZVector(
+  deltaX: number,
+  deltaY: number,
+  unitsPerPixel: number,
+  yaw: number,
+  pitch: number,
+): Vector3 {
+  const right: Vector3 = [Math.cos(yaw), 0, -Math.sin(yaw)];
+  const screenDown: Vector3 = [Math.sin(yaw), 0, Math.cos(yaw)];
+  const pitchProjection = Math.sin(pitch);
+  const safePitchProjection = Math.abs(pitchProjection) < 0.08
+    ? (pitchProjection < 0 ? -0.08 : 0.08)
+    : pitchProjection;
+  const horizontalUnits = deltaX * unitsPerPixel;
+  const depthUnits = deltaY * unitsPerPixel / safePitchProjection;
+  return [
+    right[0] * horizontalUnits + screenDown[0] * depthUnits,
+    0,
+    right[2] * horizontalUnits + screenDown[2] * depthUnits,
+  ];
+}
+
 export class OrbitCamera {
   yaw = -0.72;
   pitch = 0.48;
@@ -234,14 +307,24 @@ export class OrbitCamera {
   }
 
   zoom(delta: number): void {
-    this.targetDistance = clamp(this.targetDistance * Math.exp(delta * 0.0012), this.minimumDistance, this.maximumDistance);
+    this.targetDistance = clamp(this.targetDistance * Math.exp(delta * 0.0035), this.minimumDistance, this.maximumDistance);
   }
 
   fit(radius: number, immediate = false): void {
     const safeRadius = Math.max(10, finite(radius, 10));
-    this.minimumDistance = Math.max(2, safeRadius * 0.025);
+    this.minimumDistance = Math.max(1, safeRadius * 0.0025);
     this.maximumDistance = Math.max(2_000, safeRadius * 50);
-    this.targetDistance = clamp(safeRadius * 2.25, this.minimumDistance, this.maximumDistance);
+    this.targetDistance = clamp(safeRadius * 1.12, this.minimumDistance, this.maximumDistance);
+    if (immediate) this.distance = this.targetDistance;
+  }
+
+  setPixelScale(viewportHeight: number, pixelsPerUnit: number, immediate = false): void {
+    const safePixelsPerUnit = Math.max(0.01, finite(pixelsPerUnit, 1));
+    this.targetDistance = clamp(
+      Math.max(1, finite(viewportHeight, 1)) / (2 * safePixelsPerUnit),
+      this.minimumDistance,
+      this.maximumDistance,
+    );
     if (immediate) this.distance = this.targetDistance;
   }
 
@@ -264,9 +347,9 @@ export class OrbitCamera {
       || Math.abs(this.targetDistance - this.distance) > distanceTolerance;
   }
 
-  eye(): Vector3 {
-    const horizontal = Math.cos(this.pitch) * this.distance;
-    return [Math.sin(this.yaw) * horizontal, Math.sin(this.pitch) * this.distance, Math.cos(this.yaw) * horizontal];
+  eye(distance = this.distance): Vector3 {
+    const horizontal = Math.cos(this.pitch) * distance;
+    return [Math.sin(this.yaw) * horizontal, Math.sin(this.pitch) * distance, Math.cos(this.yaw) * horizontal];
   }
 }
 
@@ -274,6 +357,25 @@ export function perspective(fieldOfView: number, aspect: number, near: number, f
   const f = 1 / Math.tan(fieldOfView / 2);
   const range = 1 / (near - far);
   return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * range, -1, 0, 0, 2 * far * near * range, 0]);
+}
+
+export function orthographic(
+  left: number,
+  right: number,
+  bottom: number,
+  top: number,
+  near: number,
+  far: number,
+): Float32Array<ArrayBuffer> {
+  return new Float32Array([
+    2 / (right - left), 0, 0, 0,
+    0, 2 / (top - bottom), 0, 0,
+    0, 0, -2 / (far - near), 0,
+    -(right + left) / (right - left),
+    -(top + bottom) / (top - bottom),
+    -(far + near) / (far - near),
+    1,
+  ]);
 }
 
 function normalize(vector: Vector3): Vector3 {

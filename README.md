@@ -29,6 +29,8 @@ is not code-signed, so Windows SmartScreen may display a warning.
 
 - Parses live `info`, `radar`, `prox`, `prox velocity`, `status`, and `fleetradar` output.
 - Polls those commands sequentially while suppressing automated command output.
+- Probes with one hidden `radar` after startup and Mudlet connection; recurring
+  ship scraping starts only when that response confirms the player is in space.
 - Preserves manually entered command output for normal Mudlet use.
 - Tracks the player ship separately from radar contacts and updates its position,
   heading, speed, hull, shields, energy, class, and condition when available.
@@ -36,20 +38,65 @@ is not code-signed, so Windows SmartScreen may display a warning.
   metadata into authoritative snapshots.
 - Detects launch and landing state, pauses polling while landed, and clears stale
   space presentation.
-- Renders simple 3D contacts with an observer-locked Homeworld-style orbit camera.
+- Renders procedural low-poly 3D hulls with an observer-locked Homeworld-style
+  orbit camera. Each LotJ ship class has a distinct generated model, and known
+  heading vectors orient those models in three dimensions.
 - Derives remote `status`/`info` scan range as `500 + (10 × Sensor Array)` and
   renders it as a toggleable blue sensor bubble instead of an infinite floor grid.
 - Provides an optional three-plane coordinate grid centered on the system's true
   `0 / 0 / 0`. It extends at least 3,000 units along every positive and negative
   axis, then expands with coarser spacing for strategic-scale coordinates.
-- Collapses ships at identical coordinates into a larger numbered marker. Clicking
-  it opens a member grid; hovering previews a ship and clicking pins its details.
-- Retains only the safe Sensor Array value from `info`; private ship access codes
-  are excluded from snapshots and capture diagnostics.
+- Collapses contacts at identical coordinates into a larger numbered marker,
+  including planets colocated with orbiting ships. Clicking it opens a member grid;
+  hovering previews a contact and clicking pins its details.
+- Scans in-range ships with targeted `status` and `info` requests. Enemy status is
+  prioritized every four seconds by default; other status and safe identity info
+  refresh every ten seconds, subject to Mudlet's serialized command queue.
+- Provides `SCAN` and `INFO` controls for a selected ship so the player can
+  immediately refresh its parsed telemetry without waiting for the automatic
+  scan queue. Manual scans preempt only hidden polling and report range failures
+  in the command panel.
+- Switches the command bank to the selected ship's context, with `SCAN`, `INFO`,
+  course-to, course-away, and aggressive `TARGET` actions. Target orders are
+  resolved safely inside Mudlet and persistently mark the selected ship as enemy.
+- Provides an authoritative autotrack switch. Combat targeting defaults to
+  requesting autotrack, and the UI changes state only after LotJ returns
+  `Autotracking on.` or `Autotracking off.`; an opposite toggle response is
+  corrected once automatically.
+- Uses icon-first command controls with keyboard-accessible hover/focus labels,
+  including the radar, origin-grid, and sector-view controls.
+- Restores the player-ship command context when empty space, the observer, or an
+  already-selected contact is clicked. A cyan-white center reticle and persistent
+  `YOUR SHIP` label distinguish the observer from neutral yellow contacts.
+- Persists neutral, friendly, and enemy ship dispositions by ship name. Neutral
+  markers are yellow, friendly markers blue, and enemies red.
+- Uses strategic zoom inspired by large-scale space RTS games. Distant hulls
+  collapse into compact glowing disposition-colored contacts; scrolling inward
+  cross-fades them back into shaded 3D models.
+- Uses a Homeworld-inspired command deck: selected-contact commands on the left,
+  selected vessel telemetry in the center, and a fleet/battle-group bank on the
+  right. Player speed controls live with the left-side ship commands so the
+  right panel remains dedicated to the future battlegroup or squadron roster.
+- Provides player-ship navigation orders from the command deck. `M` opens a
+  Homeworld-style course vector: pointer movement chooses X/Z, holding Shift
+  adjusts Y, and a blue arrow previews the continuing heading. Selected ships
+  and planets can also be used for direct `course` or confirmed `course away`
+  orders. The speed dial initializes from the ship's current velocity and sends
+  a separate `speed` order when released or when a preset is selected. Rejected
+  maneuver orders flash in the command panel, including LotJ's active-maneuver
+  cooldown response. Course controls unlock from LotJ's authoritative
+  `Maneuver complete.` output, with a safety timeout preventing a stranded UI.
+- Hover cards show distance, world coordinates, and shield/hull bars. Missing
+  health information is explicitly rendered as a gray `UNKNOWN // ?` state.
+- Retains only safe capability fields from `info`, including sensors, maximum
+  speed, and weapon counts; private ship access codes are excluded from
+  snapshots and capture diagnostics. Confirmed unarmed player ships cannot issue
+  target orders, and the disabled target icon explains why on hover.
 - Interpolates contact movement between telemetry ticks.
 - Opens with a cinematic gold-title and hyperspace transition into the tactical view.
 - Presents a dedicated captain-facing uplink standby display while Mudlet is disconnected.
-- Supports orbit, zoom, fit-to-system, hover details, and contact selection.
+- Supports orbit, continuous strategic zoom, one-click sector view, hover
+  details, and contact selection.
 - Replays the latest snapshot to newly connected local clients.
 - Packages the Mudlet integration and native relay inside the Windows installer.
 
@@ -88,24 +135,37 @@ preserved under `poc/` solely for regression work.
 | Input | Action |
 | --- | --- |
 | Drag | Orbit around the player ship. |
+| Middle-mouse drag while plotting | Temporarily orbit the camera; release to resume course-vector adjustment. |
 | Mouse wheel | Zoom. |
+| `M` | Begin a relative player-ship course vector. |
+| Pointer while moving | Adjust the course on the X/Z plane. |
+| `Shift` + pointer | Adjust course elevation on the Y axis. |
+| Left click / `Enter` | Stage and confirm a course order. |
+| Right click / `Escape` | Cancel the current course order. |
 | Click a contact | Select and inspect it. |
-| `F` | Fit the observed system. |
+| `F` | Jump to strategic sector view. |
 | `R` | Reset the camera. |
-| `RADAR ON/OFF` | Show or hide the player ship's sensor-range bubble. |
-| `ORIGIN GRID ON/OFF` | Show or hide the true world-origin coordinate planes. |
+| Radar icon (top center) | Show or hide the player ship's sensor-range bubble. |
+| Grid icon (top center) | Show or hide the true world-origin coordinate planes without changing zoom. |
+| Sector icon (top center) | Fit the observed sector and switch to glowing strategic contacts. |
 
 The player ship remains the camera focus and visual origin; entity positions are
 rendered relative to its current world coordinates.
 
 ### Coordinate scale
 
-One LotJ coordinate unit maps to one renderer world unit. There is no constant
-pixels-per-unit ratio because perspective projection changes apparent size with
-camera distance, field of view, viewport size, and depth. Camera fitting and zoom
-provide the screen-space scale, allowing the same scene to cover fighter combat
-inside 1,000 units, fleet engagements around 2,000 units, and strategic movement
-at 50,000 units or more without changing telemetry coordinates.
+The initial orthographic view fits the known tactical scene so distant contacts
+do not begin off-screen. At sector scale, ships and landmarks render as compact
+glowing contacts. Scrolling inward smoothly resolves ship contacts into shaded,
+heading-oriented procedural models; full model detail is reached above roughly
+2.25 screen pixels per LotJ unit. Zooming can reach and exceed the experimental
+10-screen-pixels-per-LotJ-unit reference scale. `SECTOR VIEW` (or `F`) restores
+the strategic overview without changing telemetry coordinates.
+
+The origin grid always extends at least 3,000 LotJ units in every positive and
+negative direction. At the 10 px/unit reference scale, that is a 60,000 px span
+from `-3,000` to `+3,000` on each plane. Enabling the grid preserves the current
+camera scale; use `SECTOR VIEW` only when you explicitly want the entire grid framed.
 
 ## Runtime architecture
 
@@ -119,7 +179,8 @@ picking, and camera controls.
 
 Electron also exposes a compatibility WebSocket endpoint at
 `ws://127.0.0.1:8787` for local third-party clients. It is not used by the
-internal renderer.
+internal renderer, and failure to bind that optional endpoint does not block the
+authenticated Mudlet-to-Electron connection.
 
 Security boundaries include:
 
