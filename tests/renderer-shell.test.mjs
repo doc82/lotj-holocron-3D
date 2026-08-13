@@ -131,7 +131,8 @@ test("contacts expose persistent disposition controls, shaped markers, and rich 
   ]);
   assert.match(app, /holocron3d\.ship-dispositions\.v1/);
   assert.match(app, /set_ship_disposition/);
-  assert.match(app, /TODO\(Veska\).*targeting the observer/);
+  assert.match(app, /entity\.disposition === "enemy"/);
+  assert.match(app, /hostileNames/);
   assert.match(engine, /a_shape/);
   assert.match(engine, /a_heading/);
   assert.match(engine, /headingPosition/);
@@ -297,6 +298,10 @@ test("selected ships can be manually scanned without waiting for the poller", as
   assert.match(scraper, /registerIntentHandler\("target_ship"/);
   assert.match(scraper, /pendingCommandKind == "target"/);
   assert.match(scraper, /tempTrigger\("Target Locked\."/);
+  assert.match(scraper, /You are being targeted by/);
+  assert.match(scraper, /handleIncomingTargeting/);
+  assert.match(app, /entity\.disposition === "enemy"/);
+  assert.match(app, /localStorage\.setItem\(DISPOSITION_STORAGE_KEY/);
   assert.match(scraper, /Your concentration is broken\. You fail to lock on to your target\./);
   assert.match(scraper, /denyCurrentSend/);
   assert.match(scraper, /target locked but autotrack could not be enabled/);

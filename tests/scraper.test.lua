@@ -101,7 +101,7 @@ end
 
 assert(scraper.setup(proxy))
 assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 8,
+assert(#scraper.stateTriggerIds == 9,
   "expected space, maneuver, targeting, and autotrack response triggers")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
@@ -314,6 +314,20 @@ assert(intentAcks[#intentAcks].id == "target-test-2"
   "concentration failure should reject and release the target intent")
 assert(scraper.getPollingState().timerId,
   "polling should resume after targeting definitively fails")
+
+local incomingTargetSnapshots = #snapshots
+assert(scraper.handleIncomingTargeting(
+  "You are being targeted by Mark-I Assault Frigate 'Wayfarer'."))
+local incomingTargetWayfarer
+for _, entity in ipairs(snapshots[#snapshots].entities) do
+  if entity.name == "Wayfarer" then incomingTargetWayfarer = entity end
+end
+assert(#snapshots == incomingTargetSnapshots + 1,
+  "an incoming targeting event should immediately publish a new snapshot")
+assert(incomingTargetWayfarer and incomingTargetWayfarer.disposition == "enemy",
+  "a ship targeting the observer should immediately become an enemy")
+assert(scraper.pendingCommandKind == nil,
+  "an incoming targeting event must not affect the outgoing target-lock gate")
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({

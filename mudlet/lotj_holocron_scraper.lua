@@ -993,6 +993,19 @@ function Scraper.setDisposition(name, disposition)
   return true
 end
 
+function Scraper.handleIncomingTargeting(text)
+  local shipName = trim(text):match("^You are being targeted by .-'([^']+)'%.?$")
+  if not shipName then return false end
+  local marked, markError = Scraper.setDisposition(shipName, "enemy")
+  if not marked then
+    diagnostic("warn", "could not mark targeting ship " .. shipName .. " as enemy: "
+      .. tostring(markError))
+    return false
+  end
+  diagnostic("info", shipName .. " targeted the observer and was marked enemy")
+  return true
+end
+
 local function dispatchSpaceProbe(_, message)
   local gateError = commandGateError()
   if gateError then return false, gateError end
@@ -1113,6 +1126,9 @@ function Scraper.setup(proxy, options)
     tempTrigger("Your concentration is broken. You fail to lock on to your target.", function()
       completeTargetLock("rejected",
         "Your concentration is broken. You fail to lock on to your target.")
+    end),
+    tempRegexTrigger("^\\s*You are being targeted by .+'[^']+'\\.?\\s*$", function()
+      Scraper.handleIncomingTargeting(line or "")
     end),
     tempRegexTrigger("(?i)^.*auto.*track.*$", function()
       Scraper.handleAutotrackResponse(line or "")

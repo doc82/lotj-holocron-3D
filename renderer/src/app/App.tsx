@@ -145,7 +145,9 @@ export function App() {
     entities: telemetry.snapshot.entities?.map((entity) => ({
       ...entity,
       disposition: entity.kind === "ship"
-        ? dispositions[dispositionKey(entity.name || entity.id)] || entity.disposition || "neutral"
+        ? entity.disposition === "enemy"
+          ? "enemy"
+          : dispositions[dispositionKey(entity.name || entity.id)] || entity.disposition || "neutral"
         : entity.disposition,
     })),
   } : null, [telemetry.snapshot, dispositions]);
@@ -517,7 +519,26 @@ export function App() {
     syncedDispositionsRef.current.set(dispositionKey(name), disposition);
     void window.holocron?.sendIntent("set_ship_disposition", { name, disposition });
   }, []);
-  // TODO(Veska): automatically mark a contact hostile when telemetry reports it targeting the observer.
+  useEffect(() => {
+    const hostileNames = (telemetry.snapshot?.entities ?? [])
+      .filter((entity) => entity.kind === "ship" && entity.disposition === "enemy")
+      .map((entity) => entity.name || entity.id);
+    if (hostileNames.length === 0) return;
+    setDispositions((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const name of hostileNames) {
+        const key = dispositionKey(name);
+        if (next[key] !== "enemy") changed = true;
+        next[key] = "enemy";
+        syncedDispositionsRef.current.set(key, "enemy");
+      }
+      if (!changed) return current;
+      localStorage.setItem(DISPOSITION_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [telemetry.snapshot]);
+
   useEffect(() => {
     if (!telemetry.connected) {
       syncedDispositionsRef.current.clear();
@@ -527,6 +548,10 @@ export function App() {
       if (entity.kind !== "ship") continue;
       const name = entity.name || entity.id;
       const key = dispositionKey(name);
+      if (entity.disposition === "enemy") {
+        syncedDispositionsRef.current.set(key, "enemy");
+        continue;
+      }
       const disposition = dispositions[key];
       if (!disposition || syncedDispositionsRef.current.get(key) === disposition) continue;
       syncedDispositionsRef.current.set(key, disposition);
