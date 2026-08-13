@@ -128,6 +128,7 @@ export function App() {
   const [commandLocked, setCommandLocked] = useState(false);
   const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
   const [manualScanStatus, setManualScanStatus] = useState("");
+  const [spaceProbeAttempt, setSpaceProbeAttempt] = useState(0);
   const [dispositions, setDispositions] = useState<Record<string, ShipDisposition>>(loadDispositions);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const syncedDispositionsRef = useRef(new Map<string, ShipDisposition>());
@@ -143,6 +144,8 @@ export function App() {
   const navigationLockTokenRef = useRef(0);
   const targetLockTokenRef = useRef(0);
   const spaceProbeSentRef = useRef(false);
+  const spaceProbeIntentIdsRef = useRef(new Set<string>());
+  const spaceProbeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const classifiedSnapshot = useMemo(() => telemetry.snapshot ? {
     ...telemetry.snapshot,
     entities: telemetry.snapshot.entities?.map((entity) => ({
@@ -159,16 +162,37 @@ export function App() {
   sceneRef.current = scene;
   const finishStartup = useCallback(() => setStarting(false), []);
 
+  const scheduleSpaceProbeRetry = useCallback(() => {
+    if (spaceProbeRetryTimerRef.current) clearTimeout(spaceProbeRetryTimerRef.current);
+    spaceProbeRetryTimerRef.current = setTimeout(() => {
+      spaceProbeRetryTimerRef.current = null;
+      spaceProbeSentRef.current = false;
+      setSpaceProbeAttempt((attempt) => attempt + 1);
+    }, 1_500);
+  }, []);
+
   useEffect(() => {
     if (!telemetry.connected) {
       spaceProbeSentRef.current = false;
+      spaceProbeIntentIdsRef.current.clear();
+      if (spaceProbeRetryTimerRef.current) clearTimeout(spaceProbeRetryTimerRef.current);
+      spaceProbeRetryTimerRef.current = null;
       return;
     }
     if (starting || spaceProbeSentRef.current) return;
 
     spaceProbeSentRef.current = true;
-    void window.holocron?.sendIntent("probe_space");
-  }, [starting, telemetry.connected]);
+    void window.holocron?.sendIntent("probe_space").then((result) => {
+      if (result?.accepted === false) {
+        scheduleSpaceProbeRetry();
+        return;
+      }
+      if (result?.id) {
+        spaceProbeIntentIdsRef.current.add(result.id);
+        setTimeout(() => spaceProbeIntentIdsRef.current.delete(result.id!), 60_000);
+      }
+    });
+  }, [scheduleSpaceProbeRetry, spaceProbeAttempt, starting, telemetry.connected]);
 
   const selectContact = useCallback((id: string | null) => {
     if (!id || id === "player-ship") {
@@ -458,6 +482,17 @@ export function App() {
   }, [knownMaximumSpeed, maximumSpeed, observedMaximumSpeed, observerSpeed]);
 
   useEffect(() => window.holocron?.onIntentAck((ack) => {
+    if (ack.id && spaceProbeIntentIdsRef.current.has(ack.id)) {
+      if (ack.status === "accepted") return;
+      spaceProbeIntentIdsRef.current.delete(ack.id);
+      const reason = String(ack.reason || "").toLowerCase();
+      if (ack.status === "rejected"
+          && (reason.includes("target lock") || reason.includes("another ship command")
+            || reason.includes("manual telemetry capture"))) {
+        scheduleSpaceProbeRetry();
+      }
+      return;
+    }
     if (!ack.id || !pendingIntentIdsRef.current.has(ack.id)) return;
     const autotrackIntent = autotrackIntentIdsRef.current.has(ack.id);
     if (autotrackIntent && ack.status !== "accepted") {
@@ -513,7 +548,7 @@ export function App() {
     setNavigationStatus(message);
     setCommandLocked(false);
     setTimeout(() => setCommandAlert(""), 5_000);
-  }), []);
+  }), [scheduleSpaceProbeRetry]);
 
   useEffect(() => {
     if (!manualScanSource || !telemetry.snapshot) return;

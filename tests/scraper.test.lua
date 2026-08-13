@@ -127,6 +127,10 @@ assert(snapshots[1].metadata.system == "Corellian System")
 assert(spaceStates[1].inSpace == true, "successful space data should establish in-space state")
 assert(scraper.getPollingState().timerId,
   "successful manual space output should activate dormant polling")
+local startupHydration = scraper.getPollingState().hydrationQueue
+assert(#startupHydration == 2 and startupHydration[1] == "status"
+    and startupHydration[2] == "info",
+  "a successful reconnect radar should prioritize missing observer status and info")
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "prox")
 scraper.captureLine("Wayfarer  375")
@@ -167,6 +171,8 @@ assert(snapshots[4].observer.sensorArray == 7)
 assert(snapshots[4].observer.radarRange == 570)
 assert(snapshots[4].observer.hatchway == nil, "access codes must not enter snapshots")
 assert(scraper.lastCapture.lines[1]:find("redacted", 1, true), "info diagnostics must be redacted")
+assert(#scraper.getPollingState().hydrationQueue == 0,
+  "manual observer telemetry should satisfy the reconnect hydration queue")
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "fleetradar")
 scraper.captureLine("Ship                     Squadron Leader          Position")

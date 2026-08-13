@@ -17,7 +17,8 @@ local Scraper = {
   proxy = nil,
   state = nil,
   lastCapture = nil,
-  polling = {enabled = false, index = 1, timerId = nil, dispatching = false},
+  polling = {enabled = false, index = 1, timerId = nil, dispatching = false,
+    hydrationQueue = {}},
   scanState = {},
   pendingCommandIntentId = nil,
   pendingCommandTimerId = nil,
@@ -42,6 +43,8 @@ local scheduleNextPoll
 local requestAutotrack
 local ensureShieldsOn
 local handleShieldStatus
+local queueObserverHydration
+local clearObserverHydration
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -195,6 +198,7 @@ local function applyStatus(result, sentCommand)
     Scraper.combat.targetName = target:lower() == "none" and nil or target
     Scraper.state.metadata.combatTarget = Scraper.combat.targetName
   end
+  if isObserver and clearObserverHydration then clearObserverHydration("status") end
 end
 
 local function applyInfo(result, sentCommand)
@@ -212,6 +216,7 @@ local function applyInfo(result, sentCommand)
     destination.sensorArray = result.sensorArray
     destination.radarRange = result.radarRange
   end
+  if isObserver and clearObserverHydration then clearObserverHydration("info") end
 end
 
 function Scraper.applyResult(result, sentCommand)
@@ -324,6 +329,29 @@ local function cancelPollTimer()
   end
 end
 
+clearObserverHydration = function(source)
+  local queue = Scraper.polling.hydrationQueue or {}
+  for index = #queue, 1, -1 do
+    if queue[index] == source then table.remove(queue, index) end
+  end
+  Scraper.polling.hydrationQueue = queue
+  if Scraper.state and Scraper.state.metadata.polling then
+    Scraper.state.metadata.polling.hydratingObserver = #queue > 0
+  end
+end
+
+queueObserverHydration = function()
+  local observer = Scraper.state and Scraper.state.observer or {}
+  local queue = {}
+  local hasStatus = observer.speed ~= nil
+    and (observer.hull ~= nil or observer.shields ~= nil or observer.condition ~= nil)
+  local hasInfo = type(observer.weapons) == "table"
+    and observer.hasWeapons ~= nil and observer.shipCategory ~= nil
+  if not hasStatus then table.insert(queue, "status") end
+  if not hasInfo then table.insert(queue, "info") end
+  Scraper.polling.hydrationQueue = queue
+end
+
 function Scraper.setInSpace(inSpace, reason)
   Scraper.state = Scraper.state or freshState()
   inSpace = inSpace == true
@@ -337,6 +365,7 @@ function Scraper.setInSpace(inSpace, reason)
     cancelPollTimer()
     Scraper.state.entities = {}
     Scraper.scanState = {}
+    Scraper.polling.hydrationQueue = {}
     safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
     Scraper.autotrack.timeoutTimerId = nil
     Scraper.autotrack.observed = nil
@@ -461,6 +490,9 @@ function Scraper.finishCapture(reason)
     diagnostic("error", "could not merge " .. capture.sentCommand .. " output: "
       .. tostring(applyError))
     return nil, applyError
+  end
+  if capture.spaceProbe and queueObserverHydration then
+    queueObserverHydration()
   end
   Scraper.state.metadata.lastCapturePolled = capture.polled == true
   if parsed.source == "status" and trim(capture.sentCommand):lower() == "status"
@@ -745,6 +777,7 @@ local function updatePollingMetadata(command)
     hostileScanIntervalSeconds = Scraper.polling.hostileScanIntervalSeconds,
     standardScanIntervalSeconds = Scraper.polling.standardScanIntervalSeconds,
     combatRadarIntervalSeconds = Scraper.polling.combatRadarIntervalSeconds,
+    hydratingObserver = #(Scraper.polling.hydrationQueue or {}) > 0,
   }
 end
 
@@ -767,11 +800,15 @@ local function pollOnce()
   local combatRadarDue = combatActive
     and now - (Scraper.combat.lastRadarAt or 0)
       >= (Scraper.polling.combatRadarIntervalSeconds or Scraper.COMBAT_RADAR_INTERVAL_SECONDS)
-  local scanCandidate = not combatRadarDue and scanCommandDue() or nil
+  local hydrationCommand = (Scraper.polling.hydrationQueue or {})[1]
+  local scanCandidate = not hydrationCommand and not combatRadarDue and scanCommandDue() or nil
   local dueScan = scanCandidate and (scanCandidate.discovery
     or Scraper.polling.scansSinceCore < 2) and scanCandidate or nil
   local command
-  if combatRadarDue then
+  if hydrationCommand then
+    command = hydrationCommand
+    Scraper.polling.scansSinceCore = 0
+  elseif combatRadarDue then
     command = "radar projectiles"
     Scraper.polling.scansSinceCore = 0
   elseif dueScan then
@@ -796,7 +833,7 @@ local function pollOnce()
     return
   end
   local completedCycle = false
-  if not combatRadarDue then
+  if not hydrationCommand and not combatRadarDue then
     Scraper.polling.index = Scraper.polling.index + 1
     completedCycle = Scraper.polling.index > #Scraper.POLL_COMMANDS
     if completedCycle then Scraper.polling.index = 1 end
@@ -1639,6 +1676,7 @@ function Scraper.setup(proxy, options)
     manualIntentId = nil, activationPending = false}
   Scraper.state = freshState()
   Scraper.scanState = {}
+  Scraper.polling.hydrationQueue = {}
   Scraper.eventHandlerIds = {
     registerAnonymousEventHandler("sysDataSendRequest", Scraper.handleOutgoingCommand),
   }

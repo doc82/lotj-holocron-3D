@@ -344,6 +344,21 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(scraper, /but%s\+miss/);
 });
 
+test("reconnecting hydrates missing player telemetry before combat polling", async () => {
+  const [app, scraper] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+  ]);
+  assert.match(app, /sendIntent\("probe_space"\)/);
+  assert.match(app, /scheduleSpaceProbeRetry/);
+  assert.match(app, /reason\.includes\("target lock"\)/);
+  assert.match(scraper, /hydrationQueue = \{\}/);
+  assert.match(scraper, /table\.insert\(queue, "status"\)/);
+  assert.match(scraper, /table\.insert\(queue, "info"\)/);
+  assert.ok(scraper.indexOf("if hydrationCommand then") < scraper.indexOf("elseif combatRadarDue then"),
+    "observer hydration must take priority over combat radar");
+});
+
 test("shield automation activates on launch and safely recharges to full", async () => {
   const [app, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
