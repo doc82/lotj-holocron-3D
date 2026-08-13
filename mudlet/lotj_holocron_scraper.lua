@@ -25,7 +25,8 @@ local Scraper = {
   pendingCommandKind = nil,
   combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
     lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
-    lastActivityAt = 0},
+    lastActivityAt = 0, lastLaunchWeapon = nil, lastLaunchTarget = nil,
+    lastLaunchAt = 0},
   shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
     damageTimerId = nil, actionTimerId = nil, statusPending = false,
     manualIntentId = nil, activationPending = false},
@@ -382,6 +383,9 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.combat.pendingTargetName = nil
     Scraper.combat.lastActivityAt = 0
     Scraper.combat.lastRadarAt = 0
+    Scraper.combat.lastLaunchWeapon = nil
+    Scraper.combat.lastLaunchTarget = nil
+    Scraper.combat.lastLaunchAt = 0
     safeKill("killTimer", Scraper.shields.damageTimerId)
     safeKill("killTimer", Scraper.shields.actionTimerId)
     Scraper.shields.damageTimerId = nil
@@ -632,6 +636,21 @@ local function publishCombatEvent(event)
   return Scraper.publish()
 end
 
+local function publishLaunchEvent(weapon, count, targetName)
+  local resolvedTarget = targetName or Scraper.combat.targetName
+  local now = os.time()
+  if Scraper.combat.lastLaunchWeapon == weapon
+      and Scraper.combat.lastLaunchTarget == resolvedTarget
+      and now - (Scraper.combat.lastLaunchAt or 0) <= 2 then
+    return true
+  end
+  Scraper.combat.lastLaunchWeapon = weapon
+  Scraper.combat.lastLaunchTarget = resolvedTarget
+  Scraper.combat.lastLaunchAt = now
+  return publishCombatEvent({type = "launch", weapon = weapon, count = count,
+    targetName = resolvedTarget})
+end
+
 function Scraper.handleCombatLine(text)
   local value = trim(text)
   local displayedTarget = value:match("^Target:%s+.-'([^']+)'")
@@ -664,13 +683,22 @@ function Scraper.handleCombatLine(text)
     end
   end
 
+
+  local simplyLaunchedWeapon = value:match("^(.+)%s+launched%.$")
+  if simplyLaunchedWeapon then
+    local weapon = normalizeWeapon(simplyLaunchedWeapon)
+    if weapon and (weapon == "missile" or weapon == "torpedo" or weapon == "rocket") then
+      publishLaunchEvent(weapon, 1)
+      return true
+    end
+  end
+
   local launchedWeapon, launchedTarget = value:match(
     "^A%s+(.+)%s+is%s+launched%s+toward%s+.-'([^']+)'%s+by%s+your%s+ship%.$")
   if launchedWeapon and launchedTarget then
     local weapon = normalizeWeapon(launchedWeapon)
     if weapon then
-      publishCombatEvent({type = "launch", weapon = weapon, count = 1,
-        targetName = launchedTarget})
+      publishLaunchEvent(weapon, 1, launchedTarget)
       return true
     end
   end
@@ -678,7 +706,7 @@ function Scraper.handleCombatLine(text)
   if count and firedWeapon then
     local weapon = normalizeWeapon(firedWeapon)
     if weapon then
-      publishCombatEvent({type = "launch", weapon = weapon, count = tonumber(count)})
+      publishLaunchEvent(weapon, tonumber(count))
       return true
     end
   end
@@ -1678,7 +1706,8 @@ function Scraper.setup(proxy, options)
   Scraper.autotrack.timeoutTimerId = nil
   Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
     lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
-    lastActivityAt = 0}
+    lastActivityAt = 0, lastLaunchWeapon = nil, lastLaunchTarget = nil,
+    lastLaunchAt = 0}
   safeKill("killTimer", Scraper.shields.damageTimerId)
   safeKill("killTimer", Scraper.shields.actionTimerId)
   Scraper.shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
@@ -1736,7 +1765,7 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("^\\s*(?:Shields ON\\. Autorecharge ON\\.|Autorecharge OFF\\. Shields IDLING\\.)\\s*$", function()
       Scraper.handleShieldPowerResponse(line or "")
     end),
-    tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|(?:The\\s+)?.+\\s+can\\s+only\\s+fire\\s+forwards\\.\\s+You'll\\s+need\\s+to\\s+turn\\s+your\\s+ship!|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
+    tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|(?:The\\s+)?.+\\s+can\\s+only\\s+fire\\s+forwards\\.\\s+You'll\\s+need\\s+to\\s+turn\\s+your\\s+ship!|(?:Missile|Torpedo|Rocket)\\s+launched\\.|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
       Scraper.handleCombatLine(line or "")
     end),
     tempRegexTrigger("^\\s*\\d+\\s+projectiles?,\\s+\\d+\\s+incoming.*$", function()

@@ -59,6 +59,8 @@ test("missiles, torpedoes, and rockets have distinct tactical signatures", () =>
   ];
   assert.equal(new Set(signatures.map(({ shape }) => shape)).size, 3);
   assert.equal(new Set(signatures.map(({ color }) => color.join(":"))).size, 3);
+  assert.ok(signatures.every(({ pixels }) => pixels >= 12),
+    "live ordnance should remain visible at strategic radar zoom");
   const scene = buildScene({
     observer: { id: "player-ship", x: 0, y: 0, z: 0 },
     entities: [

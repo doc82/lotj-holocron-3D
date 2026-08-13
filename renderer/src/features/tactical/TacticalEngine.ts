@@ -348,13 +348,16 @@ export class TacticalEngine {
     const now = performance.now();
     if (event.type === "launch") {
       const projectile = ["missile", "torpedo", "rocket", "burst"].includes(event.weapon);
+      const targetDistance = Math.hypot(...target.position3d);
+      const projectileDuration = Math.min(4_200, 1_400 + targetDistance * 2.4)
+        * (event.weapon === "torpedo" ? 1.15 : event.weapon === "rocket" ? 0.78 : 1);
       this.combatEffects.push({
         id: event.id,
         type: "projectile",
         weapon: event.weapon,
         targetName: target.name,
         start: now,
-        duration: projectile ? 1150 : 620,
+        duration: projectile ? projectileDuration : 620,
         from: [0, 0, 0],
         to: [...target.position3d],
       });
@@ -736,8 +739,16 @@ export class TacticalEngine {
         const eased = 1 - (1 - progress) ** 2;
         const head = lerp(effect.from, endpoint, Math.min(0.96, eased));
         const tail = lerp(effect.from, endpoint, Math.max(0, eased - 0.13));
+        const strategicProjectile = ["missile", "torpedo", "rocket", "burst"].includes(effect.weapon);
+        const coreSize = effect.weapon === "torpedo" ? 14
+          : effect.weapon === "missile" ? 13
+            : effect.weapon === "rocket" ? 11 : effect.weapon === "burst" ? 10 : 8;
+        const glowColor = color.map((channel) => channel * 0.28) as Color3;
         lines.push(...this.interleavedVertex(tail, color), ...this.interleavedVertex(head, color));
-        points.push(...this.interleavedVertex(head, color, effect.weapon === "ion" ? 8 : 6));
+        if (strategicProjectile) {
+          points.push(...this.interleavedVertex(head, glowColor, coreSize * 2.35));
+        }
+        points.push(...this.interleavedVertex(head, color, coreSize));
       } else {
         const radius = Math.sin(progress * Math.PI) * (effect.outcome === "hit" ? 24 : 14);
         const segments = 16;

@@ -337,6 +337,8 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(panel, /lastEventIdRef/);
   assert.match(engine, /rebuildCombatBuffers/);
   assert.match(engine, /combatEffects/);
+  assert.match(engine, /1_400 \+ targetDistance \* 2\.4/);
+  assert.match(engine, /coreSize \* 2\.35/);
   assert.match(engine, /targetName: target\.name/);
   assert.match(engine, /this\.findPointByName\(effect\.targetName\)/);
   assert.match(engine, /liveTarget\?\.position3d \?\? effect\.to/);
@@ -346,6 +348,8 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(scraper, /handleProjectileSummary/);
   assert.match(scraper, /"radar projectiles"/);
   assert.match(scraper, /You fail to lock on to your target/);
+  assert.match(scraper, /Missile\|Torpedo\|Rocket/);
+  assert.match(scraper, /publishLaunchEvent/);
   assert.match(scraper, /can%s\+only%s\+fire%s\+forwards/);
   assert.match(scraper, /Forward arc blocked \/\/ turn ship/);
   assert.match(scraper, /launcher%\(s%\)%s\+reloaded/);

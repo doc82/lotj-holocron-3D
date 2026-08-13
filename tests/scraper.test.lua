@@ -386,10 +386,17 @@ for _, forwardArcCase in ipairs(forwardArcCases) do
 end
 assert(scraper.handleCombatLine("Missile launcher(s) reloaded."))
 assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
+assert(scraper.handleCombatLine("Missile launched."))
+local immediateMissileEventId = snapshots[#snapshots].metadata.combatEvent.id
+assert(snapshots[#snapshots].metadata.combatEvent.type == "launch"
+    and snapshots[#snapshots].metadata.combatEvent.weapon == "missile",
+  "the immediate launcher confirmation should start the missile animation")
 assert(scraper.handleCombatLine(
   "A missile is launched toward Mark-I Assault Frigate 'Wayfarer' by your ship."))
 assert(snapshots[#snapshots].metadata.combatEvent.type == "launch")
 assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
+assert(snapshots[#snapshots].metadata.combatEvent.id == immediateMissileEventId,
+  "the detailed missile line must not duplicate the immediate launch animation")
 assert(scraper.handleCombatLine(
   "Your ship's missile hits Mark-I Assault Frigate 'Wayfarer' dead on!"))
 assert(snapshots[#snapshots].metadata.combatEvent.outcome == "hit")

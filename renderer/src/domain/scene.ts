@@ -39,9 +39,9 @@ function finite(value: unknown, fallback = 0): number {
 
 export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">): { color: Color3; shape: number; pixels: number } {
   const identity = `${entity.class || ""} ${entity.name || ""}`.toLowerCase();
-  if (identity.includes("torpedo")) return { color: [0.72, 0.3, 1], shape: 11, pixels: 8 };
-  if (identity.includes("rocket")) return { color: [1, 0.14, 0.06], shape: 2, pixels: 7 };
-  return { color: [1, 0.52, 0.08], shape: 6, pixels: 7 };
+  if (identity.includes("torpedo")) return { color: [0.72, 0.3, 1], shape: 11, pixels: 15 };
+  if (identity.includes("rocket")) return { color: [1, 0.14, 0.06], shape: 2, pixels: 12 };
+  return { color: [1, 0.52, 0.08], shape: 6, pixels: 14 };
 }
 
 export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position" | "name" | "class">): Color3 {
