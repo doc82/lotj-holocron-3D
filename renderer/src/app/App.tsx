@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { buildScene, findScenePoint, formatCoordinate, sensorRangeFor, type ScenePoint } from "../domain/scene";
+import { NavigationDrawer } from "../features/commands/NavigationDrawer";
+import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
 import { UplinkNotice } from "../features/connection/UplinkNotice";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
@@ -84,8 +86,7 @@ function MoveIcon() {
 }
 
 type CommandIconType = "target" | "scan" | "info" | "to" | "away" | "track"
-  | "back" | "confirm" | "cancel" | "neutral" | "friendly" | "enemy"
-  | "stop" | "quarter" | "half" | "threeQuarter" | "maximum";
+  | "cancel" | "neutral" | "friendly" | "enemy";
 
 function CommandIcon({ type }: { type: CommandIconType }) {
   const paths: Record<CommandIconType, ReactNode> = {
@@ -95,17 +96,10 @@ function CommandIcon({ type }: { type: CommandIconType }) {
     to: <><path d="M4 16h20M18 9l7 7-7 7" /><circle cx="27" cy="16" r="2" /></>,
     away: <><path d="M28 16H8M14 9l-7 7 7 7" /><circle cx="5" cy="16" r="2" /></>,
     track: <><circle cx="16" cy="16" r="9" /><circle cx="16" cy="16" r="3" /><path d="M16 3v4M16 25v4M3 16h4M25 16h4M21 11l6-6" /></>,
-    back: <path d="M25 7H13l-7 9 7 9h12M7 16h14" />,
-    confirm: <path d="m6 16 7 7L27 8" />,
     cancel: <path d="M7 7l18 18M25 7 7 25" />,
     neutral: <><circle cx="16" cy="16" r="10" /><path d="M11 16h10" /></>,
     friendly: <><path d="M16 4 27 9v7c0 7-5 10-11 12C10 26 5 23 5 16V9Z" /><path d="m11 16 3 3 7-7" /></>,
     enemy: <><path d="M16 4 27 9v7c0 7-5 10-11 12C10 26 5 23 5 16V9Z" /><path d="m11 12 10 10M21 12 11 22" /></>,
-    stop: <rect x="9" y="9" width="14" height="14" />,
-    quarter: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="M7 24h6" /></>,
-    half: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="M7 24 16 15" /></>,
-    threeQuarter: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="m7 24 14-14" /></>,
-    maximum: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="M7 24 24 7M20 7h4v4" /></>,
   };
   return <svg viewBox="0 0 32 32" aria-hidden="true">{paths[type]}</svg>;
 }
@@ -122,6 +116,7 @@ export function App() {
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
   const [navigationMode, setNavigationMode] = useState<NavigationMode>("idle");
   const [pendingNavigationMode, setPendingNavigationMode] = useState<"relative" | "target" | "away">("relative");
+  const [navigationTargetId, setNavigationTargetId] = useState<string | null>(null);
   const [courseVector, setCourseVector] = useState<Vector3>([100, 0, 0]);
   const [requestedSpeed, setRequestedSpeed] = useState(0);
   const [knownMaximumSpeed, setKnownMaximumSpeed] = useState(0);
@@ -199,6 +194,7 @@ export function App() {
     : Number(observer.maximumSpeed) || 0;
   const maximumSpeed = observedMaximumSpeed > 0 ? observedMaximumSpeed : knownMaximumSpeed;
   const navigableTarget = selected && ["ship", "planet", "celestial", "star"].includes(selected.kind) ? selected : null;
+  const navigationTarget = findScenePoint(scene, navigationTargetId);
   const selectedShip = selected?.kind === "ship" ? selected : null;
   const autotrackObserved = typeof observer.autotrack === "boolean" ? observer.autotrack : null;
   const observerHasNoWeapons = observer.hasWeapons === false;
@@ -207,8 +203,14 @@ export function App() {
 
   const cancelNavigation = useCallback(() => {
     setNavigationMode("idle");
+    setPendingNavigationMode("relative");
+    setNavigationTargetId(null);
     setNavigationStatus("");
     setCommandAlert("");
+    setRequestedSpeed(Math.max(0, Math.min(
+      lastMaximumSpeedRef.current ?? 0,
+      lastObservedSpeedRef.current ?? 0,
+    )));
     tacticalRef.current?.setMovementActive(false);
   }, []);
 
@@ -217,6 +219,7 @@ export function App() {
     setExpandedClusterId(null);
     setHoveredMemberId(null);
     setPendingNavigationMode("relative");
+    setNavigationTargetId(null);
     setNavigationMode("vector");
     setNavigationStatus("MOVE CURSOR // SHIFT ELEVATION // MMB ORBIT");
     tacticalRef.current?.setMovementActive(true, courseVector, true);
@@ -229,6 +232,7 @@ export function App() {
     const multiplier = mode === "away" ? -1 : 1;
     const preview = navigableTarget.position3d.map((value) => value * multiplier) as Vector3;
     setPendingNavigationMode(mode);
+    setNavigationTargetId(navigableTarget.id);
     setNavigationMode(mode);
     setNavigationStatus(mode === "away" ? "CONFIRM REVERSE COURSE" : "CONFIRM INTERCEPT COURSE");
     tacticalRef.current?.setMovementActive(true, Math.hypot(...preview) > 0 ? preview : [100 * multiplier, 0, 0], false);
@@ -252,7 +256,11 @@ export function App() {
     }
     const payload: Record<string, unknown> = { mode: pendingNavigationMode };
     if (pendingNavigationMode === "relative") payload.vector = { x: courseVector[0], y: courseVector[1], z: courseVector[2] };
-    else if (navigableTarget) payload.targetId = navigableTarget.id;
+    else if (navigationTarget) payload.targetId = navigationTarget.id;
+    else {
+      setNavigationStatus("ORDER BLOCKED // TARGET CONTACT LOST");
+      return;
+    }
     if (observerSpeed === 0) payload.departureSpeed = requestedSpeed;
     setNavigationStatus("TRANSMITTING COURSE...");
     const result = await window.holocron?.sendIntent("navigate_ship", payload);
@@ -277,7 +285,7 @@ export function App() {
     setNavigationStatus("MANEUVER IN PROGRESS");
     setNavigationMode("idle");
     tacticalRef.current?.setMovementActive(false);
-  }, [commandLocked, courseVector, navigableTarget, observerSpeed, pendingNavigationMode, requestedSpeed]);
+  }, [commandLocked, courseVector, navigationTarget, observerSpeed, pendingNavigationMode, requestedSpeed]);
 
   const commitSpeed = useCallback(async (speed: number) => {
     const nextSpeed = Math.max(0, Math.min(maximumSpeed, Math.round(speed)));
@@ -576,87 +584,101 @@ export function App() {
 
         {!telemetry.connected && <UplinkNotice />}
 
+        {telemetry.connected && navigationMode !== "idle" && (
+          <NavigationDrawer
+            mode={navigationMode}
+            kind={pendingNavigationMode}
+            targetName={navigationTarget?.name}
+            targetDistance={navigationTarget ? Math.hypot(...navigationTarget.position3d) : undefined}
+            vector={courseVector}
+            status={navigationStatus}
+            observerStopped={observerSpeed === 0}
+            speed={requestedSpeed}
+            maximumSpeed={maximumSpeed}
+            commandLocked={commandLocked}
+            onSpeedChange={setRequestedSpeed}
+            onSpeedCommit={chooseSpeed}
+            onStageVector={stageNavigation}
+            onConfirm={() => void submitNavigation()}
+            onCancel={cancelNavigation}
+          />
+        )}
+
         {telemetry.connected && (
           <footer className={`${styles.commandDeck} ${styles.panel}`}>
             <section className={styles.commandBank} aria-label="Selected contact commands">
-              <p className={styles.eyebrow}>COMMAND // {(navigableTarget?.name || observer.name).toUpperCase()}</p>
-              {navigationMode !== "idle" && <button type="button" className={`${styles.wizardBack} ${styles.iconButton}`} aria-label="Back or cancel command" data-tooltip="BACK / ESC" onClick={cancelNavigation}><CommandIcon type="back" /></button>}
               {commandAlert && <div className={styles.commandAlert} role="alert">{commandAlert}</div>}
-              <div className={styles.orderActions}>
-                {navigableTarget ? <>
-                  {selectedShip && <>
-                    <button type="button" className={`${styles.iconButton} ${styles.aggressiveOrder}`} disabled={landed || commandLocked || observerHasNoWeapons} aria-label="Target selected ship" data-tooltip={observerHasNoWeapons ? "This ship has no weapons" : "TARGET // AGGRESSIVE ACT"} onClick={() => void targetSelectedShip()}><CommandIcon type="target" /></button>
-                    <button type="button" className={styles.iconButton} disabled={landed || commandLocked || manualScanSource !== null} aria-label="Scan selected ship status" data-tooltip="SCAN" onClick={() => void requestShipScan("status")}><CommandIcon type="scan" /></button>
-                    <button type="button" className={styles.iconButton} disabled={landed || commandLocked || manualScanSource !== null} aria-label="Inspect selected ship information" data-tooltip="INFO" onClick={() => void requestShipScan("info")}><CommandIcon type="info" /></button>
-                  </>}
-                  <button type="button" className={styles.iconButton} disabled={landed || commandLocked} aria-label="Course toward selected contact" data-tooltip="TO" onClick={() => armTargetCourse("target")}><CommandIcon type="to" /></button>
-                  <button type="button" className={styles.iconButton} disabled={landed || commandLocked} aria-label="Course away from selected contact" data-tooltip="AWAY" onClick={() => armTargetCourse("away")}><CommandIcon type="away" /></button>
-                </> : (
-                  <button type="button" disabled={landed || commandLocked} className={`${styles.iconButton} ${navigationMode === "vector" ? styles.activeOrder : ""}`} aria-label="Set relative course" data-tooltip="MOVE / M" onClick={beginVectorCourse}><MoveIcon /></button>
-                )}
-                <button
-                  type="button"
-                  className={`${styles.iconButton} ${autotrackObserved === true ? styles.activeOrder : ""}`}
-                  disabled={landed || autotrackPending}
-                  aria-label={`${autotrackDesired ? "Disable" : "Enable"} autotrack`}
-                  aria-pressed={autotrackObserved === true}
-                  data-tooltip={`AUTOTRACK ${autotrackPending ? "AWAITING CONFIRMATION" : autotrackDesired ? "ON" : "OFF"}`}
-                  onClick={() => void toggleAutotrack()}
-                ><CommandIcon type="track" /></button>
-              </div>
-              {selectedShip && <div className={styles.aggressiveWarning}>TARGET // WEAPON LOCK IS AN AGGRESSIVE ACT</div>}
-              <div className={styles.speedControl}>
-                <label htmlFor="ship-speed"><span>{navigationMode !== "idle" && observerSpeed === 0 ? "DEPARTURE SPEED" : `PLAYER SPEED // ${observer.name.toUpperCase()}`}</span><strong>{formatCoordinate(requestedSpeed)} / {formatCoordinate(maximumSpeed)}</strong></label>
-                <input id="ship-speed" type="range" min="0" max={Math.max(1, maximumSpeed)} value={requestedSpeed} disabled={landed || commandLocked} onChange={(event) => setRequestedSpeed(Number(event.target.value))} onPointerUp={(event) => void commitSpeed(Number(event.currentTarget.value))} onKeyUp={(event) => void commitSpeed(Number(event.currentTarget.value))} />
-                <div>{([
-                  { ratio: 0, icon: "stop", label: "STOP" },
-                  { ratio: .25, icon: "quarter", label: "25% SPEED" },
-                  { ratio: .5, icon: "half", label: "50% SPEED" },
-                  { ratio: .75, icon: "threeQuarter", label: "75% SPEED" },
-                  { ratio: 1, icon: "maximum", label: "MAX SPEED" },
-                ] as const).map(({ ratio, icon, label }) => <button key={ratio} type="button" className={styles.iconButton} aria-label={label} data-tooltip={label} disabled={landed || commandLocked || maximumSpeed <= 0} onClick={() => chooseSpeed(Math.round(maximumSpeed * ratio))}><CommandIcon type={icon} /></button>)}</div>
-                {maximumSpeed <= 0 && <small className={styles.speedUnavailable}>AWAITING STATUS / INFO FOR SPEED LIMIT</small>}
-              </div>
               {navigationMode !== "idle" ? (
-                <div className={styles.navigationOrder}>
-                  <strong>{pendingNavigationMode === "relative" ? "RELATIVE COURSE" : pendingNavigationMode === "away" ? "COURSE AWAY" : "COURSE TO TARGET"}</strong>
-                  <span>{pendingNavigationMode === "relative"
-                    ? `Δ ${courseVector.map(formatCoordinate).join(" / ")}`
-                    : `${navigableTarget?.name || "TARGET LOST"} // ${formatCoordinate(navigableTarget ? Math.hypot(...navigableTarget.position3d) : 0)} u`}</span>
-                  <small>{navigationStatus}</small>
-                  {observerSpeed === 0 && <div className={styles.departurePrompt}>
-                    <b>COURSE REQUIRES DEPARTURE SPEED</b>
-                    <span>Choose a non-zero player speed; it will be sent with this maneuver.</span>
-                  </div>}
-                  <div className={styles.orderConfirmation}>
-                    {navigationMode === "confirm" || navigationMode === "target" || navigationMode === "away"
-                      ? <button type="button" className={styles.iconButton} aria-label="Confirm command" data-tooltip="CONFIRM" onClick={() => void submitNavigation()}><CommandIcon type="confirm" /></button>
-                      : <span>CLICK VECTOR OR PRESS ENTER</span>}
-                    <button type="button" className={styles.iconButton} aria-label="Cancel command" data-tooltip="CANCEL" onClick={cancelNavigation}><CommandIcon type="cancel" /></button>
-                  </div>
-                </div>
-              ) : selectedShip ? (
                 <>
-                  <div className={styles.dispositions} aria-label="Ship disposition">
-                    {(["neutral", "ally", "enemy"] as ShipDisposition[]).map((disposition) => (
-                      <button
-                        key={disposition}
-                        type="button"
-                        className={styles.iconButton}
-                        aria-pressed={(selectedShip.disposition || "neutral") === disposition}
-                        aria-label={`Mark ship ${disposition === "ally" ? "friendly" : disposition}`}
-                        data-tooltip={disposition === "ally" ? "FRIENDLY" : disposition.toUpperCase()}
-                        onClick={() => setShipDisposition(selectedShip, disposition)}
-                      >
-                        <CommandIcon type={disposition === "ally" ? "friendly" : disposition} />
-                      </button>
-                    ))}
+                  <p className={styles.eyebrow}>COMMAND // NAVIGATION</p>
+                  <div className={styles.actionPending} role="status">
+                    <span className={styles.pendingSignal} aria-hidden="true" />
+                    <strong>WAITING FOR CONFIRMATION</strong>
+                    <small>{pendingNavigationMode === "relative"
+                      ? "COURSE VECTOR"
+                      : `${pendingNavigationMode === "away" ? "COURSE AWAY" : "COURSE TO"} // ${(navigationTarget?.name || "TARGET LOST").toUpperCase()}`}</small>
+                    <button type="button" onClick={cancelNavigation}><CommandIcon type="cancel" /><span>CANCEL COMMAND</span></button>
                   </div>
-                  {manualScanStatus && <div className={styles.manualScanStatus} role="status">{manualScanStatus}</div>}
                 </>
-              ) : navigableTarget ? (
-                <div className={styles.commandStandby}>SELECT TO OR AWAY // {navigableTarget.name.toUpperCase()}</div>
-              ) : <div className={styles.commandStandby}>M // SET COURSE VECTOR</div>}
+              ) : (
+                <>
+                  <p className={styles.eyebrow}>COMMAND // {(navigableTarget?.name || observer.name).toUpperCase()}</p>
+                  <div className={styles.orderActions}>
+                    {navigableTarget ? <>
+                      {selectedShip && <>
+                        <button type="button" className={`${styles.iconButton} ${styles.aggressiveOrder}`} disabled={landed || commandLocked || observerHasNoWeapons} aria-label="Target selected ship" data-tooltip={observerHasNoWeapons ? "This ship has no weapons" : "TARGET // AGGRESSIVE ACT"} onClick={() => void targetSelectedShip()}><CommandIcon type="target" /></button>
+                        <button type="button" className={styles.iconButton} disabled={landed || commandLocked || manualScanSource !== null} aria-label="Scan selected ship status" data-tooltip="SCAN" onClick={() => void requestShipScan("status")}><CommandIcon type="scan" /></button>
+                        <button type="button" className={styles.iconButton} disabled={landed || commandLocked || manualScanSource !== null} aria-label="Inspect selected ship information" data-tooltip="INFO" onClick={() => void requestShipScan("info")}><CommandIcon type="info" /></button>
+                      </>}
+                      <button type="button" className={styles.iconButton} disabled={landed || commandLocked} aria-label="Course toward selected contact" data-tooltip="TO" onClick={() => armTargetCourse("target")}><CommandIcon type="to" /></button>
+                      <button type="button" className={styles.iconButton} disabled={landed || commandLocked} aria-label="Course away from selected contact" data-tooltip="AWAY" onClick={() => armTargetCourse("away")}><CommandIcon type="away" /></button>
+                    </> : (
+                      <button type="button" disabled={landed || commandLocked} className={styles.iconButton} aria-label="Set relative course" data-tooltip="MOVE / M" onClick={beginVectorCourse}><MoveIcon /></button>
+                    )}
+                    <button
+                      type="button"
+                      className={`${styles.iconButton} ${autotrackObserved === true ? styles.activeOrder : ""}`}
+                      disabled={landed || autotrackPending}
+                      aria-label={`${autotrackDesired ? "Disable" : "Enable"} autotrack`}
+                      aria-pressed={autotrackObserved === true}
+                      data-tooltip={`AUTOTRACK ${autotrackPending ? "AWAITING CONFIRMATION" : autotrackDesired ? "ON" : "OFF"}`}
+                      onClick={() => void toggleAutotrack()}
+                    ><CommandIcon type="track" /></button>
+                  </div>
+                  {selectedShip && <div className={styles.aggressiveWarning}>TARGET // WEAPON LOCK IS AN AGGRESSIVE ACT</div>}
+                  <ShipSpeedControl
+                    id="ship-speed"
+                    label={`PLAYER SPEED // ${observer.name.toUpperCase()}`}
+                    value={requestedSpeed}
+                    maximum={maximumSpeed}
+                    disabled={landed || commandLocked}
+                    onChange={setRequestedSpeed}
+                    onCommit={chooseSpeed}
+                  />
+                  {selectedShip ? (
+                    <>
+                      <div className={styles.dispositions} aria-label="Ship disposition">
+                        {(["neutral", "ally", "enemy"] as ShipDisposition[]).map((disposition) => (
+                          <button
+                            key={disposition}
+                            type="button"
+                            className={styles.iconButton}
+                            aria-pressed={(selectedShip.disposition || "neutral") === disposition}
+                            aria-label={`Mark ship ${disposition === "ally" ? "friendly" : disposition}`}
+                            data-tooltip={disposition === "ally" ? "FRIENDLY" : disposition.toUpperCase()}
+                            onClick={() => setShipDisposition(selectedShip, disposition)}
+                          >
+                            <CommandIcon type={disposition === "ally" ? "friendly" : disposition} />
+                          </button>
+                        ))}
+                      </div>
+                      {manualScanStatus && <div className={styles.manualScanStatus} role="status">{manualScanStatus}</div>}
+                    </>
+                  ) : navigableTarget ? (
+                    <div className={styles.commandStandby}>SELECT TO OR AWAY // {navigableTarget.name.toUpperCase()}</div>
+                  ) : <div className={styles.commandStandby}>M // SET COURSE VECTOR</div>}
+                </>
+              )}
             </section>
 
             <section className={`${styles.selectedVessel} ${selected ? "" : styles.playerVessel}`} aria-label="Selected vessel telemetry">

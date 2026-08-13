@@ -174,9 +174,10 @@ test("strategic zoom cross-fades glowing contacts into procedural class hulls", 
 });
 
 test("Homeworld-style shell separates commands, selected vessel, and fleet telemetry", async () => {
-  const [app, css] = await Promise.all([
+  const [app, css, speedControl] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
+    readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
   ]);
   assert.match(app, /styles\.commandBank/);
   assert.match(app, /styles\.selectedVessel/);
@@ -187,47 +188,59 @@ test("Homeworld-style shell separates commands, selected vessel, and fleet telem
   assert.match(app, /onClick=\{\(\) => selectContact\(observer\.id\)\}/);
   assert.match(css, /\.fleetShip\[aria-pressed="true"\]/);
   const commandBank = app.indexOf('className={styles.commandBank}');
-  const speedControl = app.indexOf('className={styles.speedControl}');
+  const playerSpeedControl = app.indexOf('<ShipSpeedControl');
   const fleetBank = app.indexOf('className={styles.fleetBank}');
-  assert.ok(commandBank < speedControl && speedControl < fleetBank,
+  assert.ok(commandBank < playerSpeedControl && playerSpeedControl < fleetBank,
     "speed controls should belong to the player command bank, not the formation roster");
-  assert.doesNotMatch(app.slice(fleetBank), /styles\.speedControl|styles\.deckStats/);
+  assert.doesNotMatch(app.slice(fleetBank), /ShipSpeedControl|styles\.deckStats/);
   assert.match(app, /<ViewIcon type="radar"/);
   assert.match(app, /<ViewIcon type="grid"/);
   assert.match(app, /<ViewIcon type="sector"/);
   assert.match(css, /grid-template-columns: minmax\(230px, 0\.82fr\).*minmax\(360px, 1\.45fr\).*minmax\(250px, 0\.9fr\)/);
   assert.match(css, /\.commandDeck \{[^}]*height: 252px/s);
   assert.match(css, /\.compactReadouts dt,[^}]*font-size: 11px/s);
-  assert.match(css, /\.speedControl label[^}]*font: 9px/s);
-  assert.match(css, /\.orderActions button,[^}]*font: 700 10px/s);
+  assert.match(speedControl, /type="range"/);
+  assert.match(css, /\.orderActions button \{[^}]*font: 700 10px/s);
 });
 
 test("player navigation supports vector, target, away, and speed orders", async () => {
-  const [app, engine, scraper] = await Promise.all([
+  const [app, engine, scraper, drawer, drawerCss, speedControl] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+    readFile("renderer/src/features/commands/NavigationDrawer.tsx", "utf8"),
+    readFile("renderer/src/features/commands/NavigationDrawer.module.css", "utf8"),
+    readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
   ]);
   assert.match(app, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
   assert.match(app, /\{navigableTarget \? <>/);
   assert.match(app, /SELECT TO OR AWAY \/\/ \{navigableTarget\.name\.toUpperCase\(\)\}/);
-  assert.match(app, /type="range"/);
+  assert.match(speedControl, /type="range"/);
   assert.match(app, /sendIntent\("navigate_ship"/);
   assert.match(app, /sendIntent\("set_ship_speed"/);
   assert.match(app, /sendIntent\("probe_space"/);
   assert.match(app, /payload\.departureSpeed = requestedSpeed/);
-  assert.match(app, /navigationMode !== "idle" && observerSpeed === 0/);
-  assert.match(app, /COURSE REQUIRES DEPARTURE SPEED/);
+  assert.match(app, /navigationMode !== "idle"/);
+  assert.match(drawer, /DEPARTURE SPEED REQUIRED/);
   assert.match(app, /knownMaximumSpeed/);
-  assert.match(app, /AWAITING STATUS \/ INFO FOR SPEED LIMIT/);
-  assert.match(app, /data-tooltip="BACK \/ ESC" onClick=\{cancelNavigation\}><CommandIcon type="back"/);
+  assert.match(speedControl, /AWAITING STATUS \/ INFO FOR SPEED LIMIT/);
+  assert.match(app, /setNavigationTargetId\(navigableTarget\.id\)/);
+  assert.match(app, /setNavigationTargetId\(null\)/);
+  assert.match(app, /WAITING FOR CONFIRMATION/);
+  assert.match(app, /CANCEL COMMAND/);
+  assert.match(drawer, /aria-label="Navigation command wizard"/);
+  assert.match(drawer, /const departureSpeedMissing = observerStopped && speed <= 0/);
+  assert.match(drawer, /const confirmDisabled = commandLocked \|\| targetMissing \|\| departureSpeedMissing/);
+  assert.match(drawer, /onClick=\{needsVectorLock \? onStageVector : onConfirm\}/);
+  assert.match(drawer, /onClick=\{onCancel\}/);
+  assert.match(drawerCss, /animation: drawer-enter/);
   assert.match(app, /onIntentAck/);
   assert.match(app, /styles\.commandAlert/);
   assert.match(app, /if \(!commandAlert\) return;\s*const timer = setTimeout\(\(\) => setCommandAlert\(""\), 5_000\)/);
   assert.match(app, /setNavigationStatus\(""\);\s*setCommandAlert\(""\)/);
-  assert.match(app, /navigationMode !== "idle" && observerSpeed === 0 \? "DEPARTURE SPEED" : `PLAYER SPEED \/\/ \$\{observer\.name\.toUpperCase\(\)\}`/);
-  assert.doesNotMatch(app, /!selectedShip && <div className=\{styles\.speedControl\}>/);
+  assert.match(app, /label=\{`PLAYER SPEED \/\/ \$\{observer\.name\.toUpperCase\(\)\}`\}/);
+  assert.match(app, /observerStopped=\{observerSpeed === 0\}/);
   assert.match(engine, /rebuildCourseBuffer/);
   assert.match(engine, /event\.shiftKey/);
   assert.match(engine, /this\.movementInteractive && event\.button !== 1/);
