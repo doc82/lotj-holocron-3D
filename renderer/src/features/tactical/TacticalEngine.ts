@@ -131,6 +131,7 @@ interface CombatEffect {
   id: number;
   type: "projectile" | "impact";
   weapon: WeaponType;
+  targetName: string;
   start: number;
   duration: number;
   from: Vector3;
@@ -351,21 +352,22 @@ export class TacticalEngine {
         id: event.id,
         type: "projectile",
         weapon: event.weapon,
+        targetName: target.name,
         start: now,
         duration: projectile ? 1150 : 620,
         from: [0, 0, 0],
         to: [...target.position3d],
       });
     } else if (event.type === "impact") {
-      const missOffset = event.outcome === "miss" ? Math.max(8, Math.hypot(...target.position3d) * 0.045) : 0;
       this.combatEffects.push({
         id: event.id,
         type: "impact",
         weapon: event.weapon,
+        targetName: target.name,
         start: now,
         duration: 780,
         from: [0, 0, 0],
-        to: [target.position3d[0] + missOffset, target.position3d[1] + missOffset * 0.35, target.position3d[2]],
+        to: [...target.position3d],
         outcome: event.outcome,
       });
     }
@@ -720,10 +722,20 @@ export class TacticalEngine {
     for (const effect of this.combatEffects) {
       const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
       const color = effect.outcome === "miss" ? [0.52, 0.72, 0.82] as Color3 : this.weaponColor(effect.weapon);
+      const liveTarget = this.findPointByName(effect.targetName);
+      const targetPosition = liveTarget?.position3d ?? effect.to;
+      const missOffset = effect.outcome === "miss"
+        ? Math.max(8, Math.hypot(...targetPosition) * 0.045)
+        : 0;
+      const endpoint: Vector3 = [
+        targetPosition[0] + missOffset,
+        targetPosition[1] + missOffset * 0.35,
+        targetPosition[2],
+      ];
       if (effect.type === "projectile") {
         const eased = 1 - (1 - progress) ** 2;
-        const head = lerp(effect.from, effect.to, Math.min(0.96, eased));
-        const tail = lerp(effect.from, effect.to, Math.max(0, eased - 0.13));
+        const head = lerp(effect.from, endpoint, Math.min(0.96, eased));
+        const tail = lerp(effect.from, endpoint, Math.max(0, eased - 0.13));
         lines.push(...this.interleavedVertex(tail, color), ...this.interleavedVertex(head, color));
         points.push(...this.interleavedVertex(head, color, effect.weapon === "ion" ? 8 : 6));
       } else {
@@ -732,11 +744,11 @@ export class TacticalEngine {
         for (let index = 0; index < segments; index += 1) {
           const a = index / segments * Math.PI * 2;
           const b = (index + 1) / segments * Math.PI * 2;
-          const start: Vector3 = [effect.to[0] + Math.cos(a) * radius, effect.to[1] + Math.sin(a) * radius, effect.to[2]];
-          const end: Vector3 = [effect.to[0] + Math.cos(b) * radius, effect.to[1] + Math.sin(b) * radius, effect.to[2]];
+          const start: Vector3 = [endpoint[0] + Math.cos(a) * radius, endpoint[1] + Math.sin(a) * radius, endpoint[2]];
+          const end: Vector3 = [endpoint[0] + Math.cos(b) * radius, endpoint[1] + Math.sin(b) * radius, endpoint[2]];
           lines.push(...this.interleavedVertex(start, color), ...this.interleavedVertex(end, color));
         }
-        points.push(...this.interleavedVertex(effect.to, color, effect.outcome === "hit" ? 18 : 8));
+        points.push(...this.interleavedVertex(endpoint, color, effect.outcome === "hit" ? 18 : 8));
       }
     }
     this.combatLineCount = lines.length / 11;

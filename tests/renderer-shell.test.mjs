@@ -333,6 +333,9 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(panel, /lastEventIdRef/);
   assert.match(engine, /rebuildCombatBuffers/);
   assert.match(engine, /combatEffects/);
+  assert.match(engine, /targetName: target\.name/);
+  assert.match(engine, /this\.findPointByName\(effect\.targetName\)/);
+  assert.match(engine, /liveTarget\?\.position3d \?\? effect\.to/);
   assert.match(engine, /point\.kind === "projectile" \? point\.markerShape/);
   assert.match(scraper, /registerIntentHandler\("fire_weapon"/);
   assert.match(scraper, /handleCombatLine/);
