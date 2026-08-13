@@ -101,7 +101,7 @@ end
 
 assert(scraper.setup(proxy))
 assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 9,
+assert(#scraper.stateTriggerIds == 10,
   "expected space, maneuver, targeting, and autotrack response triggers")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
@@ -328,6 +328,36 @@ assert(incomingTargetWayfarer and incomingTargetWayfarer.disposition == "enemy",
   "a ship targeting the observer should immediately become an enemy")
 assert(scraper.pendingCommandKind == nil,
   "an incoming targeting event must not affect the outgoing target-lock gate")
+
+assert(type(intentHandlers.fire_weapon) == "function", "weapon firing intent should be registered")
+scraper.state.observer.weapons = {
+  autoblasters = 5, laserCannons = 1, turbolasers = 0, ionCannons = 2,
+  maximumMissiles = 10, maximumTorpedoes = 0, maximumRockets = 0,
+  maximumPulses = 0, missileTubes = 2,
+}
+scraper.state.observer.hasWeapons = true
+local commandsBeforeSalvo = #sentCommands
+local firedAll, fireAllError = intentHandlers.fire_weapon({weapon = "all"}, {id = "fire-all-1"})
+assert(firedAll, fireAllError)
+assert(#sentCommands == commandsBeforeSalvo + 4,
+  "fire all should issue only the four installed weapon commands")
+assert(sentCommands[#sentCommands - 3].command == "fire autoblaster")
+assert(sentCommands[#sentCommands - 2].command == "fire laser")
+assert(sentCommands[#sentCommands - 1].command == "fire ion")
+assert(sentCommands[#sentCommands].command == "fire missile")
+
+local combatSnapshots = #snapshots
+assert(scraper.handleCombatLine("1 ion cannons fired..."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "launch")
+assert(snapshots[#snapshots].metadata.combatEvent.weapon == "ion")
+assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
+assert(scraper.handleCombatLine(
+  "Your ship's ion cannons fire at Mark-I Assault Frigate 'Wayfarer' but miss."))
+assert(snapshots[#snapshots].metadata.combatEvent.outcome == "miss")
+assert(scraper.handleCombatLine("Ion cannons fully charged."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
+assert(#snapshots == combatSnapshots + 3,
+  "launch, impact, and recharge messages should each publish combat telemetry")
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({

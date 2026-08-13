@@ -1,6 +1,18 @@
 export type Vector3 = [number, number, number];
 export type Color3 = [number, number, number];
 export type ShipDisposition = "neutral" | "ally" | "enemy";
+export type WeaponType = "best" | "autoblaster" | "laser" | "turbolaser" | "ion"
+  | "missile" | "torpedo" | "rocket" | "burst";
+
+export interface CombatEvent {
+  id: number;
+  type: "launch" | "impact" | "charged";
+  weapon: WeaponType;
+  targetName?: string;
+  count?: number;
+  outcome?: "hit" | "miss";
+  observedAt?: number;
+}
 
 export interface SpeedReading {
   current?: number;
@@ -53,6 +65,8 @@ export interface SystemSnapshot {
     autotrackPending?: boolean;
     autotrackObservedAt?: number;
     autotrackResponse?: string;
+    combatTarget?: string;
+    combatEvent?: CombatEvent;
     [key: string]: unknown;
   };
 }

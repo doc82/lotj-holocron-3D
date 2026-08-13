@@ -7,8 +7,9 @@ import { UplinkNotice } from "../features/connection/UplinkNotice";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
 import { useTelemetry } from "../features/telemetry/useTelemetry";
+import { WeaponsPanel } from "../features/weapons/WeaponsPanel";
 import styles from "./App.module.css";
-import type { ShipDisposition, Vector3 } from "../types/telemetry";
+import type { ShipDisposition, Vector3, WeaponType } from "../types/telemetry";
 
 const DISPOSITION_STORAGE_KEY = "holocron3d.ship-dispositions.v1";
 const dispositionKey = (name: string) => name.trim().toLowerCase();
@@ -203,6 +204,12 @@ export function App() {
   const observerHasNoWeapons = observer.hasWeapons === false;
   const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired !== false;
   const autotrackPending = telemetry.snapshot?.metadata?.autotrackPending === true;
+  const combatEvent = telemetry.snapshot?.metadata?.combatEvent;
+  const reportedCombatTarget = String(telemetry.snapshot?.metadata?.combatTarget
+    || (typeof observer.target === "string" ? observer.target : "")).trim();
+  const combatTargetName = reportedCombatTarget && reportedCombatTarget.toLowerCase() !== "none"
+    ? reportedCombatTarget
+    : null;
 
   const cancelNavigation = useCallback(() => {
     setNavigationMode("idle");
@@ -400,6 +407,12 @@ export function App() {
     }
   }, [autotrackDesired, autotrackPending, landed, telemetry.connected]);
 
+  const fireWeapon = useCallback(async (weapon: WeaponType | "all") => {
+    if (!telemetry.connected || landed || commandLocked) return "weapons controls unavailable";
+    const result = await window.holocron?.sendIntent("fire_weapon", { weapon });
+    return result?.accepted === false ? result.reason || "fire order rejected" : null;
+  }, [commandLocked, landed, telemetry.connected]);
+
   useEffect(() => {
     if (observedMaximumSpeed > 0 && observedMaximumSpeed !== knownMaximumSpeed) {
       setKnownMaximumSpeed(observedMaximumSpeed);
@@ -568,6 +581,7 @@ export function App() {
           snapshot={classifiedSnapshot}
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
+          combatEvent={combatEvent}
           onSelect={selectContact}
           onMovementVector={setCourseVector}
           onMovementCommit={stageNavigation}
@@ -639,6 +653,16 @@ export function App() {
             onStageVector={stageNavigation}
             onConfirm={() => void submitNavigation()}
             onCancel={cancelNavigation}
+          />
+        )}
+
+        {telemetry.connected && combatTargetName && navigationMode === "idle" && (
+          <WeaponsPanel
+            observer={telemetry.snapshot?.observer || observer}
+            targetName={combatTargetName}
+            event={combatEvent}
+            disabled={landed || commandLocked}
+            onFire={fireWeapon}
           />
         )}
 

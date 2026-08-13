@@ -311,3 +311,28 @@ test("selected ships can be manually scanned without waiting for the poller", as
   assert.match(scraper, /superseded by manual/);
   assert.match(scraper, /Target is outside sensor range/);
 });
+
+test("combat exposes installed weapon controls and telemetry-driven projectile effects", async () => {
+  const [app, panel, panelCss, canvas, engine, scraper] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/weapons/WeaponsPanel.tsx", "utf8"),
+    readFile("renderer/src/features/weapons/WeaponsPanel.module.css", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
+    readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+  ]);
+  assert.match(app, /<WeaponsPanel/);
+  assert.match(app, /sendIntent\("fire_weapon"/);
+  assert.match(panel, /FIRE ALL/);
+  for (const weapon of ["autoblaster", "laser", "turbolaser", "ion", "missile", "torpedo", "rocket", "burst"]) {
+    assert.match(panel, new RegExp(`type: "${weapon}"`));
+  }
+  assert.match(panelCss, /weapons-enter/);
+  assert.match(canvas, /pushCombatEvent/);
+  assert.match(engine, /rebuildCombatBuffers/);
+  assert.match(engine, /combatEffects/);
+  assert.match(scraper, /registerIntentHandler\("fire_weapon"/);
+  assert.match(scraper, /handleCombatLine/);
+  assert.match(scraper, /fully%s\+charged/);
+  assert.match(scraper, /but%s\+miss/);
+});

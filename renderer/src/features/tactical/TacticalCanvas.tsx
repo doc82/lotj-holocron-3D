@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { formatCoordinate } from "../../domain/scene";
-import type { SystemSnapshot, Vector3 } from "../../types/telemetry";
+import type { CombatEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
 import { TacticalEngine, type ClusterLabel, type CourseLabel, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
 
@@ -32,6 +32,7 @@ interface TacticalCanvasProps {
   snapshot: SystemSnapshot | null;
   radarBubbleEnabled: boolean;
   originGridEnabled: boolean;
+  combatEvent?: CombatEvent;
   onSelect(id: string | null): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
@@ -39,7 +40,7 @@ interface TacticalCanvasProps {
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
+  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvent, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
@@ -77,6 +78,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     useEffect(() => {
       engineRef.current?.setOriginGridEnabled(originGridEnabled);
     }, [originGridEnabled]);
+
+    useEffect(() => {
+      if (combatEvent) engineRef.current?.pushCombatEvent(combatEvent);
+    }, [combatEvent]);
 
     useImperativeHandle(ref, () => ({
       fitSystem: () => engineRef.current?.fitSystem(),

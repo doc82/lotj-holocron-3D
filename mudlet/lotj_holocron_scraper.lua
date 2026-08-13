@@ -21,6 +21,7 @@ local Scraper = {
   pendingCommandIntentId = nil,
   pendingCommandTimerId = nil,
   pendingCommandKind = nil,
+  combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0},
   autotrack = {
     desired = true,
     observed = nil,
@@ -177,6 +178,11 @@ local function applyStatus(result, sentCommand)
     destination.y = result.coordinates.y
     destination.z = result.coordinates.z
   end
+  if isObserver and result.target then
+    local target = trim(result.target)
+    Scraper.combat.targetName = target:lower() == "none" and nil or target
+    Scraper.state.metadata.combatTarget = Scraper.combat.targetName
+  end
 end
 
 local function applyInfo(result, sentCommand)
@@ -326,6 +332,11 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.autotrack.retryCount = 0
     Scraper.state.observer.autotrack = nil
     Scraper.state.metadata.autotrackPending = false
+    Scraper.state.observer.target = nil
+    Scraper.state.metadata.combatTarget = nil
+    Scraper.state.metadata.combatEvent = nil
+    Scraper.combat.targetName = nil
+    Scraper.combat.pendingTargetName = nil
   elseif Scraper.polling.enabled and scheduleNextPoll then
     scheduleNextPoll(0.25)
   end
@@ -523,6 +534,80 @@ local function parserForCommand(command)
     return mode and "prox velocity" or "prox"
   end
   return nil
+end
+
+local function normalizeWeapon(value)
+  local lower = trim(value):lower()
+  if lower:find("autoblaster", 1, true) then return "autoblaster" end
+  if lower:find("turbolaser", 1, true) then return "turbolaser" end
+  if lower:find("laser", 1, true) then return "laser" end
+  if lower:find("ion", 1, true) then return "ion" end
+  if lower:find("missile", 1, true) then return "missile" end
+  if lower:find("torpedo", 1, true) then return "torpedo" end
+  if lower:find("rocket", 1, true) then return "rocket" end
+  if lower:find("burst", 1, true) or lower:find("pulse", 1, true) then return "burst" end
+  return nil
+end
+
+local function publishCombatEvent(event)
+  Scraper.combat.nextEventId = Scraper.combat.nextEventId + 1
+  event.id = Scraper.combat.nextEventId
+  event.observedAt = os.time()
+  event.targetName = event.targetName or Scraper.combat.targetName
+  Scraper.state.metadata.combatTarget = Scraper.combat.targetName
+  Scraper.state.metadata.combatEvent = event
+  return Scraper.publish()
+end
+
+function Scraper.handleCombatLine(text)
+  local value = trim(text)
+  local displayedTarget = value:match("^Target:%s+.-'([^']+)'")
+  if displayedTarget then
+    if Scraper.combat.targetName ~= displayedTarget then
+      Scraper.combat.targetName = displayedTarget
+      Scraper.state.observer.target = displayedTarget
+      Scraper.state.metadata.combatTarget = displayedTarget
+      Scraper.publish()
+    end
+    return true
+  end
+  local count, firedWeapon = value:match("^(%d+)%s+(.+)%s+fired%.%.%.$")
+  if count and firedWeapon then
+    local weapon = normalizeWeapon(firedWeapon)
+    if weapon then
+      publishCombatEvent({type = "launch", weapon = weapon, count = tonumber(count)})
+      return true
+    end
+  end
+
+  local hitWeapon, hitTarget = value:match("^Your ship's%s+(.+)%s+hit%s+.-'([^']+)'!$")
+  if hitWeapon and hitTarget then
+    local weapon = normalizeWeapon(hitWeapon)
+    if weapon then
+      publishCombatEvent({type = "impact", weapon = weapon, targetName = hitTarget, outcome = "hit"})
+      return true
+    end
+  end
+
+  local missedWeapon, missedTarget = value:match(
+    "^Your ship's%s+(.+)%s+fire%s+at%s+.-'([^']+)'%s+but%s+miss%.$")
+  if missedWeapon and missedTarget then
+    local weapon = normalizeWeapon(missedWeapon)
+    if weapon then
+      publishCombatEvent({type = "impact", weapon = weapon, targetName = missedTarget, outcome = "miss"})
+      return true
+    end
+  end
+
+  local chargedWeapon = value:match("^(.+)%s+fully%s+charged%.$")
+  if chargedWeapon then
+    local weapon = normalizeWeapon(chargedWeapon)
+    if weapon then
+      publishCombatEvent({type = "charged", weapon = weapon})
+      return true
+    end
+  end
+  return false
 end
 
 local function scanKey(entity)
@@ -951,10 +1036,12 @@ local function dispatchTargetShip(payload, message)
   end
   holdPollingForCommand(message and message.id or nil, 45,
     "Target lock timed out before LotJ confirmed Target Locked.", "target")
+  Scraper.combat.pendingTargetName = name
   Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "target " .. name)
   Scraper.polling.dispatching = false
   if not sent or sendResult == false then
+    Scraper.combat.pendingTargetName = nil
     resolvePendingCommand("rejected", tostring(sent and sendError or sendResult), 0.25)
     return false, tostring(sent and sendError or sendResult)
   end
@@ -970,7 +1057,14 @@ end
 
 local function completeTargetLock(status, reason)
   if Scraper.pendingCommandKind ~= "target" then return false end
+  if status == "completed" then
+    Scraper.combat.targetName = Scraper.combat.pendingTargetName
+    Scraper.state.observer.target = Scraper.combat.targetName
+    Scraper.state.metadata.combatTarget = Scraper.combat.targetName
+  end
+  Scraper.combat.pendingTargetName = nil
   resolvePendingCommand(status, reason, 0.25)
+  if status == "completed" then Scraper.publish() end
   if status == "completed" and Scraper.autotrack.desired
       and Scraper.autotrack.observed ~= true and not Scraper.autotrack.pending then
     local tracking, trackingError = requestAutotrack(true)
@@ -1003,6 +1097,73 @@ function Scraper.handleIncomingTargeting(text)
     return false
   end
   diagnostic("info", shipName .. " targeted the observer and was marked enemy")
+  return true
+end
+
+local FIRE_COMMANDS = {
+  autoblaster = {command = "fire autoblaster", field = "autoblasters"},
+  laser = {command = "fire laser", field = "laserCannons"},
+  turbolaser = {command = "fire turbolaser", field = "turbolasers"},
+  ion = {command = "fire ion", field = "ionCannons"},
+  missile = {command = "fire missile", field = "maximumMissiles", launcher = true, ammo = "missiles"},
+  torpedo = {command = "fire torpedo", field = "maximumTorpedoes", launcher = true, ammo = "torpedoes"},
+  rocket = {command = "fire rocket", field = "maximumRockets", launcher = true, ammo = "rockets"},
+  burst = {command = "fire burst", field = "maximumPulses", launcher = true},
+}
+local FIRE_ORDER = {"autoblaster", "laser", "turbolaser", "ion",
+  "missile", "torpedo", "rocket", "burst"}
+
+local function installedFireCommands(requested)
+  if requested == "best" then return {{weapon = "best", command = "fire"}} end
+  local weapons = Scraper.state.observer.weapons or {}
+  local function installed(weapon)
+    local definition = FIRE_COMMANDS[weapon]
+    local ammunition = definition and definition.ammo and Scraper.state.observer[definition.ammo] or nil
+    local depleted = type(ammunition) == "table" and tonumber(ammunition.current) == 0
+    return definition and not depleted and tonumber(weapons[definition.field] or 0) > 0
+      and (not definition.launcher or tonumber(weapons.missileTubes or 0) > 0)
+  end
+  local commands = {}
+  if requested == "all" then
+    for _, weapon in ipairs(FIRE_ORDER) do
+      if installed(weapon) then
+        table.insert(commands, {weapon = weapon, command = FIRE_COMMANDS[weapon].command})
+      end
+    end
+  elseif installed(requested) then
+    table.insert(commands, {weapon = requested, command = FIRE_COMMANDS[requested].command})
+  end
+  return commands
+end
+
+local function dispatchFireWeapon(payload)
+  local gateError = commandGateError()
+  if gateError then return false, gateError end
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "weapons are unavailable while landed"
+  end
+  if Scraper.state.observer.hasWeapons == false then return false, "this ship has no weapons" end
+  if not Scraper.combat.targetName then return false, "no combat target is locked" end
+  local requested = trim(payload.weapon):lower()
+  if requested ~= "all" and requested ~= "best" and not FIRE_COMMANDS[requested] then
+    return false, "unsupported weapon type"
+  end
+  local commands = installedFireCommands(requested)
+  if #commands == 0 then return false, "requested weapon is not installed" end
+
+  cancelPollTimer()
+  if Scraper.active then abandonCapture("superseded by weapons command") end
+  Scraper.polling.dispatching = true
+  for _, fire in ipairs(commands) do
+    local sent, sendResult, sendError = pcall(send, fire.command, false)
+    if not sent or sendResult == false then
+      Scraper.polling.dispatching = false
+      scheduleNextPoll(2)
+      return false, tostring(sent and sendError or sendResult)
+    end
+  end
+  Scraper.polling.dispatching = false
+  scheduleNextPoll(2)
   return true
 end
 
@@ -1094,6 +1255,7 @@ function Scraper.setup(proxy, options)
   Scraper.autotrack.intentId = nil
   Scraper.autotrack.retryCount = 0
   Scraper.autotrack.timeoutTimerId = nil
+  Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0}
   Scraper.state = freshState()
   Scraper.scanState = {}
   Scraper.eventHandlerIds = {
@@ -1130,6 +1292,9 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("^\\s*You are being targeted by .+'[^']+'\\.?\\s*$", function()
       Scraper.handleIncomingTargeting(line or "")
     end),
+    tempRegexTrigger("^\\s*(?:Target:\\s+.+|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.)\\s*$", function()
+      Scraper.handleCombatLine(line or "")
+    end),
     tempRegexTrigger("(?i)^.*auto.*track.*$", function()
       Scraper.handleAutotrackResponse(line or "")
     end),
@@ -1142,6 +1307,7 @@ function Scraper.setup(proxy, options)
     end)
     proxy.registerIntentHandler("scan_ship", dispatchManualShipScan)
     proxy.registerIntentHandler("target_ship", dispatchTargetShip)
+    proxy.registerIntentHandler("fire_weapon", dispatchFireWeapon)
     proxy.registerIntentHandler("set_autotrack", function(payload, message)
       if type(payload.enabled) ~= "boolean" then
         return false, "autotrack enabled must be a boolean"
@@ -1250,6 +1416,7 @@ function Scraper.teardown()
   Scraper.proxy = nil
   Scraper.pendingCommandIntentId = nil
   Scraper.pendingCommandKind = nil
+  Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0}
   safeKill("killTimer", Scraper.pendingCommandTimerId)
   Scraper.pendingCommandTimerId = nil
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
