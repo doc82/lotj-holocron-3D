@@ -69,6 +69,10 @@ export interface SystemSnapshot {
     combatTarget?: string;
     combatEvent?: CombatEvent;
     combatEvents?: CombatEvent[];
+    autoRechargeEnabled?: boolean;
+    shieldRecharging?: boolean;
+    shieldRechargeAttempts?: number;
+    shieldStatusPending?: boolean;
     [key: string]: unknown;
   };
 }

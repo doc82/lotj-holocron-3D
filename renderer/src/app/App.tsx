@@ -87,7 +87,7 @@ function MoveIcon() {
 }
 
 type CommandIconType = "target" | "scan" | "info" | "to" | "away" | "track"
-  | "cancel" | "neutral" | "friendly" | "enemy";
+  | "cancel" | "neutral" | "friendly" | "enemy" | "recharge" | "autoRecharge";
 
 function CommandIcon({ type }: { type: CommandIconType }) {
   const paths: Record<CommandIconType, ReactNode> = {
@@ -101,6 +101,8 @@ function CommandIcon({ type }: { type: CommandIconType }) {
     neutral: <><circle cx="16" cy="16" r="10" /><path d="M11 16h10" /></>,
     friendly: <><path d="M16 4 27 9v7c0 7-5 10-11 12C10 26 5 23 5 16V9Z" /><path d="m11 16 3 3 7-7" /></>,
     enemy: <><path d="M16 4 27 9v7c0 7-5 10-11 12C10 26 5 23 5 16V9Z" /><path d="m11 12 10 10M21 12 11 22" /></>,
+    recharge: <><path d="M16 3 27 8v8c0 7-5 11-11 13C10 27 5 23 5 16V8Z" /><path d="m18 8-7 10h6l-3 8 8-12h-6z" /></>,
+    autoRecharge: <><path d="M16 4 26 8v8c0 6-4 10-10 12C10 26 6 22 6 16V8Z" /><path d="M11 16a5 5 0 0 1 8-4M21 11v4h-4M21 17a5 5 0 0 1-8 4M11 22v-4h4" /></>,
   };
   return <svg viewBox="0 0 32 32" aria-hidden="true">{paths[type]}</svg>;
 }
@@ -212,6 +214,16 @@ export function App() {
   const combatTargetName = reportedCombatTarget && reportedCombatTarget.toLowerCase() !== "none"
     ? reportedCombatTarget
     : null;
+  const shieldReading = observer.shields && typeof observer.shields === "object"
+    ? observer.shields as { current?: number; maximum?: number }
+    : null;
+  const shieldsFull = Number.isFinite(shieldReading?.current)
+    && Number.isFinite(shieldReading?.maximum)
+    && Number(shieldReading?.maximum) > 0
+    && Number(shieldReading?.current) >= Number(shieldReading?.maximum);
+  const shieldRecharging = telemetry.snapshot?.metadata?.shieldRecharging === true;
+  const shieldStatusPending = telemetry.snapshot?.metadata?.shieldStatusPending === true;
+  const autoRechargeEnabled = telemetry.snapshot?.metadata?.autoRechargeEnabled !== false;
 
   const cancelNavigation = useCallback(() => {
     setNavigationMode("idle");
@@ -414,6 +426,24 @@ export function App() {
     const result = await window.holocron?.sendIntent("fire_weapon", { weapon });
     return result?.accepted === false ? result.reason || "fire order rejected" : null;
   }, [commandLocked, landed, telemetry.connected]);
+
+  const rechargeShields = useCallback(async () => {
+    if (!telemetry.connected || landed || commandLocked || shieldRecharging || shieldsFull) return;
+    const result = await window.holocron?.sendIntent("recharge_shields");
+    if (result?.accepted === false) {
+      setCommandAlert(`SHIELD RECHARGE REJECTED // ${(result.reason || "UNKNOWN").toUpperCase()}`);
+      return;
+    }
+    if (result?.id) pendingIntentIdsRef.current.add(result.id);
+  }, [commandLocked, landed, shieldRecharging, shieldsFull, telemetry.connected]);
+
+  const toggleAutoRecharge = useCallback(async () => {
+    const enabled = !autoRechargeEnabled;
+    const result = await window.holocron?.sendIntent("set_auto_recharge", { enabled });
+    if (result?.accepted === false) {
+      setCommandAlert(`AUTO RECHARGE REJECTED // ${(result.reason || "UNKNOWN").toUpperCase()}`);
+    }
+  }, [autoRechargeEnabled]);
 
   useEffect(() => {
     if (observedMaximumSpeed > 0 && observedMaximumSpeed !== knownMaximumSpeed) {
@@ -708,6 +738,23 @@ export function App() {
                       data-tooltip={`AUTOTRACK ${autotrackPending ? "AWAITING CONFIRMATION" : autotrackDesired ? "ON" : "OFF"}`}
                       onClick={() => void toggleAutotrack()}
                     ><CommandIcon type="track" /></button>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      disabled={landed || commandLocked || shieldRecharging || shieldStatusPending || shieldsFull}
+                      aria-label="Recharge shields to full"
+                      data-tooltip={shieldsFull ? "SHIELDS AT PEAK POWER" : shieldRecharging ? "SHIELD RECHARGE RUNNING" : "RECHARGE SHIELDS TO FULL"}
+                      onClick={() => void rechargeShields()}
+                    ><CommandIcon type="recharge" /></button>
+                    <button
+                      type="button"
+                      className={`${styles.iconButton} ${autoRechargeEnabled ? styles.activeOrder : ""}`}
+                      disabled={landed}
+                      aria-label={`${autoRechargeEnabled ? "Disable" : "Enable"} automatic shield recharge`}
+                      aria-pressed={autoRechargeEnabled}
+                      data-tooltip={`AUTO RECHARGE ${autoRechargeEnabled ? "ON" : "OFF"}`}
+                      onClick={() => void toggleAutoRecharge()}
+                    ><CommandIcon type="autoRecharge" /></button>
                   </div>
                   {selectedShip && <div className={styles.aggressiveWarning}>TARGET // WEAPON LOCK IS AN AGGRESSIVE ACT</div>}
                   <ShipSpeedControl

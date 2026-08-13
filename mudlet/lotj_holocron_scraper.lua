@@ -10,6 +10,7 @@ local Scraper = {
   POLL_CYCLE_DELAY_SECONDS = 5,
   HOSTILE_SCAN_INTERVAL_SECONDS = 4,
   STANDARD_SCAN_INTERVAL_SECONDS = 10,
+  COMBAT_RADAR_INTERVAL_SECONDS = 2,
   eventHandlerIds = {},
   stateTriggerIds = {},
   active = nil,
@@ -22,7 +23,11 @@ local Scraper = {
   pendingCommandTimerId = nil,
   pendingCommandKind = nil,
   combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
-    lastFireWeapon = nil, projectileRadarRequestedAt = 0},
+    lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
+    lastActivityAt = 0},
+  shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
+    damageTimerId = nil, actionTimerId = nil, statusPending = false,
+    manualIntentId = nil, activationPending = false},
   autotrack = {
     desired = true,
     observed = nil,
@@ -35,6 +40,8 @@ local Scraper = {
 
 local scheduleNextPoll
 local requestAutotrack
+local ensureShieldsOn
+local handleShieldStatus
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -87,6 +94,10 @@ local function freshState()
       inSpace = nil,
       autotrackDesired = Scraper.autotrack.desired ~= false,
       autotrackPending = false,
+      autoRechargeEnabled = Scraper.shields.auto ~= false,
+      shieldRecharging = false,
+      shieldRechargeAttempts = 0,
+      shieldStatusPending = false,
     },
   }
 end
@@ -213,6 +224,7 @@ function Scraper.applyResult(result, sentCommand)
   Scraper.state.metadata.sources[source] = os.time()
 
   if source == "radar" then
+    Scraper.combat.lastRadarAt = os.time()
     if result.system then Scraper.state.metadata.system = result.system end
     if result.observer then
       Scraper.state.observer.x = result.observer.x
@@ -339,6 +351,20 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.state.metadata.combatEvents = nil
     Scraper.combat.targetName = nil
     Scraper.combat.pendingTargetName = nil
+    Scraper.combat.lastActivityAt = 0
+    Scraper.combat.lastRadarAt = 0
+    safeKill("killTimer", Scraper.shields.damageTimerId)
+    safeKill("killTimer", Scraper.shields.actionTimerId)
+    Scraper.shields.damageTimerId = nil
+    Scraper.shields.actionTimerId = nil
+    Scraper.shields.recharging = false
+    Scraper.shields.awaiting = false
+    Scraper.shields.attempts = 0
+    Scraper.shields.statusPending = false
+    Scraper.shields.manualIntentId = nil
+    Scraper.shields.activationPending = false
+    Scraper.state.metadata.shieldRecharging = false
+    Scraper.state.metadata.shieldStatusPending = false
   elseif Scraper.polling.enabled and scheduleNextPoll then
     scheduleNextPoll(0.25)
   end
@@ -364,6 +390,9 @@ function Scraper.setInSpace(inSpace, reason)
   diagnostic("info", inSpace
     and ("space scraping enabled: " .. tostring(reason or "ship launched"))
     or ("space scraping disabled: " .. tostring(reason or "ship is landed")))
+  if inSpace and changed and ensureShieldsOn then
+    tempTimer(0.1, ensureShieldsOn)
+  end
   return true
 end
 
@@ -434,6 +463,10 @@ function Scraper.finishCapture(reason)
     return nil, applyError
   end
   Scraper.state.metadata.lastCapturePolled = capture.polled == true
+  if parsed.source == "status" and trim(capture.sentCommand):lower() == "status"
+      and handleShieldStatus then
+    handleShieldStatus(parsed)
+  end
 
   local published, publishError = Scraper.publish()
   if not published then
@@ -552,6 +585,7 @@ local function normalizeWeapon(value)
 end
 
 local function publishCombatEvent(event)
+  Scraper.combat.lastActivityAt = os.time()
   Scraper.combat.nextEventId = Scraper.combat.nextEventId + 1
   event.id = Scraper.combat.nextEventId
   event.observedAt = os.time()
@@ -572,6 +606,7 @@ function Scraper.handleCombatLine(text)
   if displayedTarget then
     if Scraper.combat.targetName ~= displayedTarget then
       Scraper.combat.targetName = displayedTarget
+      Scraper.combat.lastActivityAt = os.time()
       Scraper.state.observer.target = displayedTarget
       Scraper.state.metadata.combatTarget = displayedTarget
       Scraper.publish()
@@ -709,6 +744,7 @@ local function updatePollingMetadata(command)
     cycleDelaySeconds = Scraper.polling.cycleDelaySeconds,
     hostileScanIntervalSeconds = Scraper.polling.hostileScanIntervalSeconds,
     standardScanIntervalSeconds = Scraper.polling.standardScanIntervalSeconds,
+    combatRadarIntervalSeconds = Scraper.polling.combatRadarIntervalSeconds,
   }
 end
 
@@ -725,16 +761,26 @@ local function pollOnce()
     return
   end
 
-  local scanCandidate = scanCommandDue()
+  local now = os.time()
+  local recentlyActive = now - (Scraper.combat.lastActivityAt or 0) <= 30
+  local combatActive = Scraper.combat.targetName ~= nil or recentlyActive
+  local combatRadarDue = combatActive
+    and now - (Scraper.combat.lastRadarAt or 0)
+      >= (Scraper.polling.combatRadarIntervalSeconds or Scraper.COMBAT_RADAR_INTERVAL_SECONDS)
+  local scanCandidate = not combatRadarDue and scanCommandDue() or nil
   local dueScan = scanCandidate and (scanCandidate.discovery
     or Scraper.polling.scansSinceCore < 2) and scanCandidate or nil
   local command
-  if dueScan then
+  if combatRadarDue then
+    command = "radar projectiles"
+    Scraper.polling.scansSinceCore = 0
+  elseif dueScan then
     command = dueScan.command
     Scraper.polling.scansSinceCore = Scraper.polling.scansSinceCore + 1
     Scraper.scanState[dueScan.key][dueScan.source .. "At"] = os.time()
   else
     command = Scraper.POLL_COMMANDS[Scraper.polling.index]
+    if combatActive and command == "radar" then command = "radar projectiles" end
     Scraper.polling.scansSinceCore = 0
   end
   if dueScan then
@@ -749,12 +795,14 @@ local function pollOnce()
     if not sent then abandonCapture("scan send failed") end
     return
   end
-  Scraper.polling.index = Scraper.polling.index + 1
-  local completedCycle = Scraper.polling.index > #Scraper.POLL_COMMANDS
-  if completedCycle then Scraper.polling.index = 1 end
-  local delay = completedCycle
-    and Scraper.polling.cycleDelaySeconds
-    or Scraper.polling.commandGapSeconds
+  local completedCycle = false
+  if not combatRadarDue then
+    Scraper.polling.index = Scraper.polling.index + 1
+    completedCycle = Scraper.polling.index > #Scraper.POLL_COMMANDS
+    if completedCycle then Scraper.polling.index = 1 end
+  end
+  local delay = combatRadarDue and 0.5 or completedCycle
+    and Scraper.polling.cycleDelaySeconds or Scraper.polling.commandGapSeconds
 
   local parserCommand = parserForCommand(command)
   local started, startError = Scraper.startCapture(parserCommand, command, {
@@ -791,6 +839,7 @@ function Scraper.handleProjectileSummary(text)
   local total, incoming = trim(text):match("^(%d+)%s+projectiles?,%s+(%d+)%s+incoming")
   if not total then return false end
   total, incoming = tonumber(total) or 0, tonumber(incoming) or 0
+  if total > 0 or incoming > 0 then Scraper.combat.lastActivityAt = os.time() end
   Scraper.state.metadata.projectileCount = total
   Scraper.state.metadata.incomingProjectileCount = incoming
   Scraper.publish()
@@ -837,6 +886,8 @@ function Scraper.startPolling(options)
     tonumber(options.hostileScanIntervalSeconds) or Scraper.HOSTILE_SCAN_INTERVAL_SECONDS)
   Scraper.polling.standardScanIntervalSeconds = math.max(5,
     tonumber(options.standardScanIntervalSeconds) or Scraper.STANDARD_SCAN_INTERVAL_SECONDS)
+  Scraper.polling.combatRadarIntervalSeconds = math.max(1,
+    tonumber(options.combatRadarIntervalSeconds) or Scraper.COMBAT_RADAR_INTERVAL_SECONDS)
   Scraper.polling.scansSinceCore = 2
   updatePollingMetadata(nil)
   scheduleNextPoll(tonumber(options.initialDelaySeconds) or 0.5)
@@ -899,6 +950,233 @@ local function commandGateError()
     return "another ship command is awaiting completion"
   end
   return nil
+end
+
+local sendRechargeAttempt
+local requestShieldStatus
+
+local function publishShieldState()
+  if not Scraper.state then return end
+  Scraper.state.metadata.autoRechargeEnabled = Scraper.shields.auto ~= false
+  Scraper.state.metadata.shieldRecharging = Scraper.shields.recharging == true
+  Scraper.state.metadata.shieldRechargeAttempts = Scraper.shields.attempts or 0
+  Scraper.state.metadata.shieldStatusPending = Scraper.shields.statusPending == true
+  Scraper.publish()
+end
+
+local function finishShieldRecharge(status, reason)
+  local intentId = Scraper.shields.manualIntentId
+  Scraper.shields.manualIntentId = nil
+  Scraper.shields.recharging = false
+  Scraper.shields.awaiting = false
+  Scraper.shields.attempts = 0
+  Scraper.shields.statusPending = false
+  Scraper.shields.checkForRecharge = false
+  safeKill("killTimer", Scraper.shields.actionTimerId)
+  Scraper.shields.actionTimerId = nil
+  publishShieldState()
+  if intentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+    Scraper.proxy.publishIntentAck(intentId, status, reason)
+  end
+  scheduleNextPoll(0.25)
+end
+
+requestShieldStatus = function(checkForRecharge)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return false end
+  if Scraper.pendingCommandKind == "target" or Scraper.active then
+    safeKill("killTimer", Scraper.shields.actionTimerId)
+    Scraper.shields.actionTimerId = tempTimer(0.35, function()
+      Scraper.shields.actionTimerId = nil
+      requestShieldStatus(checkForRecharge)
+    end)
+    return false
+  end
+  cancelPollTimer()
+  local started, startError = Scraper.startCapture("status", "status", {
+    polled = true,
+    pollDelay = 0.25,
+  })
+  if not started then
+    diagnostic("warn", "shield status check could not start: " .. tostring(startError))
+    scheduleNextPoll(0.5)
+    return false
+  end
+  Scraper.shields.statusPending = true
+  Scraper.shields.checkForRecharge = checkForRecharge == true
+  publishShieldState()
+  Scraper.polling.dispatching = true
+  local sent, sendResult, sendError = pcall(send, "status", false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    abandonCapture("shield status send failed")
+    Scraper.shields.statusPending = false
+    publishShieldState()
+    diagnostic("warn", "shield status check could not send: "
+      .. tostring(sent and sendError or sendResult))
+    return false
+  end
+  return true
+end
+
+local function beginShieldRecharge(intentId)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "shield recharge is unavailable while landed"
+  end
+  if Scraper.pendingCommandKind == "target" then
+    return false, "target lock is still concentrating; wait for Target Locked."
+  end
+  local shields = Scraper.state.observer.shields
+  if type(shields) == "table" and tonumber(shields.maximum)
+      and tonumber(shields.current) and tonumber(shields.current) >= tonumber(shields.maximum) then
+    return false, "shields are already at peak power"
+  end
+  if Scraper.shields.recharging then return false, "shield recharge is already running" end
+  Scraper.shields.recharging = true
+  Scraper.shields.awaiting = false
+  Scraper.shields.attempts = 0
+  Scraper.shields.manualIntentId = intentId
+  publishShieldState()
+  sendRechargeAttempt()
+  return true
+end
+
+sendRechargeAttempt = function()
+  if not Scraper.shields.recharging or Scraper.shields.awaiting then return end
+  if Scraper.pendingCommandKind == "target" or Scraper.shields.statusPending then
+    safeKill("killTimer", Scraper.shields.actionTimerId)
+    Scraper.shields.actionTimerId = tempTimer(0.25, function()
+      Scraper.shields.actionTimerId = nil
+      sendRechargeAttempt()
+    end)
+    return
+  end
+  cancelPollTimer()
+  if Scraper.active then abandonCapture("superseded by shield recharge") end
+  Scraper.polling.dispatching = true
+  local sent, sendResult, sendError = pcall(send, "recharge", false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    finishShieldRecharge("rejected", tostring(sent and sendError or sendResult))
+    return
+  end
+  Scraper.shields.awaiting = true
+  publishShieldState()
+  safeKill("killTimer", Scraper.shields.actionTimerId)
+  Scraper.shields.actionTimerId = tempTimer(4, function()
+    Scraper.shields.actionTimerId = nil
+    if Scraper.shields.awaiting then
+      finishShieldRecharge("rejected", "LotJ did not confirm the shield recharge.")
+    end
+  end)
+end
+
+handleShieldStatus = function(result)
+  local wasCheck = Scraper.shields.checkForRecharge == true
+  Scraper.shields.statusPending = false
+  Scraper.shields.checkForRecharge = false
+  local shields = result and result.shields
+  local current = type(shields) == "table" and tonumber(shields.current) or nil
+  local maximum = type(shields) == "table" and tonumber(shields.maximum) or nil
+  if current and maximum and current >= maximum then
+    if Scraper.shields.recharging then
+      finishShieldRecharge("completed", "Shields confirmed at peak power.")
+    else
+      publishShieldState()
+    end
+  elseif Scraper.shields.recharging then
+    Scraper.shields.attempts = 0
+    publishShieldState()
+    sendRechargeAttempt()
+  elseif wasCheck and Scraper.shields.auto and current and maximum and current < maximum then
+    beginShieldRecharge(nil)
+  else
+    publishShieldState()
+  end
+end
+
+function Scraper.handleRechargeResponse(text)
+  local response = trim(text)
+  if response == "Recharging shields.." then
+    if not Scraper.shields.recharging then return false end
+    Scraper.shields.awaiting = false
+    safeKill("killTimer", Scraper.shields.actionTimerId)
+    Scraper.shields.actionTimerId = nil
+    Scraper.shields.attempts = Scraper.shields.attempts + 1
+    publishShieldState()
+    if Scraper.shields.attempts >= 10 then
+      requestShieldStatus(true)
+    else
+      Scraper.shields.actionTimerId = tempTimer(0.25, function()
+        Scraper.shields.actionTimerId = nil
+        sendRechargeAttempt()
+      end)
+    end
+    return true
+  end
+  if response == "The shields are already at peak power." then
+    if type(Scraper.state.observer.shields) == "table"
+        and Scraper.state.observer.shields.maximum then
+      Scraper.state.observer.shields.current = Scraper.state.observer.shields.maximum
+    end
+    finishShieldRecharge("completed", response)
+    return true
+  end
+  return false
+end
+
+function Scraper.handleShipHit(text, critical)
+  if not critical and not trim(text):match("^You are hit by .+ from .-'[^']+'!") then
+    return false
+  end
+  Scraper.combat.lastActivityAt = os.time()
+  if not Scraper.shields.auto then return true end
+  safeKill("killTimer", Scraper.shields.damageTimerId)
+  Scraper.shields.damageTimerId = nil
+  if critical then
+    if not Scraper.shields.recharging then
+      local started = beginShieldRecharge(nil)
+      if not started and Scraper.pendingCommandKind == "target" then
+        Scraper.shields.damageTimerId = tempTimer(0.35, function()
+          Scraper.shields.damageTimerId = nil
+          Scraper.handleShipHit(text, true)
+        end)
+      end
+    end
+  else
+    Scraper.shields.damageTimerId = tempTimer(3, function()
+      Scraper.shields.damageTimerId = nil
+      requestShieldStatus(true)
+    end)
+  end
+  return true
+end
+
+ensureShieldsOn = function()
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return false end
+  if Scraper.pendingCommandKind == "target" then
+    tempTimer(0.5, ensureShieldsOn)
+    return false
+  end
+  Scraper.polling.dispatching = true
+  local sent, sendResult = pcall(send, "shields on", false)
+  Scraper.polling.dispatching = false
+  Scraper.shields.activationPending = sent and sendResult ~= false
+  return Scraper.shields.activationPending
+end
+
+function Scraper.handleShieldPowerResponse(text)
+  local response = trim(text)
+  if response == "Shields ON. Autorecharge ON." then
+    Scraper.shields.activationPending = false
+    Scraper.state.observer.shieldsActive = true
+  elseif response == "Autorecharge OFF. Shields IDLING." then
+    Scraper.shields.activationPending = false
+    Scraper.state.observer.shieldsActive = false
+  else
+    return false
+  end
+  publishShieldState()
+  return true
 end
 
 local function dispatchManualShipScan(payload, message)
@@ -1137,6 +1415,7 @@ local function completeTargetLock(status, reason)
   if Scraper.pendingCommandKind ~= "target" then return false end
   if status == "completed" then
     Scraper.combat.targetName = Scraper.combat.pendingTargetName
+    Scraper.combat.lastActivityAt = os.time()
     Scraper.state.observer.target = Scraper.combat.targetName
     Scraper.state.metadata.combatTarget = Scraper.combat.targetName
   end
@@ -1168,6 +1447,7 @@ end
 function Scraper.handleIncomingTargeting(text)
   local shipName = trim(text):match("^You are being targeted by .-'([^']+)'%.?$")
   if not shipName then return false end
+  Scraper.combat.lastActivityAt = os.time()
   local marked, markError = Scraper.setDisposition(shipName, "enemy")
   if not marked then
     diagnostic("warn", "could not mark targeting ship " .. shipName .. " as enemy: "
@@ -1230,7 +1510,12 @@ local function dispatchFireWeapon(payload)
   if #commands == 0 then return false, "requested weapon is not installed" end
 
   cancelPollTimer()
+  local interruptedShieldCheck = Scraper.shields.statusPending == true
   if Scraper.active then abandonCapture("superseded by weapons command") end
+  if interruptedShieldCheck then
+    Scraper.shields.statusPending = false
+    Scraper.shields.checkForRecharge = true
+  end
   Scraper.polling.dispatching = true
   for _, fire in ipairs(commands) do
     Scraper.combat.lastFireWeapon = fire.weapon
@@ -1242,7 +1527,14 @@ local function dispatchFireWeapon(payload)
     end
   end
   Scraper.polling.dispatching = false
-  scheduleNextPoll(2)
+  if interruptedShieldCheck then
+    Scraper.shields.actionTimerId = tempTimer(0.35, function()
+      Scraper.shields.actionTimerId = nil
+      requestShieldStatus(true)
+    end)
+  else
+    scheduleNextPoll(2)
+  end
   return true
 end
 
@@ -1335,7 +1627,16 @@ function Scraper.setup(proxy, options)
   Scraper.autotrack.retryCount = 0
   Scraper.autotrack.timeoutTimerId = nil
   Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
-    lastFireWeapon = nil, projectileRadarRequestedAt = 0}
+    lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
+    lastActivityAt = 0}
+  safeKill("killTimer", Scraper.shields.damageTimerId)
+  safeKill("killTimer", Scraper.shields.actionTimerId)
+  Scraper.shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
+    damageTimerId = nil, actionTimerId = nil, statusPending = false,
+    manualIntentId = nil, activationPending = false}
+  Scraper.shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
+    damageTimerId = nil, actionTimerId = nil, statusPending = false,
+    manualIntentId = nil, activationPending = false}
   Scraper.state = freshState()
   Scraper.scanState = {}
   Scraper.eventHandlerIds = {
@@ -1372,6 +1673,18 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("^\\s*You are being targeted by .+'[^']+'\\.?\\s*$", function()
       Scraper.handleIncomingTargeting(line or "")
     end),
+    tempRegexTrigger("^\\s*You are hit by .+ from .+'[^']+'!.*$", function()
+      Scraper.handleShipHit(line or "", false)
+    end),
+    tempTrigger("[WARNING]: Critical power overload... Shields down!", function()
+      Scraper.handleShipHit(line or "", true)
+    end),
+    tempRegexTrigger("^\\s*(?:Recharging shields\\.\\.|The shields are already at peak power\\.)\\s*$", function()
+      Scraper.handleRechargeResponse(line or "")
+    end),
+    tempRegexTrigger("^\\s*(?:Shields ON\\. Autorecharge ON\\.|Autorecharge OFF\\. Shields IDLING\\.)\\s*$", function()
+      Scraper.handleShieldPowerResponse(line or "")
+    end),
     tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
       Scraper.handleCombatLine(line or "")
     end),
@@ -1391,6 +1704,17 @@ function Scraper.setup(proxy, options)
     proxy.registerIntentHandler("scan_ship", dispatchManualShipScan)
     proxy.registerIntentHandler("target_ship", dispatchTargetShip)
     proxy.registerIntentHandler("fire_weapon", dispatchFireWeapon)
+    proxy.registerIntentHandler("recharge_shields", function(_, message)
+      return beginShieldRecharge(message and message.id or nil)
+    end)
+    proxy.registerIntentHandler("set_auto_recharge", function(payload)
+      if type(payload.enabled) ~= "boolean" then
+        return false, "auto recharge enabled must be a boolean"
+      end
+      Scraper.shields.auto = payload.enabled
+      publishShieldState()
+      return true
+    end)
     proxy.registerIntentHandler("set_autotrack", function(payload, message)
       if type(payload.enabled) ~= "boolean" then
         return false, "autotrack enabled must be a boolean"
@@ -1500,7 +1824,8 @@ function Scraper.teardown()
   Scraper.pendingCommandIntentId = nil
   Scraper.pendingCommandKind = nil
   Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
-    lastFireWeapon = nil, projectileRadarRequestedAt = 0}
+    lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
+    lastActivityAt = 0}
   safeKill("killTimer", Scraper.pendingCommandTimerId)
   Scraper.pendingCommandTimerId = nil
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)

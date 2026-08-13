@@ -441,15 +441,18 @@ export class TacticalEngine {
 
   private rebuildPointBuffers(): void {
     const strategic = this.scene.points.flatMap((point) => {
-      const size = point.kind === "cluster" ? Math.min(18, point.pointSize) : point.kind === "observer" ? 8 : 5;
+      const size = point.kind === "cluster" ? Math.min(18, point.pointSize)
+        : point.kind === "observer" ? 8 : point.kind === "projectile" ? point.pointSize : 5;
       return this.interleavedVertex(
-        point.position3d, point.color, size, 0, this.headingFor(point),
+        point.position3d, point.color, size,
+        point.kind === "projectile" ? point.markerShape : 0, this.headingFor(point),
       );
     });
     const landmarks = this.scene.points
       .filter((point) => !["ship", "observer"].includes(point.kind))
       .flatMap((point) => this.interleavedVertex(
-        point.position3d, point.color, point.pointSize, 0, this.headingFor(point),
+        point.position3d, point.color, point.pointSize,
+        point.kind === "projectile" ? point.markerShape : 0, this.headingFor(point),
       ));
     this.pointCount = this.scene.points.length;
     this.landmarkCount = landmarks.length / 11;

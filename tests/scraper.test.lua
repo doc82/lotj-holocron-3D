@@ -101,7 +101,7 @@ end
 
 assert(scraper.setup(proxy))
 assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 11,
+assert(#scraper.stateTriggerIds == 15,
   "expected space, maneuver, targeting, and autotrack response triggers")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
@@ -392,6 +392,17 @@ end
 assert(trackedProjectile and trackedProjectile.name == "A Concussion Missile",
   "radar projectiles should add live ordnance to the tactical snapshot")
 
+scraper.combat.lastRadarAt = 0
+local combatRadarTimer = scraper.getPollingState().timerId
+assert(combatRadarTimer and timers[combatRadarTimer])
+timers[combatRadarTimer].callback()
+assert(sentCommands[#sentCommands].command == "radar projectiles",
+  "combat should prioritize the projectile-inclusive radar command")
+scraper.captureLine("Corellian System")
+scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
+scraper.captureLine("A Concussion Missile  90 22 18")
+scraper.captureLine("Your Coordinates:  20 30 40")
+
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({
   targetId = "wayfarer", source = "info",
@@ -485,6 +496,42 @@ assert(snapshots[#snapshots].metadata.autotrackDesired == false)
 assert(intentAcks[#intentAcks].id == "autotrack-off-test-1"
     and intentAcks[#intentAcks].status == "completed",
   "the desired autotrack state should complete only after LotJ confirms it")
+
+assert(type(intentHandlers.recharge_shields) == "function",
+  "manual shield recharge intent should be registered")
+assert(type(intentHandlers.set_auto_recharge) == "function",
+  "automatic shield recharge toggle should be registered")
+scraper.pendingCommandKind = nil
+scraper.state.observer.shields = {current = 40, maximum = 100}
+local recharging, rechargeError = intentHandlers.recharge_shields({}, {id = "recharge-test-1"})
+assert(recharging, rechargeError)
+assert(sentCommands[#sentCommands].command == "recharge")
+for attempt = 1, 9 do
+  assert(scraper.handleRechargeResponse("Recharging shields.."))
+  local timerId = scraper.shields.actionTimerId
+  assert(timerId and timers[timerId])
+  timers[timerId].callback()
+  assert(sentCommands[#sentCommands].command == "recharge")
+end
+assert(scraper.handleRechargeResponse("Recharging shields.."))
+assert(scraper.shields.statusPending == true,
+  "ten successful recharge attempts should force an authoritative status check")
+assert(sentCommands[#sentCommands].command == "status")
+scraper.captureLine("Readout for Rojan-class Patrol Craft 'Forrestal':")
+scraper.captureLine("Shields: 100/100 [100%]")
+assert(scraper.finishCapture("shield safety check"))
+assert(scraper.shields.recharging == false)
+assert(intentAcks[#intentAcks].id == "recharge-test-1"
+    and intentAcks[#intentAcks].status == "completed")
+
+scraper.state.observer.shields = {current = 50, maximum = 100}
+assert(scraper.handleShipHit(
+  "You are hit by lasers from Assassin-Class Corvette 'Calculated'!", false))
+local damageTimerId = scraper.shields.damageTimerId
+assert(damageTimerId and timers[damageTimerId])
+timers[damageTimerId].callback()
+assert(sentCommands[#sentCommands].command == "status",
+  "a damage burst should schedule one consolidated shield status check")
 
 scraper.state.observer.hasWeapons = false
 local unarmedTarget, unarmedTargetError = intentHandlers.target_ship({targetId = "wayfarer"})

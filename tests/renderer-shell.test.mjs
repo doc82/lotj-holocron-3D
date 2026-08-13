@@ -333,6 +333,7 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(panel, /lastEventIdRef/);
   assert.match(engine, /rebuildCombatBuffers/);
   assert.match(engine, /combatEffects/);
+  assert.match(engine, /point\.kind === "projectile" \? point\.markerShape/);
   assert.match(scraper, /registerIntentHandler\("fire_weapon"/);
   assert.match(scraper, /handleCombatLine/);
   assert.match(scraper, /handleProjectileSummary/);
@@ -341,4 +342,23 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(scraper, /launcher%\(s%\)%s\+reloaded/);
   assert.match(scraper, /fully%s\+charged/);
   assert.match(scraper, /but%s\+miss/);
+});
+
+test("shield automation activates on launch and safely recharges to full", async () => {
+  const [app, scraper] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+  ]);
+  assert.match(app, /sendIntent\("recharge_shields"/);
+  assert.match(app, /sendIntent\("set_auto_recharge"/);
+  assert.match(app, /SHIELDS AT PEAK POWER/);
+  assert.match(app, /AUTO RECHARGE/);
+  assert.match(scraper, /send, "shields on", false/);
+  assert.match(scraper, /Recharging shields\.\./);
+  assert.match(scraper, /The shields are already at peak power\./);
+  assert.match(scraper, /Scraper\.shields\.attempts >= 10/);
+  assert.match(scraper, /tempTimer\(3/);
+  assert.match(scraper, /Critical power overload\.\.\. Shields down!/);
+  assert.match(scraper, /registerIntentHandler\("recharge_shields"/);
+  assert.match(scraper, /registerIntentHandler\("set_auto_recharge"/);
 });
