@@ -101,7 +101,7 @@ end
 
 assert(scraper.setup(proxy))
 assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 10,
+assert(#scraper.stateTriggerIds == 11,
   "expected space, maneuver, targeting, and autotrack response triggers")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
@@ -358,6 +358,35 @@ assert(scraper.handleCombatLine("Ion cannons fully charged."))
 assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
 assert(#snapshots == combatSnapshots + 3,
   "launch, impact, and recharge messages should each publish combat telemetry")
+
+assert(scraper.handleCombatLine("You fail to lock on to your target!"))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "failure")
+assert(snapshots[#snapshots].metadata.combatEvent.weapon == "missile")
+assert(scraper.handleCombatLine("Missile launcher(s) reloaded."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
+assert(scraper.handleCombatLine(
+  "A missile is launched toward Mark-I Assault Frigate 'Wayfarer' by your ship."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "launch")
+assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
+assert(scraper.handleCombatLine(
+  "Your ship's missile hits Mark-I Assault Frigate 'Wayfarer' dead on!"))
+assert(snapshots[#snapshots].metadata.combatEvent.outcome == "hit")
+
+local commandsBeforeProjectileRadar = #sentCommands
+assert(scraper.handleProjectileSummary("1 projectiles, 0 incoming (See radar projectiles)"))
+assert(#sentCommands == commandsBeforeProjectileRadar + 1)
+assert(sentCommands[#sentCommands].command == "radar projectiles")
+assert(scraper.active and scraper.active.sentCommand == "radar projectiles")
+scraper.captureLine("Corellian System")
+scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
+scraper.captureLine("A Concussion Missile  110 25 20")
+scraper.captureLine("Your Coordinates:  20 30 40")
+local trackedProjectile
+for _, entity in ipairs(snapshots[#snapshots].entities) do
+  if entity.kind == "projectile" then trackedProjectile = entity end
+end
+assert(trackedProjectile and trackedProjectile.name == "A Concussion Missile",
+  "radar projectiles should add live ordnance to the tactical snapshot")
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({

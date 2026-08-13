@@ -39,6 +39,7 @@ function finite(value: unknown, fallback = 0): number {
 
 export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position">): Color3 {
   if (entity.id === "player-ship") return [0.5, 0.96, 1];
+  if (entity.kind === "projectile") return [1, 0.46, 0.08];
   if (["celestial", "planet", "star"].includes(entity.kind ?? "")) return [0.66, 0.5, 1];
   if (entity.kind === "ship") {
     const disposition = (entity as TelemetryEntity).disposition;

@@ -22,7 +22,6 @@ const WEAPONS: WeaponDefinition[] = [
   { type: "rocket", label: "ROCKET", field: "maximumRockets", launcher: true, ammoField: "rockets", description: "Fast unguided projectile" },
   { type: "burst", label: "BURST", field: "maximumPulses", launcher: true, description: "Pulse launcher burst" },
 ];
-const ENERGY_WEAPONS = new Set<WeaponType>(["autoblaster", "laser", "turbolaser", "ion"]);
 
 function WeaponIcon({ type }: { type: WeaponType | "all" }) {
   const paths = {
@@ -59,7 +58,7 @@ export function WeaponsPanel({ observer, targetName, event, disabled, onFire }: 
   useEffect(() => {
     if (!event) return;
     if (event.type === "launch") {
-      if (ENERGY_WEAPONS.has(event.weapon)) {
+      if (event.weapon !== "best") {
         setCharging((current) => new Set(current).add(event.weapon));
       }
       setStatus(`${event.count || 1} ${event.weapon.toUpperCase()} // FIRED`);
@@ -71,7 +70,10 @@ export function WeaponsPanel({ observer, targetName, event, disabled, onFire }: 
         next.delete(event.weapon);
         return next;
       });
-      setStatus(`${event.weapon.toUpperCase()} // FULLY CHARGED`);
+      const launcher = WEAPONS.find((weapon) => weapon.type === event.weapon)?.launcher;
+      setStatus(`${event.weapon.toUpperCase()} // ${launcher ? "LAUNCHER RELOADED" : "FULLY CHARGED"}`);
+    } else if (event.type === "failure") {
+      setStatus(`${event.weapon.toUpperCase()} // ${(event.reason || "FIRE CONTROL LOCK FAILED").toUpperCase()}`);
     }
   }, [event]);
 
@@ -112,7 +114,7 @@ export function WeaponsPanel({ observer, targetName, event, disabled, onFire }: 
             aria-label={`Fire ${weapon.label.toLowerCase()}`}
             onClick={() => void fire(weapon.type)}
           >
-            <WeaponIcon type={weapon.type} /><span>{recharging ? "CHARGING" : count}</span>
+            <WeaponIcon type={weapon.type} /><span>{recharging ? weapon.launcher ? "RELOADING" : "CHARGING" : count}</span>
           </button>;
         })}
       </div>

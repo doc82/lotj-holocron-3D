@@ -339,7 +339,8 @@ export class TacticalEngine {
   }
 
   pushCombatEvent(event: CombatEvent): void {
-    if (!event.id || event.id <= this.lastCombatEventId || event.type === "charged") return;
+    if (!event.id || event.id <= this.lastCombatEventId
+        || event.type === "charged" || event.type === "failure") return;
     this.lastCombatEventId = event.id;
     const target = this.findPointByName(event.targetName);
     if (!target) return;

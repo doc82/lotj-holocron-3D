@@ -21,7 +21,8 @@ local Scraper = {
   pendingCommandIntentId = nil,
   pendingCommandTimerId = nil,
   pendingCommandKind = nil,
-  combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0},
+  combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
+    lastFireWeapon = nil, projectileRadarRequestedAt = 0},
   autotrack = {
     desired = true,
     observed = nil,
@@ -513,7 +514,7 @@ end
 
 local function parserForCommand(command)
   local normalized = trim(command):lower():gsub("%s+", " ")
-  if normalized == "radar" then return "radar" end
+  if normalized == "radar" or normalized == "radar projectiles" then return "radar" end
   if normalized == "info" or normalized:match("^info .+") then return "info" end
   if normalized == "status" or normalized:match("^status .+") then return "status" end
   if normalized == "fleetradar" or normalized == "fleetradar targets" then
@@ -571,11 +572,38 @@ function Scraper.handleCombatLine(text)
     end
     return true
   end
+  if value == "You fail to lock on to your target!" then
+    publishCombatEvent({type = "failure", weapon = Scraper.combat.lastFireWeapon or "best",
+      reason = "Failed to lock on to target"})
+    return true
+  end
+
+  local launchedWeapon, launchedTarget = value:match(
+    "^A%s+(.+)%s+is%s+launched%s+toward%s+.-'([^']+)'%s+by%s+your%s+ship%.$")
+  if launchedWeapon and launchedTarget then
+    local weapon = normalizeWeapon(launchedWeapon)
+    if weapon then
+      publishCombatEvent({type = "launch", weapon = weapon, count = 1,
+        targetName = launchedTarget})
+      return true
+    end
+  end
   local count, firedWeapon = value:match("^(%d+)%s+(.+)%s+fired%.%.%.$")
   if count and firedWeapon then
     local weapon = normalizeWeapon(firedWeapon)
     if weapon then
       publishCombatEvent({type = "launch", weapon = weapon, count = tonumber(count)})
+      return true
+    end
+  end
+
+  local directHitWeapon, directHitTarget = value:match(
+    "^Your ship's%s+(.+)%s+hits%s+.-'([^']+)'.-!$")
+  if directHitWeapon and directHitTarget then
+    local weapon = normalizeWeapon(directHitWeapon)
+    if weapon then
+      publishCombatEvent({type = "impact", weapon = weapon,
+        targetName = directHitTarget, outcome = "hit"})
       return true
     end
   end
@@ -602,6 +630,15 @@ function Scraper.handleCombatLine(text)
   local chargedWeapon = value:match("^(.+)%s+fully%s+charged%.$")
   if chargedWeapon then
     local weapon = normalizeWeapon(chargedWeapon)
+    if weapon then
+      publishCombatEvent({type = "charged", weapon = weapon})
+      return true
+    end
+  end
+  local reloadedWeapon = value:match("^(.+)%s+launcher%(s%)%s+reloaded%.$")
+    or value:match("^(.+)%s+launchers?%s+reloaded%.$")
+  if reloadedWeapon then
+    local weapon = normalizeWeapon(reloadedWeapon)
     if weapon then
       publishCombatEvent({type = "charged", weapon = weapon})
       return true
@@ -742,6 +779,41 @@ scheduleNextPoll = function(delay)
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return end
   if Scraper.pendingCommandKind then return end
   Scraper.polling.timerId = tempTimer(tonumber(delay) or 0.25, pollOnce)
+end
+
+function Scraper.handleProjectileSummary(text)
+  local total, incoming = trim(text):match("^(%d+)%s+projectiles?,%s+(%d+)%s+incoming")
+  if not total then return false end
+  total, incoming = tonumber(total) or 0, tonumber(incoming) or 0
+  Scraper.state.metadata.projectileCount = total
+  Scraper.state.metadata.incomingProjectileCount = incoming
+  Scraper.publish()
+  if total <= 0 or Scraper.state.metadata.inSpace ~= true then return true end
+  if os.time() - (Scraper.combat.projectileRadarRequestedAt or 0) <= 2 then return true end
+  if Scraper.pendingCommandKind or Scraper.active then return false end
+
+  cancelPollTimer()
+  local started, startError = Scraper.startCapture("radar", "radar projectiles", {
+    polled = true,
+    pollDelay = Scraper.polling.commandGapSeconds or Scraper.POLL_COMMAND_GAP_SECONDS,
+  })
+  if not started then
+    scheduleNextPoll(0.5)
+    diagnostic("warn", "projectile radar could not start: " .. tostring(startError))
+    return false
+  end
+  Scraper.combat.projectileRadarRequestedAt = os.time()
+  updatePollingMetadata("radar projectiles")
+  Scraper.polling.dispatching = true
+  local sent, sendResult, sendError = pcall(send, "radar projectiles", false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    abandonCapture("projectile radar send failed")
+    diagnostic("warn", "projectile radar could not send: "
+      .. tostring(sent and sendError or sendResult))
+    return false
+  end
+  return true
 end
 
 function Scraper.startPolling(options)
@@ -1155,6 +1227,7 @@ local function dispatchFireWeapon(payload)
   if Scraper.active then abandonCapture("superseded by weapons command") end
   Scraper.polling.dispatching = true
   for _, fire in ipairs(commands) do
+    Scraper.combat.lastFireWeapon = fire.weapon
     local sent, sendResult, sendError = pcall(send, fire.command, false)
     if not sent or sendResult == false then
       Scraper.polling.dispatching = false
@@ -1255,7 +1328,8 @@ function Scraper.setup(proxy, options)
   Scraper.autotrack.intentId = nil
   Scraper.autotrack.retryCount = 0
   Scraper.autotrack.timeoutTimerId = nil
-  Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0}
+  Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
+    lastFireWeapon = nil, projectileRadarRequestedAt = 0}
   Scraper.state = freshState()
   Scraper.scanState = {}
   Scraper.eventHandlerIds = {
@@ -1292,8 +1366,11 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("^\\s*You are being targeted by .+'[^']+'\\.?\\s*$", function()
       Scraper.handleIncomingTargeting(line or "")
     end),
-    tempRegexTrigger("^\\s*(?:Target:\\s+.+|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.)\\s*$", function()
+    tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
       Scraper.handleCombatLine(line or "")
+    end),
+    tempRegexTrigger("^\\s*\\d+\\s+projectiles?,\\s+\\d+\\s+incoming.*$", function()
+      Scraper.handleProjectileSummary(line or "")
     end),
     tempRegexTrigger("(?i)^.*auto.*track.*$", function()
       Scraper.handleAutotrackResponse(line or "")
@@ -1416,7 +1493,8 @@ function Scraper.teardown()
   Scraper.proxy = nil
   Scraper.pendingCommandIntentId = nil
   Scraper.pendingCommandKind = nil
-  Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0}
+  Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
+    lastFireWeapon = nil, projectileRadarRequestedAt = 0}
   safeKill("killTimer", Scraper.pendingCommandTimerId)
   Scraper.pendingCommandTimerId = nil
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)

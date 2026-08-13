@@ -6,11 +6,12 @@ export type WeaponType = "best" | "autoblaster" | "laser" | "turbolaser" | "ion"
 
 export interface CombatEvent {
   id: number;
-  type: "launch" | "impact" | "charged";
+  type: "launch" | "impact" | "charged" | "failure";
   weapon: WeaponType;
   targetName?: string;
   count?: number;
   outcome?: "hit" | "miss";
+  reason?: string;
   observedAt?: number;
 }
 

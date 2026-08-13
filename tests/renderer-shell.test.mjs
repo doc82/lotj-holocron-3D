@@ -333,6 +333,10 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(engine, /combatEffects/);
   assert.match(scraper, /registerIntentHandler\("fire_weapon"/);
   assert.match(scraper, /handleCombatLine/);
+  assert.match(scraper, /handleProjectileSummary/);
+  assert.match(scraper, /"radar projectiles"/);
+  assert.match(scraper, /You fail to lock on to your target/);
+  assert.match(scraper, /launcher%\(s%\)%s\+reloaded/);
   assert.match(scraper, /fully%s\+charged/);
   assert.match(scraper, /but%s\+miss/);
 });
