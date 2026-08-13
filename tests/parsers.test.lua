@@ -46,6 +46,17 @@ Imperial-II Class Star Destroyer 'Coldsideofthepillow'    -19 35 23
 Your Coordinates:                                         332 807 -1400
 ]]))
 equal(liveRadar.system, "Esstran Sector")
+
+local chatInterleavedRadar = assert(parsers.parseRadar([[
+(OOC) @Bando [NEW]: My apologies, Paragod.
+[Red Team]{The Grand Council}<New Meat>[A Human male]: are you en route?
+CommNet 0 [Malakilli]: Testing
+Esstran Sector
+Victory-II Class Star Destroyer 'Gore'  0 0 0
+Your Coordinates:  12 22 -3
+]]))
+equal(chatInterleavedRadar.system, "Esstran Sector",
+  "asynchronous communication must never become the radar system heading")
 equal(liveRadar.recognizedLines, 12)
 equal(liveRadar.entities[1].name, "Dromund Kaas")
 equal(liveRadar.entities[1].kind, "celestial")

@@ -137,6 +137,19 @@ connecting or displaying the login screen. It activates only after a launch
 message or a successfully parsed manual space command confirms that the
 character is in space.
 
+Developers can opt into the unpacked Electron build instead of the installed
+application:
+
+```text
+h3d dev on "C:\path\to\lotj-holocron-3D"
+h3d start
+```
+
+Close any installed Holocron3D window before starting development mode. Check
+the selected executable with `h3d dev status` and return to production behavior
+with `h3d dev off`. The selection persists in the Mudlet profile, but installed
+application mode remains the default until explicitly changed.
+
 At this point we have proven all of the plumbing needed for bidirectional
 communication:
 
@@ -190,6 +203,22 @@ complete cycle. It pauses while landed and resumes after launch. To control it:
 lua lotjHolocron3D.scraper.stopPolling()
 lua lotjHolocron3D.scraper.startPolling({commandGapSeconds = 1, cycleDelaySeconds = 5})
 ```
+
+Holocron3D is compatible with the official `LotJ/lotj-mudlet-ui` package. Chat
+and unknown game output remain available to that package's tabbed consoles;
+only lines positively identified as part of a Holocron3D background telemetry
+request are hidden. Any command entered in Mudlet interrupts the current
+background capture and pauses polling briefly. Radar issued manually or by
+another package is reused for the next Holocron3D snapshot rather than followed
+by an immediate duplicate request.
+
+Holocron3D also subscribes to LotJ's `gmcp.Ship.Info` feed. Fresh GMCP values
+provide the player's live coordinates, heading, speed, hull, shields, energy,
+and whether the player is at the controls. This suppresses routine self-`status`
+polls while the feed is healthy; `status` remains the fallback for stale data
+and does not infer landed/in-space state from the `piloting` flag. A launch or
+`You grip the controls.` queues a fresh self-`info` for class, sensors, and
+weapons, which are not included in `Ship.Info`.
 
 Ships inside `500 + (10 × Sensor Array)` units are also queued for targeted
 `status <ship>` and `info <ship>` scans. Enemy status defaults to a four-second

@@ -13,6 +13,9 @@ local timers = {}
 local sentCommands = {}
 local deletedLines = 0
 local deniedSends = 0
+local gmcpRequests = {}
+
+lotj = {chat = {}, systemMap = {}}
 
 local function id(prefix)
   nextId = nextId + 1
@@ -62,6 +65,11 @@ function send(command, echo)
   return true
 end
 
+function sendGMCP(command, payload)
+  table.insert(gmcpRequests, {command = command, payload = payload})
+  return true
+end
+
 function deleteLine()
   deletedLines = deletedLines + 1
 end
@@ -100,13 +108,19 @@ proxy.parseGameOutput = function(command, output)
 end
 
 assert(scraper.setup(proxy))
-assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 15,
-  "expected space, maneuver, targeting, and autotrack response triggers")
+assert(#scraper.eventHandlerIds == 3,
+  "expected outgoing-command, Ship.Info, and GMCP protocol listeners")
+assert(#scraper.stateTriggerIds == 16,
+  "expected space, piloting, maneuver, targeting, and autotrack response triggers")
+assert(gmcpRequests[1].command == "Core.Supports.Add"
+    and gmcpRequests[1].payload == '["Ship 1"]',
+  "Holocron3D should add Ship.Info support without replacing other GMCP supports")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
   "polling must remain dormant until space activity is positively confirmed")
 assert(#sentCommands == 0, "setup must not send commands over a login screen")
+assert(scraper.state.metadata.mudletCompatibility.lotjUiDetected == true,
+  "the official LotJ UI should be detected without becoming a hard dependency")
 
 assert(type(intentHandlers.probe_space) == "function", "startup space probe intent should be registered")
 local probed, probeError = intentHandlers.probe_space({}, {id = "startup-probe-1"})
@@ -115,11 +129,28 @@ assert(scraper.active and scraper.active.spaceProbe,
   "startup space probe should begin a distinct radar capture")
 assert(sentCommands[#sentCommands].command == "radar" and sentCommands[#sentCommands].echo == false,
   "startup space probe should issue one hidden radar command")
+local deletedBeforeCommunication = deletedLines
+for _, communication in ipairs({
+  "(OOC) @Bando [NEW]: My apologies, Paragod.",
+  "[Red Team]{The Grand Council}<New Meat>[A Human male]: are you en route?",
+  "CommNet 0 [Malakilli]: Testing",
+  "'hello' you say.",
+  "(OSAY) You say 'hello'",
+}) do
+  assert(scraper.captureLine(communication) == false,
+    "communication must not belong to a telemetry response: " .. communication)
+end
+assert(deletedLines == deletedBeforeCommunication,
+  "communication must remain available to Mudlet chat triggers")
 scraper.captureLine("Corellian System")
 scraper.captureLine("Planet 'Corellia'  5000 -200 30")
 scraper.captureLine("YT-1300 'Wayfarer'  800 -250 40")
 scraper.captureLine("Your Coordinates:  10 20 -5")
-assert(scraper.active == nil, "radar terminator should finish capture")
+scraper.captureLine("[System Map] Radar data collected.")
+scraper.captureLine("{Tone: none } {Time: night } {Ambience: quiet }")
+assert(scraper.active, "hidden radar should retain its trailing response envelope")
+assert(scraper.finishCapture("test prompt"))
+assert(scraper.active == nil, "the prompt should finish a hidden radar capture")
 assert(#snapshots == 1)
 assert(snapshots[1].observer.z == -5)
 assert(#snapshots[1].entities == 2)
@@ -236,20 +267,56 @@ timers[discoveryInfoTimer].callback()
 assert(sentCommands[#sentCommands].command == "info Wayfarer",
   "a newly in-range ship without info telemetry should receive both discovery scans")
 scraper.captureLine("[Class: Transport] : YT-1300 'Wayfarer'")
+local deletedBeforeInfoEnvelope = deletedLines
+scraper.captureLine("The Victory-class Star Destroyer, also known simply as the")
+scraper.captureLine("Victory-class Destroyer, is a direct predecessor to the feared 'Imperial'")
+scraper.captureLine("---------------------------------------------------------")
+scraper.captureLine("(This ship is not equipped with cargo containers)")
+scraper.captureLine("{Tone: none } {Time: night } {Ambience: quiet }")
+scraper.captureLine("{Health: 3610/3610} {OOC:||||||} [ ] {Movement: 3460/3460} []")
+scraper.captureLine("")
+assert(scraper.captureLine("(OOC) @Bando: chat during info") == false,
+  "chat interleaved with a hidden response must remain visible")
+assert(scraper.captureLine(
+  "You are hit by lasers from Assassin-Class Corvette 'Calculated'!") == false,
+  "asynchronous combat output must remain visible during hidden scans")
 scraper.captureLine("Sensor Array: 10")
 assert(scraper.finishCapture("test prompt"))
+assert(deletedLines == deletedBeforeInfoEnvelope + 8,
+  "the complete hidden info envelope should be suppressed without hiding chat or combat")
 
 local observerPollTimer = scraper.getPollingState().timerId
 timers[observerPollTimer].callback()
 assert(sentCommands[#sentCommands].command == "status")
 assert(sentCommands[#sentCommands].echo == false, "poll commands should not echo input")
+local deletedBeforeObserverPoll = deletedLines
 scraper.captureLine("Forrestal:")
 scraper.captureLine("Current Coordinates: 20 30 40")
 scraper.captureLine("Current Speed: 50/200")
 assert(scraper.finishCapture("test prompt"))
-assert(deletedLines == 3, "polled command output should be hidden")
+assert(deletedLines == deletedBeforeObserverPoll + 3,
+  "only recognized lines owned by a polled command should be hidden")
 assert(snapshots[#snapshots].observer.speed.current == 50)
 assert(scraper.getPollingState().timerId, "successful poll should schedule the next command")
+
+assert(scraper.startCapture("radar", "radar", {polled = true, pollDelay = 0.25}))
+scraper.captureLine("YT-1300 'Incomplete'  1 2 3")
+scraper.handleOutgoingCommand("sysDataSendRequest", "ooc Manual chat wins")
+assert(scraper.active == nil, "manual Mudlet input should preempt a background capture")
+local userIdleTimer = scraper.getPollingState().timerId
+assert(userIdleTimer and timers[userIdleTimer].seconds == scraper.USER_IDLE_POLL_DELAY_SECONDS,
+  "background polling should debounce after manual Mudlet activity")
+
+local deletedBeforeExternalRadar = deletedLines
+scraper.handleOutgoingCommand("sysDataSendRequest", "radar")
+assert(scraper.active and scraper.active.polled == false,
+  "radar issued by Mudlet or another package should be adopted as visible telemetry")
+assert(scraper.captureLine("(OOC) @Wireguided: chat during radar") == false)
+scraper.captureLine("Corellian System")
+scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
+scraper.captureLine("Your Coordinates:  20 30 40")
+assert(deletedLines == deletedBeforeExternalRadar,
+  "an externally issued radar response must remain visible")
 
 assert(scraper.setDisposition("Wayfarer", "enemy"))
 local dispositionWayfarer
@@ -410,6 +477,7 @@ scraper.captureLine("Corellian System")
 scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
 scraper.captureLine("A Concussion Missile  110 25 20")
 scraper.captureLine("Your Coordinates:  20 30 40")
+assert(scraper.finishCapture("test prompt"))
 local trackedProjectile
 for _, entity in ipairs(snapshots[#snapshots].entities) do
   if entity.kind == "projectile" then trackedProjectile = entity end
@@ -427,6 +495,7 @@ scraper.captureLine("Corellian System")
 scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
 scraper.captureLine("A Concussion Missile  90 22 18")
 scraper.captureLine("Your Coordinates:  20 30 40")
+assert(scraper.finishCapture("test prompt"))
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({
@@ -557,6 +626,40 @@ assert(damageTimerId and timers[damageTimerId])
 timers[damageTimerId].callback()
 assert(sentCommands[#sentCommands].command == "status",
   "a damage burst should schedule one consolidated shield status check")
+
+gmcp = {Ship = {Info = {
+  energy = 2773, maxEnergy = 4500,
+  hull = 115, maxHull = 115,
+  shield = 60, maxShield = 60,
+  speed = 50, maxSpeed = 170,
+  posX = 101, posY = -22, posZ = 303,
+  headX = 1, headY = 0, headZ = -1,
+  piloting = false,
+}}}
+assert(scraper.handleShipGmcp())
+local gmcpObserver = snapshots[#snapshots].observer
+assert(gmcpObserver.speed.current == 50 and gmcpObserver.speed.maximum == 170)
+assert(gmcpObserver.x == 101 and gmcpObserver.y == -22 and gmcpObserver.z == 303)
+assert(gmcpObserver.hull.current == 115 and gmcpObserver.shields.maximum == 60)
+assert(gmcpObserver.heading.x == 1 and gmcpObserver.heading.z == -1)
+assert(gmcpObserver.piloting == false,
+  "piloting false describes control-seat state and must not change in-space state")
+assert(scraper.state.metadata.inSpace == true)
+assert(scraper.state.metadata.sources.ship_gmcp ~= nil)
+
+gmcp.Ship.Info.headX, gmcp.Ship.Info.headY, gmcp.Ship.Info.headZ = 0, 0, 0
+assert(scraper.handleShipGmcp())
+assert(snapshots[#snapshots].observer.heading.x == 1,
+  "an ambiguous zero GMCP heading should preserve the last useful heading")
+
+local gripTrigger
+for _, trigger in pairs(stateTriggers) do
+  if trigger.pattern == "You grip the controls." then gripTrigger = trigger end
+end
+assert(gripTrigger, "gripping the controls should have an info hydration trigger")
+gripTrigger.callback()
+assert(scraper.getPollingState().hydrationQueue[1] == "info",
+  "gripping the controls should prioritize fresh ship info")
 
 scraper.state.observer.hasWeapons = false
 local unarmedTarget, unarmedTargetError = intentHandlers.target_ship({targetId = "wayfarer"})

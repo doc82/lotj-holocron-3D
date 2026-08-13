@@ -125,6 +125,9 @@ polling results arrive.
 | `h3d stop` | Stop polling and close the relay connection. |
 | `h3d status` | Show bridge and polling state. |
 | `h3d snapshot` | Display the current normalized snapshot inside Mudlet. |
+| `h3d dev on <path>` | Persistently use `Holocron3D.exe` from a repository, unpacked `out` directory, or explicit executable path. |
+| `h3d dev off` | Return to the installed application on subsequent starts. |
+| `h3d dev status` | Display the configured desktop application mode. |
 | `h3d help` | Show the available package commands. |
 
 The older `lua dofile(...)` launcher is no longer needed for normal use. It is
@@ -312,6 +315,18 @@ This starts Vite and Electron together. Close the Electron window or press
 `Ctrl+C` in the terminal to stop both processes. To test live Mudlet telemetry,
 also run `pnpm relay:build`, import `out\mudlet\Holocron3D.mpackage` into Mudlet,
 and start the package with `h3d start`.
+
+To test the unpacked Electron application produced under `out`, enable the
+Mudlet package's opt-in development mode once, using your checkout path:
+
+```text
+h3d dev on "C:\path\to\lotj-holocron-3D"
+```
+
+Close any installed Holocron3D window before entering `h3d start`; an existing
+desktop listener would otherwise receive the relay connection. The setting is
+stored in the Mudlet profile and survives package reinstalls. Use `h3d dev off`
+to restore the installed application.
 
 ### 5. Build Windows artifacts
 
