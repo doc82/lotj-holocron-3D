@@ -123,6 +123,15 @@ local function sendIntentAck(id, status, reason)
   end
 end
 
+function Proxy.publishIntentAck(id, status, reason)
+  if type(id) ~= "string" or id == "" then return nil, "intent id is required" end
+  if status ~= "accepted" and status ~= "rejected" and status ~= "completed" then
+    return nil, "invalid intent status"
+  end
+  sendIntentAck(id, status, reason)
+  return true
+end
+
 local function validateIntent(message)
   if type(message.id) ~= "string" or message.id == "" then
     return nil, "intent id must be a non-empty string"

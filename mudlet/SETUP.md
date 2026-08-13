@@ -132,6 +132,11 @@ The following messages should appear in Mudlet, usually within a second:
 
 The exact order of the last few lines can vary. That is normal.
 
+On profile startup, polling is armed but remains dormant while Mudlet is
+connecting or displaying the login screen. It activates only after a launch
+message or a successfully parsed manual space command confirms that the
+character is in space.
+
 At this point we have proven all of the plumbing needed for bidirectional
 communication:
 
@@ -143,8 +148,8 @@ communication:
 ## Step 6: Collect live LotJ space data
 
 Enter a ship cockpit or other location where LotJ permits the space-information
-commands. Polling begins automatically. For an immediate visible refresh, these
-commands may still be typed normally:
+commands. Polling begins automatically once space activity is confirmed. For an
+immediate visible refresh, these commands may still be typed normally:
 
 ```text
 status
@@ -185,6 +190,13 @@ complete cycle. It pauses while landed and resumes after launch. To control it:
 lua lotjHolocron3D.scraper.stopPolling()
 lua lotjHolocron3D.scraper.startPolling({commandGapSeconds = 1, cycleDelaySeconds = 5})
 ```
+
+Ships inside `500 + (10 × Sensor Array)` units are also queued for targeted
+`status <ship>` and `info <ship>` scans. Enemy status defaults to a four-second
+refresh; neutral/friendly status and all identity info default to ten seconds.
+These are best-effort intervals because Mudlet executes one captured command at
+a time. They can be adjusted with `hostileScanIntervalSeconds` and
+`standardScanIntervalSeconds` in the polling options.
 
 ## Step 7: Open the 3D renderer
 

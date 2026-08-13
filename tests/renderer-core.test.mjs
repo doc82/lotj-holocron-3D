@@ -8,7 +8,9 @@ import {
   findScenePoint,
   lookAt,
   multiply,
+  orthographic,
   perspective,
+  pointerToXZVector,
   project,
   sensorRangeFor,
   scenesHaveMotion,
@@ -18,6 +20,71 @@ test("remote scan range always includes the 500-unit base", () => {
   assert.equal(sensorRangeFor(undefined), 500);
   assert.equal(sensorRangeFor({ id: "player-ship", sensorArray: 0 }), 500);
   assert.equal(sensorRangeFor({ id: "player-ship", sensorArray: 7 }), 570);
+});
+
+test("every ship category has a unique military marker and experimental pixel width", () => {
+  const classes = [
+    ["Vehicle", 1], ["Starfighter", 1], ["Transport", 3], ["Freighter", 4],
+    ["Gunboat", 5], ["Corvette", 6], ["Frigate", 7], ["Cruiser", 8],
+    ["Battleship", 9], ["Battlestation", 10], ["Platform", 11],
+  ];
+  const scene = buildScene({
+    observer: { id: "player-ship", shipCategory: "Cruiser", x: 0, y: 0, z: 0 },
+    entities: classes.map(([shipCategory], index) => ({
+      id: String(shipCategory).toLowerCase(), name: String(shipCategory), kind: "ship",
+      shipCategory: String(shipCategory), disposition: index % 3 === 0 ? "ally" : index % 3 === 1 ? "enemy" : "neutral",
+      x: index + 1, y: 0, z: 0,
+    })),
+  });
+  const markers = classes.map(([shipCategory, pixels]) => {
+    const marker = findScenePoint(scene, String(shipCategory).toLowerCase());
+    assert.equal(marker.pointSize, pixels);
+    return marker;
+  });
+  assert.equal(new Set(markers.map((marker) => marker.markerShape)).size, 11);
+  assert.equal(scene.points[0].pointSize, 8);
+  assert.equal(scene.points[0].markerShape, 8);
+  assert.deepEqual(scene.points[0].color, [0.5, 0.96, 1]);
+  assert.deepEqual(markers[0].color, [0.16, 0.58, 1]);
+  assert.deepEqual(markers[1].color, [1, 0.16, 0.2]);
+  assert.deepEqual(markers[2].color, [1, 0.76, 0.12]);
+});
+
+test("orthographic tactical scale projects ten pixels per distance unit", () => {
+  const height = 800;
+  const halfHeight = height / (2 * 10);
+  const matrix = orthographic(-halfHeight, halfHeight, -halfHeight, halfHeight, 0.1, 100);
+  const origin = project([0, 0, -1], matrix, height, height);
+  const oneUnit = project([1, 0, -1], matrix, height, height);
+  assert.ok(origin && oneUnit);
+  assert.ok(Math.abs(oneUnit.x - origin.x - 10) < 0.0001);
+  const gridPixelSpan = 6_000 * matrix[0] * height / 2;
+  assert.ok(Math.abs(gridPixelSpan - 60_000) < 0.01,
+    "the ±3,000-unit grid should span 60,000 pixels at the 10 px/unit reference scale");
+});
+
+test("course plotting keeps the X/Z vector endpoint under the pointer", () => {
+  const camera = new OrbitCamera();
+  camera.distance = 100;
+  const width = 1_000;
+  const height = 800;
+  const deltaX = 120;
+  const deltaY = 80;
+  const vector = pointerToXZVector(
+    deltaX,
+    deltaY,
+    camera.distance * 2 / height,
+    camera.yaw,
+    camera.pitch,
+  );
+  const matrix = multiply(
+    orthographic(-125, 125, -100, 100, 0.05, 2_000),
+    lookAt(camera.eye(1_000)),
+  );
+  const endpoint = project(vector, matrix, width, height);
+  assert.ok(endpoint);
+  assert.ok(Math.abs(endpoint.x - (width / 2 + deltaX)) < 0.001);
+  assert.ok(Math.abs(endpoint.y - (height / 2 + deltaY)) < 0.001);
 });
 
 test("renderer scene stays centered on the observer", () => {
@@ -42,6 +109,7 @@ test("renderer scene stays centered on the observer", () => {
 test("orbit camera cannot detach from the player focus", () => {
   const camera = new OrbitCamera();
   camera.fit(500, true);
+  assert.ok(camera.minimumDistance <= 1.25, "close tactical zoom should be substantially deeper than fit view");
   camera.orbit(100, -10_000);
   camera.zoom(-1_000_000);
   camera.update(1);
@@ -85,7 +153,7 @@ test("scene interpolation eases contacts between telemetry ticks", () => {
   assert.deepEqual(interpolator.sample(2_000).points[1].position3d, [90, 20, 0]);
 });
 
-test("exactly colocated ships collapse into a stable selectable cluster", () => {
+test("exactly colocated ships and celestial bodies share a stable selectable cluster", () => {
   const scene = buildScene({
     observer: { id: "player-ship", x: 100, y: 100, z: 100 },
     entities: [
@@ -97,14 +165,17 @@ test("exactly colocated ships collapse into a stable selectable cluster", () => 
   });
 
   assert.equal(scene.contactCount, 4);
-  assert.equal(scene.points.length, 4, "observer, celestial, nearby ship, and cluster should render");
+  assert.equal(scene.points.length, 3, "observer, nearby ship, and combined contact cluster should render");
   const cluster = scene.points.find((point) => point.kind === "cluster");
   assert.ok(cluster);
-  assert.equal(cluster.memberCount, 2);
-  assert.deepEqual(cluster.members.map((member) => member.id), ["gore", "strega"]);
+  assert.equal(cluster.memberCount, 3);
+  assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.deepEqual(cluster.members.map((member) => member.id), ["gore", "moon", "strega"]);
   assert.equal(findScenePoint(scene, "strega").name, "Strega");
+  assert.equal(findScenePoint(scene, "moon").kind, "celestial");
   assert.equal(scene.points.some((point) => point.id === "nearby"), true);
-  assert.equal(scene.points.some((point) => point.id === "moon"), true);
+  assert.equal(scene.points.some((point) => point.id === "moon"), false,
+    "the celestial contact should remain selectable inside the cluster rather than overlap it");
 });
 
 test("camera reports motion only while it is converging", () => {

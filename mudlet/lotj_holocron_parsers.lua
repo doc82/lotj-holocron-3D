@@ -251,6 +251,11 @@ local STATUS_KEYS = {
   ["torpedos"] = "torpedoes",
   ["torpedoes"] = "torpedoes",
   ["rockets"] = "rockets",
+  ["primary target"] = "target",
+  ["autopilot status"] = "autopilotStatus",
+  ["ion condition"] = "ionCondition",
+  ["launcher condition"] = "launcherCondition",
+  ["escape pods"] = "escapePods",
 }
 
 local function assignStatus(result, rawKey, rawValue)
@@ -273,7 +278,7 @@ local function assignStatus(result, rawKey, rawValue)
     result[field] = parsed
   elseif field == "speed" or field == "hull" or field == "shields"
       or field == "energy" or field == "missiles" or field == "torpedoes"
-      or field == "rockets" then
+      or field == "rockets" or field == "escapePods" then
     local parsed = amount(value)
     if not parsed then return false end
     result[field] = parsed
@@ -292,6 +297,15 @@ function Parsers.parseStatus(input)
 
   for _, line in ipairs(lines) do
     if not isDecoration(line) then
+      local requiredSensors = line:match("[Nn]eed%s+(%d+)%s+sensors%s+to%s+scan%s+for%s+lifeforms")
+      local detectedLifeforms = line:match("[Ll]ifeforms%s+detected:%s*(.+)$")
+      if requiredSensors then
+        result.lifeformScan = {available = false, requiredSensors = number(requiredSensors)}
+        recognized = recognized + 1
+      elseif detectedLifeforms then
+        result.lifeformScan = {available = true, value = trim(detectedLifeforms)}
+        recognized = recognized + 1
+      end
       local foundPair = false
       -- Status often prints two or more key/value pairs on one line. A new key
       -- begins after two spaces; values themselves may contain single spaces.
@@ -332,15 +346,58 @@ function Parsers.parseInfo(input)
   if not lines then return nil, err end
 
   -- Ship info also contains private access codes. Deliberately allow-list only
-  -- the sensor value required by the tactical renderer.
+  -- public identity, size class, sensors, speed, and non-sensitive weapon counts.
   local result = {source = "info"}
   local recognized = 0
+  local weaponPatterns = {
+    autoblasters = "[Aa]utoblasters:%s*([%d,]+)",
+    laserCannons = "[Ll]aser%s+[Cc]annons:%s*([%d,]+)",
+    turbolasers = "[Tt]urbolasers:%s*([%d,]+)",
+    ionCannons = "[Ii]on%s+[Cc]annons:%s*([%d,]+)",
+    maximumMissiles = "[Mm]aximum%s+[Mm]issiles:%s*([%d,]+)",
+    maximumTorpedoes = "[Mm]aximum%s+[Tt]orpedoes:%s*([%d,]+)",
+    maximumRockets = "[Mm]aximum%s+[Rr]ockets:%s*([%d,]+)",
+    maximumPulses = "[Mm]aximum%s+[Pp]ulses:%s*([%d,]+)",
+    missileTubes = "[Mm]issile%s+[Tt]ubes:%s*([%d,]+)",
+  }
+  local weapons = {}
+  local weaponFieldCount = 0
   for _, line in ipairs(lines) do
+    local category, description = line:match("^%[Class:%s*([^%]]+)%]%s*:%s*(.+)$")
+    if category and description then
+      result.shipCategory = trim(category)
+      result.name, result.class = parseDisplayName(description)
+      recognized = recognized + 1
+    end
     local sensorArray = line:match("[Ss]ensor%s+[Aa]rray:%s*([%d,]+)")
     if sensorArray then
       result.sensorArray = math.max(0, number(sensorArray) or 0)
       result.radarRange = 500 + (result.sensorArray * 10)
       recognized = recognized + 1
+    end
+    local maximumSpeed = line:match("[Mm]aximum%s+[Ss]peed:%s*([%d,]+)")
+    if maximumSpeed then
+      result.maximumSpeed = math.max(0, number(maximumSpeed) or 0)
+      recognized = recognized + 1
+    end
+    for field, pattern in pairs(weaponPatterns) do
+      local value = line:match(pattern)
+      if value then
+        if weapons[field] == nil then weaponFieldCount = weaponFieldCount + 1 end
+        weapons[field] = math.max(0, number(value) or 0)
+        recognized = recognized + 1
+      end
+    end
+  end
+
+  if next(weapons) then
+    result.weapons = weapons
+    if weaponFieldCount == 9 then
+      local launchersArmed = weapons.missileTubes > 0
+        and (weapons.maximumMissiles > 0 or weapons.maximumTorpedoes > 0
+          or weapons.maximumRockets > 0 or weapons.maximumPulses > 0)
+      result.hasWeapons = weapons.autoblasters > 0 or weapons.laserCannons > 0
+        or weapons.turbolasers > 0 or weapons.ionCannons > 0 or launchersArmed
     end
   end
 

@@ -8,6 +8,8 @@ local Scraper = {
   POLL_COMMANDS = {"status", "info", "radar", "prox", "prox velocity", "fleetradar"},
   POLL_COMMAND_GAP_SECONDS = 1,
   POLL_CYCLE_DELAY_SECONDS = 5,
+  HOSTILE_SCAN_INTERVAL_SECONDS = 4,
+  STANDARD_SCAN_INTERVAL_SECONDS = 10,
   eventHandlerIds = {},
   stateTriggerIds = {},
   active = nil,
@@ -15,6 +17,17 @@ local Scraper = {
   state = nil,
   lastCapture = nil,
   polling = {enabled = false, index = 1, timerId = nil, dispatching = false},
+  scanState = {},
+  pendingCommandIntentId = nil,
+  pendingCommandTimerId = nil,
+  autotrack = {
+    desired = true,
+    observed = nil,
+    pending = false,
+    intentId = nil,
+    retryCount = 0,
+    timeoutTimerId = nil,
+  },
 }
 
 local scheduleNextPoll
@@ -65,7 +78,12 @@ local function freshState()
   return {
     observer = {id = "player-ship", kind = "ship", name = "Player Ship"},
     entities = {},
-    metadata = {sources = {}, inSpace = nil},
+    metadata = {
+      sources = {},
+      inSpace = nil,
+      autotrackDesired = Scraper.autotrack.desired ~= false,
+      autotrackPending = false,
+    },
   }
 end
 
@@ -111,6 +129,11 @@ local function replaceRadarEntities(entities)
     local old = findEntity(entity)
     local stored = copyTable(entity)
     if old then mergeMissing(stored, old) end
+    if not old then
+      -- A contact that has newly appeared (or re-entered after disappearing)
+      -- must not inherit stale scan timestamps from an earlier radar pass.
+      Scraper.scanState[entityKey(stored)] = nil
+    end
     replacement[entityKey(stored)] = stored
   end
 
@@ -154,6 +177,23 @@ local function applyStatus(result, sentCommand)
   end
 end
 
+local function applyInfo(result, sentCommand)
+  local isObserver = trim(sentCommand):lower() == "info"
+  local destination = isObserver and Scraper.state.observer or findEntity({name = result.name
+    or trim(sentCommand):match("^%S+%s+(.+)$")})
+  if not destination then return end
+  if result.name then destination.name = result.name end
+  if result.class then destination.class = result.class end
+  if result.shipCategory then destination.shipCategory = result.shipCategory end
+  if result.maximumSpeed then destination.maximumSpeed = result.maximumSpeed end
+  if result.weapons then destination.weapons = copyTable(result.weapons) end
+  if result.hasWeapons ~= nil then destination.hasWeapons = result.hasWeapons end
+  if isObserver then
+    destination.sensorArray = result.sensorArray
+    destination.radarRange = result.radarRange
+  end
+end
+
 function Scraper.applyResult(result, sentCommand)
   if type(result) ~= "table" or type(result.source) ~= "string" then
     return nil, "parsed result must include a source"
@@ -174,8 +214,7 @@ function Scraper.applyResult(result, sentCommand)
   elseif source == "status" then
     applyStatus(result, sentCommand)
   elseif source == "info" then
-    Scraper.state.observer.sensorArray = result.sensorArray
-    Scraper.state.observer.radarRange = result.radarRange
+    applyInfo(result, sentCommand)
   else
     if result.observer then
       Scraper.state.observer.x = result.observer.x
@@ -189,7 +228,12 @@ function Scraper.applyResult(result, sentCommand)
         for key, value in pairs(entity) do
           if key ~= "id" and key ~= "name" and key ~= "class" and key ~= "kind"
               and value ~= nil then
-            Scraper.state.observer[key] = type(value) == "table" and copyTable(value) or value
+            if key == "speed" and type(Scraper.state.observer.speed) == "table"
+                and type(value) == "number" then
+              Scraper.state.observer.speed.current = value
+            else
+              Scraper.state.observer[key] = type(value) == "table" and copyTable(value) or value
+            end
           end
         end
       elseif source == "fleetradar"
@@ -231,7 +275,7 @@ end
 
 local function captureRecordLines(capture)
   if capture.parserCommand == "info" then
-    return {"[info output redacted; only Sensor Array is retained]"}
+    return {"[info output redacted; only safe ship capabilities are retained]"}
   end
   return copyTable(capture.lines)
 end
@@ -271,6 +315,15 @@ function Scraper.setInSpace(inSpace, reason)
     abandonCapture(reason or "not in space")
     cancelPollTimer()
     Scraper.state.entities = {}
+    Scraper.scanState = {}
+    safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+    Scraper.autotrack.timeoutTimerId = nil
+    Scraper.autotrack.observed = nil
+    Scraper.autotrack.pending = false
+    Scraper.autotrack.intentId = nil
+    Scraper.autotrack.retryCount = 0
+    Scraper.state.observer.autotrack = nil
+    Scraper.state.metadata.autotrackPending = false
   elseif Scraper.polling.enabled and scheduleNextPoll then
     scheduleNextPoll(0.25)
   end
@@ -315,11 +368,40 @@ function Scraper.finishCapture(reason)
     reason = reason or "completed",
   }
 
+  local commandFailure
+  for _, capturedLine in ipairs(capture.lines) do
+    local lower = capturedLine:lower()
+    if lower:find("too far away to scan", 1, true) then
+      commandFailure = "Target is outside sensor range."
+      break
+    elseif lower:find("finished its current maneuver", 1, true) then
+      commandFailure = "Please wait until the ship has finished its current maneuver."
+      break
+    end
+  end
+  if commandFailure then
+    if capture.intentId and Scraper.proxy
+        and type(Scraper.proxy.publishIntentAck) == "function" then
+      Scraper.proxy.publishIntentAck(capture.intentId, "rejected", commandFailure)
+    end
+    return nil, commandFailure
+  end
+
   local parsed, parseError = Scraper.proxy.parseGameOutput(
     capture.parserCommand,
     capture.lines
   )
   if not parsed then
+    if capture.spaceProbe then
+      Scraper.setInSpace(false, "startup radar did not return space data")
+    end
+    if capture.intentId and Scraper.proxy
+        and type(Scraper.proxy.publishIntentAck) == "function" then
+      Scraper.proxy.publishIntentAck(capture.intentId, "rejected",
+        capture.spaceProbe
+          and "Radar did not confirm that the player is in space."
+          or "The ship scan returned no usable telemetry.")
+    end
     diagnostic("warn", "could not parse " .. capture.sentCommand .. " output: "
       .. tostring(parseError) .. "; run lotjHolocron3D.scraper.showLastCapture()")
     return nil, parseError
@@ -379,7 +461,8 @@ function Scraper.captureLine(value)
 end
 
 function Scraper.startCapture(parserCommand, sentCommand, options)
-  if Scraper.state and Scraper.state.metadata.inSpace == false then
+  if Scraper.state and Scraper.state.metadata.inSpace == false
+      and not (options and options.spaceProbe == true) then
     return nil, "space scraping is disabled while landed"
   end
   if Scraper.active then
@@ -393,6 +476,8 @@ function Scraper.startCapture(parserCommand, sentCommand, options)
     bytes = 0,
     polled = options and options.polled == true,
     pollDelay = options and options.pollDelay or nil,
+    intentId = options and options.intentId or nil,
+    spaceProbe = options and options.spaceProbe == true,
   }
   Scraper.active = capture
 
@@ -416,7 +501,7 @@ end
 local function parserForCommand(command)
   local normalized = trim(command):lower():gsub("%s+", " ")
   if normalized == "radar" then return "radar" end
-  if normalized == "info" then return "info" end
+  if normalized == "info" or normalized:match("^info .+") then return "info" end
   if normalized == "status" or normalized:match("^status .+") then return "status" end
   if normalized == "fleetradar" or normalized == "fleetradar targets" then
     return "fleetradar"
@@ -438,26 +523,101 @@ local function parserForCommand(command)
   return nil
 end
 
+local function scanKey(entity)
+  return tostring(entity.id or entity.name):lower()
+end
+
+local function scanCommandDue()
+  if not Scraper.state then return nil end
+  local observer = Scraper.state.observer or {}
+  local range = tonumber(observer.radarRange) or (500 + math.max(0, tonumber(observer.sensorArray) or 0) * 10)
+  local now = os.time()
+  local best, bestOverdue, bestIsDiscovery
+  for _, entity in pairs(Scraper.state.entities) do
+    if entity.kind == "ship" and entity.name and entity.x and entity.y and entity.z then
+      local distance = math.sqrt((entity.x - (observer.x or 0)) ^ 2
+        + (entity.y - (observer.y or 0)) ^ 2 + (entity.z - (observer.z or 0)) ^ 2)
+      if distance <= range then
+        local state = Scraper.scanState[scanKey(entity)] or {statusAt = 0, infoAt = 0}
+        Scraper.scanState[scanKey(entity)] = state
+        for _, source in ipairs({"status", "info"}) do
+          local interval = source == "status" and entity.disposition == "enemy"
+            and Scraper.polling.hostileScanIntervalSeconds
+            or Scraper.polling.standardScanIntervalSeconds
+          local lastAttempt = state[source .. "At"] or 0
+          local missingTelemetry = source == "status"
+            and entity.hull == nil and entity.shields == nil and entity.condition == nil
+            or source == "info" and entity.shipCategory == nil
+          local discovery = missingTelemetry and lastAttempt == 0
+          local overdue = now - lastAttempt - interval
+          if overdue >= 0 and (best == nil
+              or discovery and not bestIsDiscovery
+              or discovery == bestIsDiscovery and overdue > bestOverdue) then
+            best = {
+              command = source .. " " .. entity.name,
+              source = source,
+              key = scanKey(entity),
+              discovery = discovery,
+            }
+            bestOverdue = overdue
+            bestIsDiscovery = discovery
+          end
+        end
+      end
+    end
+  end
+  return best
+end
+
 local function updatePollingMetadata(command)
   Scraper.state = Scraper.state or freshState()
   Scraper.state.metadata.polling = {
     enabled = Scraper.polling.enabled,
+    active = Scraper.polling.enabled and Scraper.state.metadata.inSpace == true,
     command = command,
     commandGapSeconds = Scraper.polling.commandGapSeconds,
     cycleDelaySeconds = Scraper.polling.cycleDelaySeconds,
+    hostileScanIntervalSeconds = Scraper.polling.hostileScanIntervalSeconds,
+    standardScanIntervalSeconds = Scraper.polling.standardScanIntervalSeconds,
   }
 end
 
 local function pollOnce()
   Scraper.polling.timerId = nil
   if not Scraper.polling.enabled then return end
-  if Scraper.state and Scraper.state.metadata.inSpace == false then return end
+  -- Never issue hidden commands while Mudlet is connecting or showing the
+  -- login screen. A launch event or a successful manual space command must
+  -- positively establish the in-space state before automatic polling begins.
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return end
   if Scraper.active then
     scheduleNextPoll(0.5)
     return
   end
 
-  local command = Scraper.POLL_COMMANDS[Scraper.polling.index]
+  local scanCandidate = scanCommandDue()
+  local dueScan = scanCandidate and (scanCandidate.discovery
+    or Scraper.polling.scansSinceCore < 2) and scanCandidate or nil
+  local command
+  if dueScan then
+    command = dueScan.command
+    Scraper.polling.scansSinceCore = Scraper.polling.scansSinceCore + 1
+    Scraper.scanState[dueScan.key][dueScan.source .. "At"] = os.time()
+  else
+    command = Scraper.POLL_COMMANDS[Scraper.polling.index]
+    Scraper.polling.scansSinceCore = 0
+  end
+  if dueScan then
+    local parserCommand = parserForCommand(command)
+    local started, startError = Scraper.startCapture(parserCommand, command, {polled = true,
+      pollDelay = Scraper.polling.commandGapSeconds})
+    if not started then scheduleNextPoll(0.5); return end
+    updatePollingMetadata(command)
+    Scraper.polling.dispatching = true
+    local sent = pcall(send, command, false)
+    Scraper.polling.dispatching = false
+    if not sent then abandonCapture("scan send failed") end
+    return
+  end
   Scraper.polling.index = Scraper.polling.index + 1
   local completedCycle = Scraper.polling.index > #Scraper.POLL_COMMANDS
   if completedCycle then Scraper.polling.index = 1 end
@@ -491,7 +651,7 @@ end
 scheduleNextPoll = function(delay)
   cancelPollTimer()
   if not Scraper.polling.enabled then return end
-  if Scraper.state and Scraper.state.metadata.inSpace == false then return end
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return end
   Scraper.polling.timerId = tempTimer(tonumber(delay) or 0.25, pollOnce)
 end
 
@@ -506,9 +666,16 @@ function Scraper.startPolling(options)
     tonumber(options.commandGapSeconds) or Scraper.POLL_COMMAND_GAP_SECONDS)
   Scraper.polling.cycleDelaySeconds = math.max(1,
     tonumber(options.cycleDelaySeconds) or Scraper.POLL_CYCLE_DELAY_SECONDS)
+  Scraper.polling.hostileScanIntervalSeconds = math.max(3,
+    tonumber(options.hostileScanIntervalSeconds) or Scraper.HOSTILE_SCAN_INTERVAL_SECONDS)
+  Scraper.polling.standardScanIntervalSeconds = math.max(5,
+    tonumber(options.standardScanIntervalSeconds) or Scraper.STANDARD_SCAN_INTERVAL_SECONDS)
+  Scraper.polling.scansSinceCore = 2
   updatePollingMetadata(nil)
   scheduleNextPoll(tonumber(options.initialDelaySeconds) or 0.5)
-  diagnostic("info", "telemetry polling enabled")
+  diagnostic("info", Scraper.state and Scraper.state.metadata.inSpace == true
+    and "telemetry polling enabled"
+    or "telemetry polling armed; waiting for confirmed space activity")
   return true
 end
 
@@ -521,7 +688,306 @@ function Scraper.stopPolling()
 end
 
 function Scraper.getPollingState()
-  return copyTable(Scraper.polling)
+  local state = copyTable(Scraper.polling)
+  state.active = state.enabled and Scraper.state
+    and Scraper.state.metadata.inSpace == true or false
+  return state
+end
+
+local function resolvePendingCommand(status, reason, pollDelay)
+  local intentId = Scraper.pendingCommandIntentId
+  Scraper.pendingCommandIntentId = nil
+  safeKill("killTimer", Scraper.pendingCommandTimerId)
+  Scraper.pendingCommandTimerId = nil
+  if intentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+    Scraper.proxy.publishIntentAck(intentId, status, reason)
+  end
+  scheduleNextPoll(pollDelay or 0.25)
+end
+
+local function holdPollingForCommand(intentId, seconds, timeoutReason)
+  cancelPollTimer()
+  safeKill("killTimer", Scraper.pendingCommandTimerId)
+  Scraper.pendingCommandIntentId = intentId
+  Scraper.pendingCommandTimerId = tempTimer(tonumber(seconds) or 2, function()
+    Scraper.pendingCommandTimerId = nil
+    local expiredIntentId = Scraper.pendingCommandIntentId
+    Scraper.pendingCommandIntentId = nil
+    if expiredIntentId and timeoutReason and Scraper.proxy
+        and type(Scraper.proxy.publishIntentAck) == "function" then
+      Scraper.proxy.publishIntentAck(expiredIntentId, "rejected", timeoutReason)
+    end
+    scheduleNextPoll(0.25)
+  end)
+end
+
+local function dispatchManualShipScan(payload, message)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "ship scanning is unavailable while landed"
+  end
+  local source = trim(payload.source):lower()
+  if source ~= "status" and source ~= "info" then
+    return false, "scan source must be status or info"
+  end
+  local target = findEntity({id = trim(payload.targetId)})
+  local name = target and trim(target.name) or ""
+  if not target or target.kind ~= "ship" or name == "" or name:find("[%c\r\n]") then
+    return false, "scan target is not present in the current snapshot"
+  end
+
+  local observer = Scraper.state.observer or {}
+  if target.x == nil or target.y == nil or target.z == nil then
+    return false, "scan target has no known coordinates"
+  end
+  local range = tonumber(observer.radarRange)
+    or (500 + math.max(0, tonumber(observer.sensorArray) or 0) * 10)
+  local distance = math.sqrt((target.x - (observer.x or 0)) ^ 2
+    + (target.y - (observer.y or 0)) ^ 2 + (target.z - (observer.z or 0)) ^ 2)
+  if distance > range then
+    return false, string.format("target is %.0f units away; sensor range is %.0f", distance, range)
+  end
+
+  if Scraper.active and not Scraper.active.polled then
+    return false, "another manual telemetry capture is already active"
+  end
+  cancelPollTimer()
+  if Scraper.active then
+    abandonCapture("superseded by manual " .. source .. " scan")
+    cancelPollTimer()
+  end
+
+  local command = source .. " " .. name
+  local started, startError = Scraper.startCapture(source, command, {
+    polled = true,
+    pollDelay = 0.25,
+    intentId = message and message.id or nil,
+  })
+  if not started then
+    scheduleNextPoll(0.25)
+    return false, startError
+  end
+  updatePollingMetadata(command)
+  Scraper.polling.dispatching = true
+  local sent, sendResult, sendError = pcall(send, command, false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    abandonCapture("manual scan send failed")
+    return false, tostring(sent and sendError or sendResult)
+  end
+
+  local key = scanKey(target)
+  Scraper.scanState[key] = Scraper.scanState[key] or {statusAt = 0, infoAt = 0}
+  Scraper.scanState[key][source .. "At"] = os.time()
+  return true
+end
+
+local function publishAutotrackState()
+  if not Scraper.state then return end
+  Scraper.state.observer.autotrack = Scraper.autotrack.observed
+  Scraper.state.metadata.autotrackDesired = Scraper.autotrack.desired
+  Scraper.state.metadata.autotrackPending = Scraper.autotrack.pending
+  Scraper.publish()
+end
+
+local function completeAutotrack(status, reason)
+  local intentId = Scraper.autotrack.intentId
+  Scraper.autotrack.intentId = nil
+  Scraper.autotrack.pending = false
+  Scraper.autotrack.retryCount = 0
+  safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  Scraper.autotrack.timeoutTimerId = nil
+  publishAutotrackState()
+  if intentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+    Scraper.proxy.publishIntentAck(intentId, status, reason)
+  end
+  scheduleNextPoll(0.25)
+end
+
+local function armAutotrackTimeout()
+  safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  Scraper.autotrack.timeoutTimerId = tempTimer(5, function()
+    Scraper.autotrack.timeoutTimerId = nil
+    if not Scraper.autotrack.pending then return end
+    completeAutotrack("rejected", "LotJ did not confirm the autotrack state.")
+  end)
+end
+
+local function sendAutotrackToggle()
+  local sent, sendResult, sendError = pcall(send, "autotrack", false)
+  if not sent or sendResult == false then
+    return false, tostring(sent and sendError or sendResult)
+  end
+  Scraper.autotrack.pending = true
+  Scraper.state.metadata.autotrackPending = true
+  armAutotrackTimeout()
+  return true
+end
+
+local function requestAutotrack(desired, intentId)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "autotrack is unavailable while landed"
+  end
+  if Scraper.autotrack.pending then
+    return false, "an autotrack change is already awaiting confirmation"
+  end
+  if Scraper.active and not Scraper.active.polled then
+    return false, "another manual telemetry capture is already active"
+  end
+
+  Scraper.autotrack.desired = desired == true
+  Scraper.autotrack.intentId = intentId
+  Scraper.autotrack.retryCount = 0
+  Scraper.state.metadata.autotrackDesired = Scraper.autotrack.desired
+  if Scraper.autotrack.observed == Scraper.autotrack.desired then
+    publishAutotrackState()
+    return true
+  end
+
+  cancelPollTimer()
+  if Scraper.active then
+    abandonCapture("superseded by autotrack command")
+    cancelPollTimer()
+  end
+  local sent, sendError = sendAutotrackToggle()
+  if not sent then
+    Scraper.autotrack.intentId = nil
+    scheduleNextPoll(0.25)
+    return false, sendError
+  end
+  publishAutotrackState()
+  return true
+end
+
+function Scraper.handleAutotrackResponse(value)
+  local response = trim(value)
+  local lower = response:lower()
+  if not (lower:find("auto", 1, true) and lower:find("track", 1, true)) then
+    return nil, "output does not describe autotrack"
+  end
+
+  local observed
+  if lower:match("^autotracking%s+off%.?$") then
+    observed = false
+  elseif lower:match("^autotracking%s+on%.?$") then
+    observed = true
+  elseif lower:find("disabled", 1, true) or lower:find("disengaged", 1, true)
+      or lower:find("deactivated", 1, true) or lower:find("turned off", 1, true)
+      or lower:match("%f[%a]off%f[%A]") or lower:find("no longer", 1, true) then
+    observed = false
+  elseif lower:find("enabled", 1, true) or lower:find("engaged", 1, true)
+      or lower:find("activated", 1, true) or lower:find("turned on", 1, true)
+      or lower:match("%f[%a]on%f[%A]") then
+    observed = true
+  else
+    return nil, "autotrack response did not contain an enabled or disabled state"
+  end
+
+  Scraper.autotrack.observed = observed
+  Scraper.state.metadata.autotrackObservedAt = os.time()
+  Scraper.state.metadata.autotrackResponse = response
+  safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  Scraper.autotrack.timeoutTimerId = nil
+
+  if observed ~= Scraper.autotrack.desired and Scraper.autotrack.retryCount < 1 then
+    Scraper.autotrack.retryCount = Scraper.autotrack.retryCount + 1
+    local sent, sendError = sendAutotrackToggle()
+    publishAutotrackState()
+    if sent then return observed end
+    completeAutotrack("rejected", "Could not correct autotrack: " .. tostring(sendError))
+    return nil, sendError
+  end
+
+  if observed == Scraper.autotrack.desired then
+    completeAutotrack("completed", observed and "Autotrack enabled." or "Autotrack disabled.")
+  else
+    completeAutotrack("rejected", "LotJ reported the opposite autotrack state twice.")
+  end
+  return observed
+end
+
+local function dispatchTargetShip(payload)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "ship targeting is unavailable while landed"
+  end
+  local target = findEntity({id = trim(payload.targetId)})
+  local name = target and trim(target.name) or ""
+  if not target or target.kind ~= "ship" or name == "" or name:find("[%c\r\n]") then
+    return false, "target ship is not present in the current snapshot"
+  end
+  if Scraper.state.observer and Scraper.state.observer.hasWeapons == false then
+    return false, "this ship has no weapons"
+  end
+  if Scraper.active and not Scraper.active.polled then
+    return false, "another manual telemetry capture is already active"
+  end
+
+  cancelPollTimer()
+  if Scraper.active then
+    abandonCapture("superseded by target command")
+    cancelPollTimer()
+  end
+  local sent, sendResult, sendError = pcall(send, "target " .. name)
+  if not sent or sendResult == false then
+    scheduleNextPoll(0.25)
+    return false, tostring(sent and sendError or sendResult)
+  end
+
+  target.disposition = "enemy"
+  local published, publishError = Scraper.publish()
+  if not published then
+    diagnostic("warn", "targeted " .. name .. " but could not publish enemy disposition: "
+      .. tostring(publishError))
+  end
+  if Scraper.autotrack.desired and Scraper.autotrack.observed ~= true
+      and not Scraper.autotrack.pending then
+    local tracking, trackingError = requestAutotrack(true)
+    if not tracking then
+      diagnostic("warn", "target acquired but autotrack could not be enabled: "
+        .. tostring(trackingError))
+      scheduleNextPoll(0.25)
+    end
+  else
+    scheduleNextPoll(0.25)
+  end
+  return true
+end
+
+function Scraper.setDisposition(name, disposition)
+  if disposition ~= "neutral" and disposition ~= "ally" and disposition ~= "enemy" then
+    return nil, "disposition must be neutral, ally, or enemy"
+  end
+  local entity = findEntity({name = name})
+  if not entity or entity.kind ~= "ship" then return nil, "ship is not currently known" end
+  entity.disposition = disposition
+  Scraper.publish()
+  return true
+end
+
+local function dispatchSpaceProbe(_, message)
+  if Scraper.active and not Scraper.active.polled then
+    return false, "another manual telemetry capture is already active"
+  end
+
+  cancelPollTimer()
+  if Scraper.active then
+    abandonCapture("superseded by startup radar probe")
+  end
+
+  local started, startError = Scraper.startCapture("radar", "radar", {
+    polled = true,
+    pollDelay = 0.25,
+    intentId = message and message.id or nil,
+    spaceProbe = true,
+  })
+  if not started then return false, startError end
+
+  local sent, sendResult, sendError = pcall(send, "radar", false)
+  if not sent or sendResult == false then
+    abandonCapture("startup radar probe could not be sent")
+    Scraper.setInSpace(false, "startup radar could not be sent")
+    return false, tostring(sent and sendError or sendResult)
+  end
+  return true
 end
 
 function Scraper.handleOutgoingCommand(eventName, command)
@@ -570,7 +1036,14 @@ function Scraper.setup(proxy, options)
 
   Scraper.teardown()
   Scraper.proxy = proxy
+  Scraper.autotrack.desired = true
+  Scraper.autotrack.observed = nil
+  Scraper.autotrack.pending = false
+  Scraper.autotrack.intentId = nil
+  Scraper.autotrack.retryCount = 0
+  Scraper.autotrack.timeoutTimerId = nil
   Scraper.state = freshState()
+  Scraper.scanState = {}
   Scraper.eventHandlerIds = {
     registerAnonymousEventHandler("sysDataSendRequest", Scraper.handleOutgoingCommand),
   }
@@ -584,8 +1057,98 @@ function Scraper.setup(proxy, options)
     tempTrigger("The ship leaves the platform far behind as it flies into space", function()
       Scraper.setInSpace(true, "launch sequence complete")
     end),
+    tempTrigger("Please wait until the ship has finished its current maneuver.", function()
+      resolvePendingCommand("rejected",
+        "Please wait until the ship has finished its current maneuver.", 1)
+    end),
+    tempTrigger("Maneuver complete.", function()
+      resolvePendingCommand("completed", "Maneuver complete.", 0.25)
+    end),
+    tempRegexTrigger("(?i)^.*auto.*track.*$", function()
+      Scraper.handleAutotrackResponse(line or "")
+    end),
   }
   proxy.scraper = Scraper
+  if type(proxy.registerIntentHandler) == "function" then
+    proxy.registerIntentHandler("probe_space", dispatchSpaceProbe)
+    proxy.registerIntentHandler("set_ship_disposition", function(payload)
+      return Scraper.setDisposition(trim(payload.name), trim(payload.disposition):lower())
+    end)
+    proxy.registerIntentHandler("scan_ship", dispatchManualShipScan)
+    proxy.registerIntentHandler("target_ship", dispatchTargetShip)
+    proxy.registerIntentHandler("set_autotrack", function(payload, message)
+      if type(payload.enabled) ~= "boolean" then
+        return false, "autotrack enabled must be a boolean"
+      end
+      return requestAutotrack(payload.enabled, message and message.id or nil)
+    end)
+    proxy.registerIntentHandler("navigate_ship", function(payload, message)
+      if Scraper.state.metadata.inSpace ~= true then
+        return false, "ship navigation is unavailable while landed"
+      end
+      local mode = trim(payload.mode):lower()
+      local command
+      local function round(value)
+        return value >= 0 and math.floor(value + 0.5) or math.ceil(value - 0.5)
+      end
+      if mode == "relative" then
+        local vector = type(payload.vector) == "table" and payload.vector or {}
+        local values = {tonumber(vector.x), tonumber(vector.y), tonumber(vector.z)}
+        for _, value in ipairs(values) do
+          if not value or value ~= value or math.abs(value) > 10000000 then
+            return false, "course vector must contain finite coordinates within 10,000,000 units"
+          end
+        end
+        if values[1] == 0 and values[2] == 0 and values[3] == 0 then
+          return false, "course vector cannot be zero"
+        end
+        command = string.format("course relative %d %d %d",
+          round(values[1]), round(values[2]), round(values[3]))
+      elseif mode == "target" or mode == "away" then
+        local target = findEntity({id = trim(payload.targetId)})
+        local name = target and trim(target.name) or ""
+        if name == "" or name:find("[%c\r\n]") then
+          return false, "navigation target is not present in the current snapshot"
+        end
+        command = mode == "away" and ("course away " .. name) or ("course " .. name)
+      else
+        return false, "unsupported navigation mode"
+      end
+
+      local departureSpeed
+      if payload.departureSpeed ~= nil then
+        departureSpeed = tonumber(payload.departureSpeed)
+        local speedReading = Scraper.state.observer.speed
+        local maximum = type(speedReading) == "table" and tonumber(speedReading.maximum) or nil
+        if not departureSpeed or departureSpeed ~= departureSpeed or departureSpeed <= 0
+            or departureSpeed > 10000000 or (maximum and departureSpeed > maximum) then
+          return false, "departure speed is outside the ship's known limits"
+        end
+        departureSpeed = round(departureSpeed)
+      end
+
+      if departureSpeed then send("speed " .. tostring(departureSpeed)) end
+      send(command)
+      holdPollingForCommand(message and message.id or nil, 45,
+        "Maneuver completion was not observed; course controls released.")
+      return true
+    end)
+    proxy.registerIntentHandler("set_ship_speed", function(payload, message)
+      if Scraper.state.metadata.inSpace ~= true then
+        return false, "ship speed is unavailable while landed"
+      end
+      local requestedSpeed = tonumber(payload.speed)
+      local speedReading = Scraper.state.observer.speed
+      local maximum = type(speedReading) == "table" and tonumber(speedReading.maximum) or nil
+      if not requestedSpeed or requestedSpeed ~= requestedSpeed or requestedSpeed < 0
+          or (maximum and requestedSpeed > maximum) then
+        return false, "requested speed is outside the ship's known limits"
+      end
+      send("speed " .. tostring(math.floor(requestedSpeed + 0.5)))
+      holdPollingForCommand(message and message.id or nil, 1.5)
+      return true
+    end)
+  end
   diagnostic("info", "live scraping enabled for info, radar, prox, status, and fleetradar")
   if not options or options.polling ~= false then
     local pollingOptions = options and options.polling or nil
@@ -615,6 +1178,14 @@ function Scraper.teardown()
     Scraper.proxy.scraper = nil
   end
   Scraper.proxy = nil
+  Scraper.pendingCommandIntentId = nil
+  safeKill("killTimer", Scraper.pendingCommandTimerId)
+  Scraper.pendingCommandTimerId = nil
+  safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  Scraper.autotrack.timeoutTimerId = nil
+  Scraper.autotrack.pending = false
+  Scraper.autotrack.intentId = nil
+  Scraper.autotrack.retryCount = 0
   return true
 end
 

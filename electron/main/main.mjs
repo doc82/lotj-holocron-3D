@@ -184,6 +184,7 @@ websocketServer.on("connection", (client) => {
 });
 
 websocketServer.on("error", (error) => {
+  debug(`WebSocket compatibility endpoint unavailable: ${error.message}`);
   write({
     v: PROTOCOL_VERSION,
     type: "bridge_diagnostic",
@@ -224,7 +225,7 @@ ipcMain.handle("holocron:send-intent", (event, request) => {
     payload: request?.payload,
   };
   const error = validateIntent(message);
-  return error ? { accepted: false, reason: error } : host.handleIntent(message);
+  return error ? { accepted: false, reason: error } : { ...host.handleIntent(message), id: message.id };
 });
 
 function createWindow() {

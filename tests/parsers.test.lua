@@ -106,6 +106,10 @@ equal(liveStatus.id, "forrestal")
 
 local info = assert(parsers.parseInfo([[
 [Class: Transport] : Rojan-class Invincible Firespray Patrol Craft 'Forrestal'
+Autoblasters:    0     Laser cannons:    0      Turbolasers:       0
+Ion cannons:     0     Maximum Missiles: 0      Maximum Torpedoes: 0
+Maximum Rockets: 0     Maximum Pulses:   0      Maximum Chaff:     0
+Missile Tubes:   0     Tractorbeams:     1      Escape Pods:       3
 Hatchway: 94599        Hangar Bays:  47894      Docking: 62351
 --------: 34073        Selfdestruct: 11553      -------: 23792
 Max Hull:      150     Max Shields:     150     Max Energy(fuel): 5000
@@ -116,12 +120,43 @@ Cloaking Device: Not Installed
 equal(info.source, "info")
 equal(info.sensorArray, 7)
 equal(info.radarRange, 570)
+equal(info.maximumSpeed, 200)
+equal(info.hasWeapons, false)
+equal(info.weapons.turbolasers, 0)
+equal(info.weapons.missileTubes, 0)
+equal(info.weapons.tractorbeams, nil, "utility systems must not count as weapons")
 equal(info.hatchway, nil, "info parser must not retain access codes")
-local allowedInfoKeys = {source = true, sensorArray = true, radarRange = true, recognizedLines = true}
+local allowedInfoKeys = {source = true, sensorArray = true, radarRange = true,
+  maximumSpeed = true, shipCategory = true, name = true, class = true,
+  weapons = true, hasWeapons = true, recognizedLines = true}
 for key in pairs(info) do
   assert(allowedInfoKeys[key], "info parser exposed unexpected field: " .. tostring(key))
 end
 equal(assert(parsers.parse("info", "Sensor Array: 0")).radarRange, 500)
+equal(info.shipCategory, "Transport")
+equal(info.name, "Forrestal")
+
+local armedInfo = assert(parsers.parseInfo([[
+[Class: Cruiser] : Victory-II Class Star Destroyer 'Gore'
+Autoblasters: 0  Laser cannons: 0  Turbolasers: 27
+Ion cannons: 35  Maximum Missiles: 0  Maximum Torpedoes: 80
+Maximum Rockets: 40  Maximum Pulses: 0
+Missile Tubes: 15
+]]))
+equal(armedInfo.hasWeapons, true)
+equal(armedInfo.weapons.ionCannons, 35)
+
+local remoteStatus = assert(parsers.parseStatus([[
+Readout for Victory-II Class Star Destroyer 'Gore':
+Current Coordinates: 0 0 0
+Lifeforms detected: Need 50 sensors to scan for lifeforms.
+Hull: 4200/4200  Ship Condition: Running
+Shields: 4000/4200  Energy(fuel): 37500/37500
+Primary Target: none
+]]))
+equal(remoteStatus.lifeformScan.available, false)
+equal(remoteStatus.lifeformScan.requiredSensors, 50)
+equal(remoteStatus.target, "none")
 
 local fleet = assert(parsers.parseFleetRadar([[
 Ship                     Squadron Leader          Position

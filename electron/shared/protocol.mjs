@@ -39,20 +39,20 @@ export function createTelemetryHost({ write, emit, broadcast, shutdown }) {
   }
 
   function maybeReady() {
-    if (!state.mudletConnected || !state.websocketUrl || state.readySent) return;
+    if (!state.mudletConnected || state.readySent) return;
     state.readySent = true;
-    send({
+    const message = {
       type: "ready",
       bridge: "electron-host",
-      websocketUrl: state.websocketUrl,
       renderer: "electron",
-    });
+    };
+    if (state.websocketUrl) message.websocketUrl = state.websocketUrl;
+    send(message);
     emit("connection", { connected: true, transport: "mudlet-pipe" });
   }
 
   function setWebsocketUrl(websocketUrl) {
     state.websocketUrl = websocketUrl;
-    maybeReady();
   }
 
   function disconnectMudlet() {

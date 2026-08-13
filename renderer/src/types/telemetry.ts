@@ -1,5 +1,6 @@
 export type Vector3 = [number, number, number];
 export type Color3 = [number, number, number];
+export type ShipDisposition = "neutral" | "ally" | "enemy";
 
 export interface SpeedReading {
   current?: number;
@@ -17,6 +18,9 @@ export interface TelemetryEntity {
   distance?: number;
   speed?: number | SpeedReading;
   position?: string;
+  disposition?: ShipDisposition;
+  shipCategory?: string;
+  heading?: { x?: number; y?: number; z?: number };
   [key: string]: unknown;
 }
 
@@ -24,6 +28,9 @@ export interface Observer extends TelemetryEntity {
   coordinates?: { x?: number; y?: number; z?: number };
   sensorArray?: number;
   radarRange?: number;
+  autotrack?: boolean;
+  hasWeapons?: boolean;
+  weapons?: Record<string, number>;
 }
 
 export interface PollingState {
@@ -42,6 +49,10 @@ export interface SystemSnapshot {
     system?: string;
     inSpace?: boolean;
     polling?: PollingState;
+    autotrackDesired?: boolean;
+    autotrackPending?: boolean;
+    autotrackObservedAt?: number;
+    autotrackResponse?: string;
     [key: string]: unknown;
   };
 }
@@ -65,11 +76,11 @@ export interface InitialState {
 export interface HolocronApi {
   getInitialState(): Promise<InitialState | null>;
   getAppVersion(): Promise<string | null>;
-  sendIntent(action: string, payload?: Record<string, unknown>): Promise<unknown>;
+  sendIntent(action: string, payload?: Record<string, unknown>): Promise<{ accepted?: boolean; reason?: string; id?: string }>;
   onSnapshot(callback: (snapshot: SystemSnapshot) => void): () => void;
   onSpaceState(callback: (state: SpaceState) => void): () => void;
   onConnectionState(callback: (state: ConnectionState) => void): () => void;
-  onIntentAck(callback: (ack: unknown) => void): () => void;
+  onIntentAck(callback: (ack: { id?: string; status?: "accepted" | "rejected" | "completed"; reason?: string }) => void): () => void;
 }
 
 declare global {
