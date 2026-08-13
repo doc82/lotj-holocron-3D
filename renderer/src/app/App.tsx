@@ -138,6 +138,7 @@ export function App() {
   const manualScanStartSequenceRef = useRef(0);
   const manualScanRequestTokenRef = useRef(0);
   const navigationLockTokenRef = useRef(0);
+  const targetLockTokenRef = useRef(0);
   const spaceProbeSentRef = useRef(false);
   const classifiedSnapshot = useMemo(() => telemetry.snapshot ? {
     ...telemetry.snapshot,
@@ -361,12 +362,20 @@ export function App() {
       return;
     }
     if (result?.id) {
+      const lockToken = targetLockTokenRef.current + 1;
+      targetLockTokenRef.current = lockToken;
+      setCommandLocked(true);
+      setCommandAlert(`TRACKING ${selectedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`);
       pendingIntentIdsRef.current.add(result.id);
       targetIntentShipsRef.current.set(result.id, { name: selectedShip.name });
       setTimeout(() => {
+        if (targetLockTokenRef.current !== lockToken) return;
+        targetLockTokenRef.current += 1;
         pendingIntentIdsRef.current.delete(result.id!);
         targetIntentShipsRef.current.delete(result.id!);
-      }, 12_000);
+        setCommandLocked(false);
+        setCommandAlert("TARGET LOCK TIMED OUT // CONTROLS RELEASED");
+      }, 50_000);
     }
   }, [commandLocked, landed, selectedShip, telemetry.connected]);
 
@@ -414,28 +423,32 @@ export function App() {
     }
     const targetedShip = targetIntentShipsRef.current.get(ack.id);
     if (ack.status === "accepted" && targetedShip) {
-      pendingIntentIdsRef.current.delete(ack.id);
-      targetIntentShipsRef.current.delete(ack.id);
       setDispositions((current) => {
         const next = { ...current, [dispositionKey(targetedShip.name)]: "enemy" as ShipDisposition };
         localStorage.setItem(DISPOSITION_STORAGE_KEY, JSON.stringify(next));
         return next;
       });
       syncedDispositionsRef.current.set(dispositionKey(targetedShip.name), "enemy");
-      setCommandAlert(`TARGET LOCK REQUESTED // ${targetedShip.name.toUpperCase()} MARKED ENEMY`);
-      setTimeout(() => setCommandAlert(""), 5_000);
+      setCommandAlert(`TRACKING ${targetedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`);
       return;
     }
     if (ack.status === "completed") {
       pendingIntentIdsRef.current.delete(ack.id);
+      const completedTarget = targetIntentShipsRef.current.get(ack.id);
+      targetIntentShipsRef.current.delete(ack.id);
+      if (completedTarget) targetLockTokenRef.current += 1;
       navigationLockTokenRef.current += 1;
       setCommandLocked(false);
-      setNavigationStatus(String(ack.reason || "MANEUVER COMPLETE").toUpperCase());
+      const completion = String(ack.reason || "COMMAND COMPLETE").toUpperCase();
+      setNavigationStatus(completion);
+      if (completedTarget) setCommandAlert(`${completion} // ${completedTarget.name.toUpperCase()}`);
       return;
     }
     if (ack.status !== "rejected") return;
     pendingIntentIdsRef.current.delete(ack.id);
+    const rejectedTarget = targetIntentShipsRef.current.get(ack.id);
     targetIntentShipsRef.current.delete(ack.id);
+    if (rejectedTarget) targetLockTokenRef.current += 1;
     navigationLockTokenRef.current += 1;
     const rejectedManualScan = manualScanIntentIdsRef.current.delete(ack.id);
     if (rejectedManualScan) {

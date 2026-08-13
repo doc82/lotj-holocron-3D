@@ -94,9 +94,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             YOUR SHIP <span>// {snapshot.observer?.name || "PLAYER SHIP"}</span>
           </div>
         )}
-        <div className={styles.fidelity} aria-live="polite">
-          {fidelity === "strategic" ? "STRATEGIC CONTACTS" : fidelity === "model" ? "MODEL DETAIL" : "RESOLVING HULLS"}
-        </div>
+        {fidelity === "strategic" && <div className={styles.fidelity}>STRATEGIC CONTACTS</div>}
         {clusterLabels.map((label) => (
           <button
             key={label.id}

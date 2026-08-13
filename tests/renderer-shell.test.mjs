@@ -170,7 +170,8 @@ test("strategic zoom cross-fades glowing contacts into procedural class hulls", 
   assert.match(engine, /sectorView\(\): void/);
   assert.match(app, /aria-label="Open strategic sector view"/);
   assert.match(canvas, /STRATEGIC CONTACTS/);
-  assert.match(canvas, /MODEL DETAIL/);
+  assert.doesNotMatch(canvas, /MODEL DETAIL/);
+  assert.match(canvas, /fidelity === "strategic".*STRATEGIC CONTACTS/);
 });
 
 test("Homeworld-style shell separates commands, selected vessel, and fleet telemetry", async () => {
@@ -294,6 +295,11 @@ test("selected ships can be manually scanned without waiting for the poller", as
   assert.match(app, /TARGET \/\/ WEAPON LOCK IS AN AGGRESSIVE ACT/);
   assert.match(app, /targetIntentShipsRef/);
   assert.match(scraper, /registerIntentHandler\("target_ship"/);
+  assert.match(scraper, /pendingCommandKind == "target"/);
+  assert.match(scraper, /tempTrigger\("Target Locked\."/);
+  assert.match(scraper, /Your concentration is broken\. You fail to lock on to your target\./);
+  assert.match(scraper, /denyCurrentSend/);
+  assert.match(scraper, /target locked but autotrack could not be enabled/);
   assert.match(scraper, /"target " \.\. name/);
   assert.match(scraper, /target\.disposition = "enemy"/);
   assert.match(scraper, /observer\.hasWeapons == false/);

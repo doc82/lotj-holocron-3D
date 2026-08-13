@@ -12,6 +12,7 @@ local stateTriggers = {}
 local timers = {}
 local sentCommands = {}
 local deletedLines = 0
+local deniedSends = 0
 
 local function id(prefix)
   nextId = nextId + 1
@@ -100,8 +101,8 @@ end
 
 assert(scraper.setup(proxy))
 assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 6,
-  "expected space, maneuver, and autotrack response triggers")
+assert(#scraper.stateTriggerIds == 8,
+  "expected space, maneuver, targeting, and autotrack response triggers")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
   "polling must remain dormant until space activity is positively confirmed")
@@ -249,6 +250,10 @@ local dispositionWayfarer
 for _, entity in ipairs(snapshots[#snapshots].entities) do
   if entity.name == "Wayfarer" then dispositionWayfarer = entity end
 end
+
+function denyCurrentSend()
+  deniedSends = deniedSends + 1
+end
 assert(dispositionWayfarer and dispositionWayfarer.disposition == "enemy")
 local scanTimer = scraper.getPollingState().timerId
 timers[scanTimer].callback()
@@ -262,11 +267,30 @@ assert(scraper.finishCapture("test prompt"))
 assert(type(intentHandlers.target_ship) == "function", "ship target intent should be registered")
 local targeted, targetError = intentHandlers.target_ship({targetId = "wayfarer"}, {id = "target-test-1"})
 assert(targeted, targetError)
-assert(sentCommands[#sentCommands - 1].command == "target Wayfarer",
+assert(sentCommands[#sentCommands].command == "target Wayfarer",
   "target intent should issue LotJ's target command for the selected ship")
+assert(scraper.getPollingState().timerId == nil,
+  "polling must remain suspended throughout target-lock concentration")
+local commandsWhileTargeting = #sentCommands
+local blockedScan, blockedScanError = intentHandlers.scan_ship({
+  targetId = "wayfarer", source = "info",
+}, {id = "blocked-during-target"})
+assert(not blockedScan and blockedScanError:find("target lock", 1, true),
+  "other Holocron commands should be rejected while target concentration is active")
+assert(#sentCommands == commandsWhileTargeting,
+  "no command may be emitted while target concentration is active")
+scraper.handleOutgoingCommand("sysDataSendRequest", "look")
+assert(deniedSends == 1,
+  "manually typed commands should be suppressed while target concentration is active")
+for _, trigger in pairs(stateTriggers) do
+  if trigger.pattern == "Target Locked." then trigger.callback() end
+end
 assert(sentCommands[#sentCommands].command == "autotrack"
     and sentCommands[#sentCommands].echo == false,
-  "targeting should enable the default autotrack combat preference")
+  "default combat autotrack should wait until LotJ confirms Target Locked")
+assert(intentAcks[#intentAcks].id == "target-test-1"
+    and intentAcks[#intentAcks].status == "completed",
+  "Target Locked should complete the target intent")
 assert(scraper.handleAutotrackResponse("Autotracking on.") == true)
 assert(snapshots[#snapshots].observer.autotrack == true,
   "confirmed autotrack state should be published with the observer")
@@ -276,6 +300,20 @@ for _, entity in ipairs(snapshots[#snapshots].entities) do
 end
 assert(targetedWayfarer and targetedWayfarer.disposition == "enemy",
   "targeting a ship should immediately classify it as an enemy")
+
+local failedTarget, failedTargetError = intentHandlers.target_ship(
+  {targetId = "wayfarer"}, {id = "target-test-2"})
+assert(failedTarget, failedTargetError)
+for _, trigger in pairs(stateTriggers) do
+  if trigger.pattern == "Your concentration is broken. You fail to lock on to your target." then
+    trigger.callback()
+  end
+end
+assert(intentAcks[#intentAcks].id == "target-test-2"
+    and intentAcks[#intentAcks].status == "rejected",
+  "concentration failure should reject and release the target intent")
+assert(scraper.getPollingState().timerId,
+  "polling should resume after targeting definitively fails")
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({
