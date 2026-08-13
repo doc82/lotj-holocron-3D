@@ -78,6 +78,20 @@ test("Electron window and preload keep privileged APIs isolated", async () => {
   assert.match(preload, /contextBridge\.exposeInMainWorld\("holocron"/);
 });
 
+test("Electron packaging applies Holocron3D branding across Windows surfaces", async () => {
+  const main = await readFile(path.resolve(here, "../electron/main/main.mjs"), "utf8");
+  const forge = await readFile(path.resolve(here, "../forge.config.cjs"), "utf8");
+  const png = await readFile(path.resolve(here, "../assets/icon/holocron3d-icon.png"));
+  const ico = await readFile(path.resolve(here, "../assets/icon/holocron3d.ico"));
+
+  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.deepEqual([...ico.subarray(0, 4)], [0, 0, 1, 0]);
+  assert.match(main, /icon: appIcon/);
+  assert.match(main, /setAppUserModelId\("com\.veska\.holocron3d"\)/);
+  assert.match(forge, /icon: appIcon/);
+  assert.match(forge, /setupIcon: appIcon/);
+});
+
 test("relay credentials are persistent and validated", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "holocron-auth-"));
   try {

@@ -19,6 +19,7 @@ const root = app.getAppPath();
 const rendererEntry = path.join(root, "renderer", "dist", "index.html");
 const rendererDevUrl = !app.isPackaged ? process.env.HOLOCRON_RENDERER_URL : undefined;
 const preloadEntry = path.join(root, "electron", "preload", "preload.cjs");
+const appIcon = path.join(root, "assets", "icon", "holocron3d-icon.png");
 const requestedPort = Number(process.env.HOLOCRON_WS_PORT || 8787);
 const requestedRelayPort = Number(process.env.HOLOCRON_RELAY_PORT || 8786);
 const paths = appDataPaths();
@@ -238,6 +239,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: "#03050a",
     title: "LotJ Holocron 3D",
+    icon: appIcon,
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadEntry,
@@ -272,6 +274,7 @@ debug(`single instance lock: ${gotLock}`);
 if (!gotLock) {
   app.quit();
 } else {
+  app.setAppUserModelId("com.veska.holocron3d");
   app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();

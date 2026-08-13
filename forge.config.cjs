@@ -2,10 +2,13 @@ const path = require("node:path");
 const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
+const appIcon = path.resolve(__dirname, "assets", "icon", "holocron3d.ico");
+
 module.exports = {
   packagerConfig: {
     asar: true,
     executableName: "Holocron3D",
+    icon: appIcon,
     extraResource: [
       path.resolve(__dirname, "relay", "bin", "holocron-relay.exe"),
       path.resolve(__dirname, "out", "mudlet", "Holocron3D.mpackage"),
@@ -29,6 +32,7 @@ module.exports = {
       description: "A real-time 3D tactical renderer for Legends of the Jedi space telemetry.",
       exe: "Holocron3D.exe",
       setupExe: "Holocron3D-Setup.exe",
+      setupIcon: appIcon,
       noMsi: true,
     },
   }],
