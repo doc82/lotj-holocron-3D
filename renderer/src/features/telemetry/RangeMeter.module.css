@@ -1,0 +1,82 @@
+.meter {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(72px, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-top: 7px;
+  color: #7ea8b1;
+  font: 8px ui-monospace, "Cascadia Mono", monospace;
+}
+
+.meter::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  z-index: 40;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid rgba(103, 218, 242, 0.48);
+  color: #e0faff;
+  content: attr(data-tooltip);
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(2, 13, 22, 0.97);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.52), 0 0 10px rgba(53, 181, 255, 0.1);
+  transform: translate(-50%, 3px);
+  transition: opacity 100ms ease, transform 100ms ease;
+  font: 700 9px/1.25 ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.meter:hover::after,
+.meter:focus-within::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.track {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(101, 218, 239, 0.28);
+  background: rgba(9, 27, 35, 0.9);
+}
+
+.track i {
+  display: block;
+  height: 100%;
+}
+
+.health i,
+.shield i {
+  background: linear-gradient(90deg, #ed4356, #efca4c 45%, #4ee6a0 78%);
+}
+
+.speed i {
+  background: linear-gradient(90deg, #245b87, #35b9ed 58%, #9aeaff);
+}
+
+.energy i {
+  background: linear-gradient(90deg, #c44935, #efb83f 52%, #fff19b);
+}
+
+.track.unknown {
+  border-color: rgba(162, 178, 184, 0.25);
+  background: repeating-linear-gradient(135deg, #252b2f 0 4px, #30383d 4px 8px);
+}
+
+.track b {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: #b4c0c4;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 6px/7px ui-monospace, monospace;
+  letter-spacing: 0.08em;
+}

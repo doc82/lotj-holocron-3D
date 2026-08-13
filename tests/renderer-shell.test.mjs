@@ -124,10 +124,11 @@ test("colocated contact clusters expose counts and an expandable member grid", a
 });
 
 test("contacts expose persistent disposition controls, shaped markers, and rich health hover cards", async () => {
-  const [app, engine, canvas] = await Promise.all([
+  const [app, engine, canvas, rangeMeter] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+    readFile("renderer/src/features/telemetry/RangeMeter.tsx", "utf8"),
   ]);
   assert.match(app, /holocron3d\.ship-dispositions\.v1/);
   assert.match(app, /set_ship_disposition/);
@@ -142,10 +143,12 @@ test("contacts expose persistent disposition controls, shaped markers, and rich 
   assert.match(engine, /u_markerScale/);
   assert.match(engine, /markerReferencePixelsPerUnit/);
   assert.match(engine, /max\(2\.0 \* u_pixelRatio/);
-  assert.match(canvas, /UNKNOWN \/\/ \?/);
+  assert.match(rangeMeter, /UNKNOWN \/\/ \?/);
+  assert.match(rangeMeter, /data-tooltip=\{tooltip\}/);
+  assert.match(rangeMeter, /\/\/ \$\{formatCoordinate\(reading\?\.current\)\} \/ \$\{formatCoordinate\(reading\?\.maximum\)\}/);
   assert.match(canvas, /CLASS \{tooltip\.shipCategory\.toUpperCase\(\)\}/);
-  assert.match(canvas, /HealthBar label="SHIELD"/);
-  assert.match(canvas, /HealthBar label="HULL"/);
+  assert.match(canvas, /RangeMeter label="SHIELD"/);
+  assert.match(canvas, /RangeMeter label="HULL"/);
   assert.match(canvas, /YOUR SHIP <span>\/\/ \{snapshot\.observer\?\.name/);
   assert.match(app, /if \(!id \|\| id === "player-ship"\)/);
   assert.match(app, /setSelectedId\(\(current\) => current === id \? null : id\)/);
@@ -183,6 +186,16 @@ test("Homeworld-style shell separates commands, selected vessel, and fleet telem
   ]);
   assert.match(app, /styles\.commandBank/);
   assert.match(app, /styles\.selectedVessel/);
+  assert.match(app, /styles\.vesselRanges/);
+  assert.match(app, /RangeMeter label="SPEED"/);
+  assert.match(app, /RangeMeter label="ENERGY"/);
+  assert.doesNotMatch(app, /"PLAYER SHIP"/);
+  assert.match(app, /styles\.vesselTags/);
+  assert.match(app, /styles\.ownershipTag/);
+  assert.match(app, /!selected && <span className=\{styles\.ownershipTag\}>YOUR SHIP<\/span>/);
+  assert.doesNotMatch(app, /\["TYPE", point\.kind/);
+  assert.doesNotMatch(app, /"RELATIVE XYZ"/);
+  assert.match(css, /grid-template-columns:\s*minmax\(280px, 1fr\) minmax\(320px, 420px\) minmax\(300px, 1fr\)/);
   assert.match(app, /styles\.fleetBank/);
   assert.match(app, /COMMAND \/\/ \{\(navigableTarget\?\.name \|\| observer\.name\)\.toUpperCase\(\)\}/);
   assert.match(app, /FORMATION \/\/ ROSTER/);
@@ -198,7 +211,6 @@ test("Homeworld-style shell separates commands, selected vessel, and fleet telem
   assert.match(app, /<ViewIcon type="radar"/);
   assert.match(app, /<ViewIcon type="grid"/);
   assert.match(app, /<ViewIcon type="sector"/);
-  assert.match(css, /grid-template-columns: minmax\(230px, 0\.82fr\).*minmax\(360px, 1\.45fr\).*minmax\(250px, 0\.9fr\)/);
   assert.match(css, /\.commandDeck \{[^}]*height: 252px/s);
   assert.match(css, /\.compactReadouts dt,[^}]*font-size: 11px/s);
   assert.match(speedControl, /type="range"/);
