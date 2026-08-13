@@ -11,6 +11,8 @@ local Scraper = {
   HOSTILE_SCAN_INTERVAL_SECONDS = 4,
   STANDARD_SCAN_INTERVAL_SECONDS = 10,
   COMBAT_RADAR_INTERVAL_SECONDS = 2,
+  USER_IDLE_POLL_DELAY_SECONDS = 2.5,
+  SHIP_GMCP_STALE_SECONDS = 10,
   eventHandlerIds = {},
   stateTriggerIds = {},
   active = nil,
@@ -38,6 +40,7 @@ local Scraper = {
     retryCount = 0,
     timeoutTimerId = nil,
   },
+  shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil},
 }
 
 local scheduleNextPoll
@@ -46,9 +49,191 @@ local ensureShieldsOn
 local handleShieldStatus
 local queueObserverHydration
 local clearObserverHydration
+local queueObserverInfo
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function radarSystemName(value)
+  value = trim(value)
+  local explicit = value:match("^[Ss]tarsystem:%s*(.-)%s*$")
+  if explicit and explicit ~= "" then return explicit end
+  if value:find(":", 1, true) or not value:match("^[%w][%w%s'%-]+$") then return nil end
+  local lower = value:lower()
+  if lower:match("%ssector$") or lower:match("%ssystem$") then return value end
+  return nil
+end
+
+local function isCommunicationLine(value)
+  value = trim(value)
+  local parenthesizedChannel = value:match("^%(([%u]+)%)%s")
+  local knownParenthesizedChannel = parenthesizedChannel == "OOC"
+    or parenthesizedChannel == "IMM" or parenthesizedChannel == "RPC"
+    or parenthesizedChannel == "NEWBIE" or parenthesizedChannel == "OSAY"
+  local lower = value:lower()
+  return knownParenthesizedChannel
+    or value:match("^CommNet%s+%d+%s+%[") ~= nil
+    or value:match("^ImmNet%[") ~= nil
+    or value:match("^CouncilNet%[") ~= nil
+    or value:match("^%([^)]*R|P|C[^)]*%)%s") ~= nil
+    or value:match("^%[[^%]]+%]%b{}%b<>%[[^%]]+%].-:%s") ~= nil
+    or value:find("[Incoming Transmission from", 1, true) ~= nil
+    or value:find("[Outgoing Transmission to", 1, true) ~= nil
+    or value:match("^Broadcasting Network%s+%[") ~= nil
+    or value:match("^'.-'%s+you%s+[%a]+") ~= nil
+    or value:match("^You%s+[%a]+.-'.-'$") ~= nil
+    or lower:match("^.-%s+says%s") ~= nil
+    or lower:match("^.-%s+whispers%s") ~= nil
+    or lower:match("^.-%s+exclaims%s") ~= nil
+    or lower:match("^.-%s+asks%s") ~= nil
+    or lower:match("^.-%s+yells%s") ~= nil
+    or lower:match("^.-%s+radios%s") ~= nil
+end
+
+local function isCoordinateRow(value)
+  return value:match("^.-%s+[+-]?[%d,]+%.?%d*%s+[+-]?[%d,]+%.?%d*%s+[+-]?[%d,]+%.?%d*%s*$") ~= nil
+end
+
+local function isKnownCaptureFailure(value)
+  local lower = value:lower()
+  return lower:find("wait until after you launch", 1, true) ~= nil
+    or lower:find("must be aboard a ship to use radar", 1, true) ~= nil
+    or lower:find("too far away to scan", 1, true) ~= nil
+    or lower:find("finished its current maneuver", 1, true) ~= nil
+end
+
+local function isAsynchronousVisibleLine(value)
+  value = trim(value)
+  if isCommunicationLine(value) then return true end
+  local lower = value:lower()
+  return lower:match("^you are hit by ") ~= nil
+    or lower:match("^.- fire from .- at you") ~= nil
+    or lower:match("^you are being targeted by ") ~= nil
+    or lower:match("^%[warning%]:") ~= nil
+    or lower:match("^proximity alert:") ~= nil
+    or lower == "target locked."
+    or lower == "maneuver complete."
+    or lower == "your concentration is broken. you fail to lock on to your target."
+end
+
+local function markResponseStarted(capture)
+  capture.responseStarted = true
+  return true
+end
+
+local STATUS_MARKERS = {
+  "current coordinates:", "current heading:", "current speed:",
+  "lifeforms detected:", "hull:", "shields:", "energy(fuel):",
+  "ship condition:", "autopilot status:", "cloaking device:",
+  "security program:", "comm system:", "autolaunch status:",
+  "selfdestruct status:", "autorecharge status:", "tractor beam condition:",
+  "primary target:", "blasters ready:", "lasers ready:",
+  "turbolasers ready:", "ion cannons ready:", "laser condition:",
+  "ion condition:", "launcher condition:", "missiles:", "total turrets:",
+  "escape pods:", "hangar ",
+}
+
+local INFO_MARKERS = {
+  "quota:", "owner:", "crew:", "kill markers:", "autoblasters:",
+  "laser cannons:", "turbolasers:", "ion cannons:", "maximum missiles:",
+  "maximum torpedoes:", "maximum rockets:", "maximum pulses:",
+  "maximum chaff:", "missile tubes:", "tractorbeams:", "escape pods:",
+  "max hull:", "max shields:", "max energy(fuel):", "maximum speed:",
+  "hyperspeed:", "maneuver:", "sensor array:", "shield boosters:",
+  "communications:", "cloaking device:", "hatchway:", "hangar bays:",
+  "docking:", "selfdestruct:",
+}
+
+local function containsMarker(lower, markers)
+  for _, marker in ipairs(markers) do
+    if lower:find(marker, 1, true) then return true end
+  end
+  return false
+end
+
+local function captureOwnsLine(capture, value)
+  value = trim(value)
+  if isAsynchronousVisibleLine(value) then return false end
+  -- Hidden commands commonly begin and end with blank lines. Those blanks are
+  -- part of the private response even before its first recognizable heading.
+  if value == "" then return capture.polled == true end
+  if isKnownCaptureFailure(value) then return markResponseStarted(capture) end
+
+  local lower = value:lower()
+  local command = trim(capture.sentCommand):lower():gsub("%s+", " ")
+  if lower == command then return markResponseStarted(capture) end
+
+  if capture.parserCommand == "radar" then
+    if isCoordinateRow(value) or radarSystemName(value) ~= nil then
+      return markResponseStarted(capture)
+    end
+  end
+
+  if capture.parserCommand == "prox" or capture.parserCommand == "prox_velocity" then
+    if lower:match("^your%s+coordinates%s*:") then return markResponseStarted(capture) end
+    if lower:match("^proximity") or lower:match("^object%s+")
+        or lower:match("^name%s+") or radarSystemName(value:gsub(":$", "")) then
+      return markResponseStarted(capture)
+    end
+    local owned = value:match("^.-%s+[Pp][Rr][Oo][Xx]%s*:%s*[+-]?[%d,]+%.?%d*%s*$") ~= nil
+      or value:match("^.-%s%s+[+-]?[%d,]+%.?%d*%s*$") ~= nil
+      or value:match("^.-%s+is%s+now%s+[%d,]+%.?%d*%s+units?%s+away%.?$") ~= nil
+    if owned then return markResponseStarted(capture) end
+  end
+
+  if capture.parserCommand == "status" then
+    if lower:match("^readout%s+for%s+.-:$") then
+      capture.seenTelemetry = true
+      return markResponseStarted(capture)
+    end
+    if lower:find("need ", 1, true) and lower:find(" sensors to scan for lifeforms", 1, true) then
+      capture.seenTelemetry = true
+      return markResponseStarted(capture)
+    end
+    if lower == "you cannot scan your own ship for lifeforms." then
+      return markResponseStarted(capture)
+    end
+    if containsMarker(lower, STATUS_MARKERS) then
+      capture.seenTelemetry = true
+      return markResponseStarted(capture)
+    end
+    if capture.seenTelemetry and value:match("^%-%-[%w]+%-+") then
+      return markResponseStarted(capture)
+    end
+    if not capture.seenTelemetry and value:match("^[%w][%w%s'%-]+:$") then
+      capture.seenTelemetry = true
+      return markResponseStarted(capture)
+    end
+  end
+
+  if capture.parserCommand == "info" then
+    if value:match("^%[Class:%s*[^%]]+%]%s*:") then
+      capture.seenTelemetry = true
+      return markResponseStarted(capture)
+    end
+    if containsMarker(lower, INFO_MARKERS) then
+      capture.seenTelemetry = true
+      return markResponseStarted(capture)
+    end
+  end
+
+  if capture.parserCommand == "fleetradar" then
+    if lower:find("ship", 1, true) and lower:find("position", 1, true) then
+      capture.fleetHeaderSeen = true
+      return markResponseStarted(capture)
+    end
+    if lower:match("^fleet%s*radar") then return markResponseStarted(capture) end
+    if value:find("|", 1, true) then return markResponseStarted(capture) end
+    if capture.fleetHeaderSeen == true and value:match("%s%s+") then
+      return markResponseStarted(capture)
+    end
+  end
+
+  -- Once a hidden response has positively begun, its prose, decorations,
+  -- storage notes, and prompt HUD belong to that response too. Known chat and
+  -- asynchronous combat lines returned above and remain visible in Mudlet.
+  return capture.polled == true and capture.responseStarted == true
 end
 
 local function diagnostic(level, message)
@@ -90,6 +275,9 @@ local function mergeMissing(target, source)
 end
 
 local function freshState()
+  local hasLotjUi = type(_G.lotj) == "table"
+    and type(_G.lotj.chat) == "table"
+    and type(_G.lotj.systemMap) == "table"
   return {
     observer = {id = "player-ship", kind = "ship", name = "Player Ship"},
     entities = {},
@@ -102,6 +290,7 @@ local function freshState()
       shieldRecharging = false,
       shieldRechargeAttempts = 0,
       shieldStatusPending = false,
+      mudletCompatibility = {lotjUiDetected = hasLotjUi},
     },
   }
 end
@@ -353,6 +542,22 @@ queueObserverHydration = function()
   Scraper.polling.hydrationQueue = queue
 end
 
+queueObserverInfo = function()
+  local queue = Scraper.polling.hydrationQueue or {}
+  for index = #queue, 1, -1 do
+    if queue[index] == "info" then table.remove(queue, index) end
+  end
+  table.insert(queue, 1, "info")
+  Scraper.polling.hydrationQueue = queue
+  if Scraper.state and Scraper.state.metadata.polling then
+    Scraper.state.metadata.polling.hydratingObserver = true
+  end
+  if Scraper.polling.enabled and Scraper.state
+      and Scraper.state.metadata.inSpace == true and scheduleNextPoll then
+    scheduleNextPoll(0.1)
+  end
+end
+
 function Scraper.setInSpace(inSpace, reason)
   Scraper.state = Scraper.state or freshState()
   inSpace = inSpace == true
@@ -520,9 +725,10 @@ end
 
 function Scraper.captureLine(value)
   local capture = Scraper.active
-  if not capture then return end
+  if not capture then return false end
 
   value = tostring(value or ""):gsub("\r", "")
+  if not captureOwnsLine(capture, value) then return false end
   if capture.polled and type(deleteLine) == "function" then
     pcall(deleteLine)
   end
@@ -532,16 +738,34 @@ function Scraper.captureLine(value)
     diagnostic("error", "aborted oversized " .. capture.sentCommand .. " capture")
     Scraper.active = nil
     clearCaptureHandles(capture)
-    return
+    return false
   end
   table.insert(capture.lines, value)
 
-  -- Radar has an unambiguous terminator, so publish without waiting for a
-  -- prompt. The prompt remains the common boundary for all other commands.
+  -- Visible radar commands can publish at their unambiguous terminator. Hidden
+  -- radar polls remain active until the prompt so their trailing System Map and
+  -- character-HUD lines are suppressed with the rest of the response envelope.
   if capture.parserCommand == "radar"
+      and not capture.polled
       and value:lower():match("^%s*your%s+coordinates%s*:") then
     Scraper.finishCapture("radar terminator")
   end
+  return true
+end
+
+local function refreshLotjUiCompatibility()
+  if not Scraper.state or not Scraper.state.metadata then return false end
+  local detected = type(_G.lotj) == "table"
+    and type(_G.lotj.chat) == "table"
+    and type(_G.lotj.systemMap) == "table"
+  local compatibility = Scraper.state.metadata.mudletCompatibility or {}
+  local newlyDetected = detected and compatibility.lotjUiDetected ~= true
+  compatibility.lotjUiDetected = detected or compatibility.lotjUiDetected == true
+  Scraper.state.metadata.mudletCompatibility = compatibility
+  if newlyDetected then
+    diagnostic("info", "official LotJ Mudlet UI detected; shared chat and radar compatibility enabled")
+  end
+  return compatibility.lotjUiDetected == true
 end
 
 function Scraper.startCapture(parserCommand, sentCommand, options)
@@ -822,6 +1046,12 @@ local function updatePollingMetadata(command)
   }
 end
 
+local function shipGmcpIsFresh(now)
+  local lastAt = tonumber(Scraper.shipGmcp and Scraper.shipGmcp.lastAt) or 0
+  return lastAt > 0 and (tonumber(now) or os.time()) - lastAt
+    <= Scraper.SHIP_GMCP_STALE_SECONDS
+end
+
 local function pollOnce()
   Scraper.polling.timerId = nil
   if not Scraper.polling.enabled then return end
@@ -881,6 +1111,14 @@ local function pollOnce()
   end
   local delay = combatRadarDue and 0.5 or completedCycle
     and Scraper.polling.cycleDelaySeconds or Scraper.polling.commandGapSeconds
+
+  -- Ship.Info supplies live observer status. Keep the command as a fallback
+  -- when GMCP has not arrived recently instead of polling it every cycle.
+  if command == "status" and shipGmcpIsFresh(now) then
+    updatePollingMetadata("gmcp.Ship.Info")
+    scheduleNextPoll(0.1)
+    return
+  end
 
   local parserCommand = parserForCommand(command)
   local started, startError = Scraper.startCapture(parserCommand, command, {
@@ -1221,10 +1459,93 @@ function Scraper.handleShipHit(text, critical)
       end
     end
   else
+    Scraper.shipGmcp.damageSequence = Scraper.shipGmcp.sequence or 0
     Scraper.shields.damageTimerId = tempTimer(3, function()
       Scraper.shields.damageTimerId = nil
-      requestShieldStatus(true)
+      if Scraper.shipGmcp.damageSequence ~= nil
+          and (Scraper.shipGmcp.sequence or 0) <= Scraper.shipGmcp.damageSequence then
+        Scraper.shipGmcp.damageSequence = nil
+        requestShieldStatus(true)
+      end
     end)
+  end
+  return true
+end
+
+local function gmcpNumber(info, key)
+  if type(info) ~= "table" or info[key] == nil then return nil end
+  return tonumber(info[key])
+end
+
+function Scraper.handleShipGmcp()
+  local info = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.Info or nil
+  if type(info) ~= "table" or next(info) == nil then return false end
+
+  Scraper.state = Scraper.state or freshState()
+  local observer = Scraper.state.observer
+  local speed, maxSpeed = gmcpNumber(info, "speed"), gmcpNumber(info, "maxSpeed")
+  local energy, maxEnergy = gmcpNumber(info, "energy"), gmcpNumber(info, "maxEnergy")
+  local hull, maxHull = gmcpNumber(info, "hull"), gmcpNumber(info, "maxHull")
+  local shield, maxShield = gmcpNumber(info, "shield"), gmcpNumber(info, "maxShield")
+  local posX, posY, posZ = gmcpNumber(info, "posX"), gmcpNumber(info, "posY"),
+    gmcpNumber(info, "posZ")
+  local headX, headY, headZ = gmcpNumber(info, "headX"), gmcpNumber(info, "headY"),
+    gmcpNumber(info, "headZ")
+
+  if speed ~= nil or maxSpeed ~= nil then
+    observer.speed = observer.speed or {}
+    if speed ~= nil then observer.speed.current = speed end
+    if maxSpeed ~= nil then observer.speed.maximum = maxSpeed end
+  end
+  if energy ~= nil or maxEnergy ~= nil then
+    observer.energy = observer.energy or {}
+    if energy ~= nil then observer.energy.current = energy end
+    if maxEnergy ~= nil then observer.energy.maximum = maxEnergy end
+  end
+  if hull ~= nil or maxHull ~= nil then
+    observer.hull = observer.hull or {}
+    if hull ~= nil then observer.hull.current = hull end
+    if maxHull ~= nil then observer.hull.maximum = maxHull end
+  end
+  if shield ~= nil or maxShield ~= nil then
+    observer.shields = observer.shields or {}
+    if shield ~= nil then observer.shields.current = shield end
+    if maxShield ~= nil then observer.shields.maximum = maxShield end
+  end
+  if posX ~= nil then observer.x = posX end
+  if posY ~= nil then observer.y = posY end
+  if posZ ~= nil then observer.z = posZ end
+  if headX ~= nil and headY ~= nil and headZ ~= nil
+      and (headX ~= 0 or headY ~= 0 or headZ ~= 0) then
+    observer.heading = {x = headX, y = headY, z = headZ}
+  end
+  if info.piloting ~= nil then
+    observer.piloting = info.piloting == true or info.piloting == 1
+      or tostring(info.piloting):lower() == "true"
+  end
+
+  Scraper.shipGmcp.sequence = (Scraper.shipGmcp.sequence or 0) + 1
+  Scraper.shipGmcp.lastAt = os.time()
+  Scraper.state.metadata.sources.ship_gmcp = Scraper.shipGmcp.lastAt
+  Scraper.state.metadata.lastSource = "ship_gmcp"
+  Scraper.state.metadata.lastObservedAt = Scraper.shipGmcp.lastAt
+  Scraper.state.metadata.shipGmcpHealthy = true
+  clearObserverHydration("status")
+
+  if Scraper.shipGmcp.damageSequence ~= nil
+      and Scraper.shipGmcp.sequence > Scraper.shipGmcp.damageSequence then
+    Scraper.shipGmcp.damageSequence = nil
+    safeKill("killTimer", Scraper.shields.damageTimerId)
+    Scraper.shields.damageTimerId = nil
+    if Scraper.shields.auto and shield and maxShield and shield < maxShield
+        and not Scraper.shields.recharging then
+      beginShieldRecharge(nil)
+    end
+  end
+  if Scraper.shields.recharging and shield and maxShield and shield >= maxShield then
+    finishShieldRecharge("completed", "Shields confirmed at peak power by GMCP.")
+  else
+    Scraper.publish()
   end
   return true
 end
@@ -1351,7 +1672,9 @@ local function armAutotrackTimeout()
 end
 
 local function sendAutotrackToggle()
+  Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "autotrack", false)
+  Scraper.polling.dispatching = false
   if not sent or sendResult == false then
     return false, tostring(sent and sendError or sendResult)
   end
@@ -1636,7 +1959,9 @@ local function dispatchSpaceProbe(_, message)
   })
   if not started then return false, startError end
 
+  Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "radar", false)
+  Scraper.polling.dispatching = false
   if not sent or sendResult == false then
     abandonCapture("startup radar probe could not be sent")
     Scraper.setInSpace(false, "startup radar could not be sent")
@@ -1647,6 +1972,7 @@ end
 
 function Scraper.handleOutgoingCommand(eventName, command)
   if Scraper.polling.dispatching then return end
+  refreshLotjUiCompatibility()
   if Scraper.pendingCommandKind == "target" then
     if type(denyCurrentSend) == "function" then denyCurrentSend() end
     if type(cecho) == "function" then
@@ -1654,10 +1980,25 @@ function Scraper.handleOutgoingCommand(eventName, command)
     end
     return
   end
+
+  -- Mudlet is the primary interactive client. Any command originating outside
+  -- Holocron3D preempts a hidden capture and gives the user a quiet window
+  -- before telemetry polling resumes. This also adopts radar commands issued
+  -- by the official LotJ UI instead of immediately sending a duplicate.
+  cancelPollTimer()
+  if Scraper.active then
+    abandonCapture("interrupted by external Mudlet command")
+    cancelPollTimer()
+  end
+  if Scraper.polling.enabled and Scraper.state
+      and Scraper.state.metadata.inSpace == true then
+    scheduleNextPoll(Scraper.USER_IDLE_POLL_DELAY_SECONDS)
+  end
+
   local parserCommand = parserForCommand(command)
   if not parserCommand then return end
   if Scraper.state and Scraper.state.metadata.inSpace == false then return end
-  Scraper.startCapture(parserCommand, command)
+  Scraper.startCapture(parserCommand, command, {external = true})
 end
 
 function Scraper.showLastCapture()
@@ -1685,6 +2026,13 @@ function Scraper.getSnapshot()
   }
 end
 
+function Scraper.requestShipGmcpSupport(eventName, protocol)
+  if protocol and tostring(protocol):upper() ~= "GMCP" then return false end
+  if type(sendGMCP) ~= "function" then return false end
+  local ok = pcall(sendGMCP, "Core.Supports.Add", '["Ship 1"]')
+  return ok
+end
+
 function Scraper.setup(proxy, options)
   if type(proxy) ~= "table" or type(proxy.parseGameOutput) ~= "function" then
     return nil, "proxy must provide parseGameOutput"
@@ -1708,6 +2056,7 @@ function Scraper.setup(proxy, options)
     lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
     lastActivityAt = 0, lastLaunchWeapon = nil, lastLaunchTarget = nil,
     lastLaunchAt = 0}
+  Scraper.shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil}
   safeKill("killTimer", Scraper.shields.damageTimerId)
   safeKill("killTimer", Scraper.shields.actionTimerId)
   Scraper.shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
@@ -1717,11 +2066,19 @@ function Scraper.setup(proxy, options)
     damageTimerId = nil, actionTimerId = nil, statusPending = false,
     manualIntentId = nil, activationPending = false}
   Scraper.state = freshState()
+  if Scraper.state.metadata.mudletCompatibility.lotjUiDetected then
+    diagnostic("info", "official LotJ Mudlet UI detected; shared chat and radar compatibility enabled")
+  else
+    refreshLotjUiCompatibility()
+  end
   Scraper.scanState = {}
   Scraper.polling.hydrationQueue = {}
   Scraper.eventHandlerIds = {
     registerAnonymousEventHandler("sysDataSendRequest", Scraper.handleOutgoingCommand),
+    registerAnonymousEventHandler("gmcp.Ship.Info", Scraper.handleShipGmcp),
+    registerAnonymousEventHandler("sysProtocolEnabled", Scraper.requestShipGmcpSupport),
   }
+  Scraper.requestShipGmcpSupport()
   Scraper.stateTriggerIds = {
     tempTrigger("Wait until after you launch!", function()
       Scraper.setInSpace(false, "LotJ reports that the ship has not launched")
@@ -1731,6 +2088,10 @@ function Scraper.setup(proxy, options)
     end),
     tempTrigger("The ship leaves the platform far behind as it flies into space", function()
       Scraper.setInSpace(true, "launch sequence complete")
+      queueObserverInfo()
+    end),
+    tempTrigger("You grip the controls.", function()
+      queueObserverInfo()
     end),
     tempTrigger("Please wait until the ship has finished its current maneuver.", function()
       if Scraper.pendingCommandKind ~= "target" then
@@ -1848,8 +2209,13 @@ function Scraper.setup(proxy, options)
         departureSpeed = round(departureSpeed)
       end
 
-      if departureSpeed then send("speed " .. tostring(departureSpeed)) end
-      send(command)
+      Scraper.polling.dispatching = true
+      local sent, sendError = pcall(function()
+        if departureSpeed then send("speed " .. tostring(departureSpeed)) end
+        send(command)
+      end)
+      Scraper.polling.dispatching = false
+      if not sent then return false, tostring(sendError) end
       holdPollingForCommand(message and message.id or nil, 45,
         "Maneuver completion was not observed; course controls released.")
       return true
@@ -1867,7 +2233,12 @@ function Scraper.setup(proxy, options)
           or (maximum and requestedSpeed > maximum) then
         return false, "requested speed is outside the ship's known limits"
       end
-      send("speed " .. tostring(math.floor(requestedSpeed + 0.5)))
+      Scraper.polling.dispatching = true
+      local sent, sendError = pcall(function()
+        send("speed " .. tostring(math.floor(requestedSpeed + 0.5)))
+      end)
+      Scraper.polling.dispatching = false
+      if not sent then return false, tostring(sendError) end
       holdPollingForCommand(message and message.id or nil, 1.5)
       return true
     end)
@@ -1906,6 +2277,7 @@ function Scraper.teardown()
   Scraper.combat = {targetName = nil, pendingTargetName = nil, nextEventId = 0,
     lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
     lastActivityAt = 0}
+  Scraper.shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil}
   safeKill("killTimer", Scraper.pendingCommandTimerId)
   Scraper.pendingCommandTimerId = nil
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)

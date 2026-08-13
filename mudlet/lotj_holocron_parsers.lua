@@ -118,6 +118,20 @@ local function isDecoration(line)
   return line == "" or line:match("^[%s%-%+=_|:]+$") ~= nil
 end
 
+local function radarSystemName(line)
+  line = trim(tostring(line or ""))
+  local explicit = line:match("^[Ss]tarsystem:%s*(.-)%s*$")
+  if explicit and explicit ~= "" then return explicit end
+  if line:find(":", 1, true) or not line:match("^[%w][%w%s'%-]+$") then return nil end
+  local lower = line:lower()
+  if lower:match("%ssector$") or lower:match("%ssystem$") then return line end
+  return nil
+end
+
+function Parsers.radarSystemName(line)
+  return radarSystemName(line)
+end
+
 local function resultOrError(result, recognized, command)
   if recognized == 0 then
     return nil, "no " .. command .. " data was recognized"
@@ -159,10 +173,8 @@ function Parsers.parseRadar(input)
         sawEntity = true
       end
       recognized = recognized + 1
-    elseif not sawEntity and not result.system and not isDecoration(line)
-        and not line:lower():find("coordinate", 1, true)
-        and not line:lower():match("^radar") then
-      result.system = line:gsub("^Starsystem:%s*", "")
+    elseif not sawEntity and not result.system then
+      result.system = radarSystemName(line)
     end
   end
 

@@ -13,7 +13,13 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   assert.equal(scripts[0].name, "holocron3d.bootstrap");
   assert.equal(aliases[0].name, "holocron3d.command");
   assert.match(aliases[0].regex, /h3d/);
+  assert.match(aliases[0].regex, /dev/);
   assert.match(bootstrap, /Holocron3D\.exe/);
+  assert.match(bootstrap, /Package\.setDevelopmentMode/);
+  assert.match(bootstrap, /holocron3d-dev-app-path\.txt/);
+  assert.match(bootstrap, /path \.\. "\/LotJ Holocron 3D-win32-x64\/Holocron3D\.exe"/);
+  assert.match(bootstrap, /out\/LotJ Holocron 3D-win32-x64\/Holocron3D\.exe/);
+  assert.match(bootstrap, /devExecutable\s+and \{"--app", devExecutable\}/);
   assert.match(bootstrap, /tempTimer\(0, function\(\) Package\.start\(\) end\)/);
   for (const source of ["parsers", "proxy", "scraper"]) {
     assert.match(build, new RegExp(`lotj_holocron_${source}\\.lua`));
