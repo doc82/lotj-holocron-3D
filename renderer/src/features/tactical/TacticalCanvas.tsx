@@ -32,7 +32,7 @@ interface TacticalCanvasProps {
   snapshot: SystemSnapshot | null;
   radarBubbleEnabled: boolean;
   originGridEnabled: boolean;
-  combatEvent?: CombatEvent;
+  combatEvents?: CombatEvent[];
   onSelect(id: string | null): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
@@ -40,7 +40,7 @@ interface TacticalCanvasProps {
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvent, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
+  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
@@ -80,8 +80,8 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     }, [originGridEnabled]);
 
     useEffect(() => {
-      if (combatEvent) engineRef.current?.pushCombatEvent(combatEvent);
-    }, [combatEvent]);
+      for (const event of combatEvents ?? []) engineRef.current?.pushCombatEvent(event);
+    }, [combatEvents]);
 
     useImperativeHandle(ref, () => ({
       fitSystem: () => engineRef.current?.fitSystem(),

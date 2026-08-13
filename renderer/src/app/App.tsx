@@ -205,6 +205,8 @@ export function App() {
   const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired !== false;
   const autotrackPending = telemetry.snapshot?.metadata?.autotrackPending === true;
   const combatEvent = telemetry.snapshot?.metadata?.combatEvent;
+  const combatEvents = telemetry.snapshot?.metadata?.combatEvents
+    ?? (combatEvent ? [combatEvent] : []);
   const reportedCombatTarget = String(telemetry.snapshot?.metadata?.combatTarget
     || (typeof observer.target === "string" ? observer.target : "")).trim();
   const combatTargetName = reportedCombatTarget && reportedCombatTarget.toLowerCase() !== "none"
@@ -581,7 +583,7 @@ export function App() {
           snapshot={classifiedSnapshot}
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
-          combatEvent={combatEvent}
+          combatEvents={combatEvents}
           onSelect={selectContact}
           onMovementVector={setCourseVector}
           onMovementCommit={stageNavigation}
@@ -660,7 +662,7 @@ export function App() {
           <WeaponsPanel
             observer={telemetry.snapshot?.observer || observer}
             targetName={combatTargetName}
-            event={combatEvent}
+            events={combatEvents}
             disabled={landed || commandLocked}
             onFire={fireWeapon}
           />

@@ -336,6 +336,7 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.state.observer.target = nil
     Scraper.state.metadata.combatTarget = nil
     Scraper.state.metadata.combatEvent = nil
+    Scraper.state.metadata.combatEvents = nil
     Scraper.combat.targetName = nil
     Scraper.combat.pendingTargetName = nil
   elseif Scraper.polling.enabled and scheduleNextPoll then
@@ -557,6 +558,11 @@ local function publishCombatEvent(event)
   event.targetName = event.targetName or Scraper.combat.targetName
   Scraper.state.metadata.combatTarget = Scraper.combat.targetName
   Scraper.state.metadata.combatEvent = event
+  Scraper.state.metadata.combatEvents = Scraper.state.metadata.combatEvents or {}
+  table.insert(Scraper.state.metadata.combatEvents, copyTable(event))
+  while #Scraper.state.metadata.combatEvents > 32 do
+    table.remove(Scraper.state.metadata.combatEvents, 1)
+  end
   return Scraper.publish()
 end
 

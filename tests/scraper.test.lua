@@ -354,6 +354,10 @@ assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
 assert(scraper.handleCombatLine(
   "Your ship's ion cannons fire at Mark-I Assault Frigate 'Wayfarer' but miss."))
 assert(snapshots[#snapshots].metadata.combatEvent.outcome == "miss")
+local queuedCombatEvents = snapshots[#snapshots].metadata.combatEvents
+assert(queuedCombatEvents[#queuedCombatEvents - 1].type == "launch"
+    and queuedCombatEvents[#queuedCombatEvents].type == "impact",
+  "combat telemetry must retain launch events when impact output follows immediately")
 assert(scraper.handleCombatLine("Ion cannons fully charged."))
 assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
 assert(#snapshots == combatSnapshots + 3,

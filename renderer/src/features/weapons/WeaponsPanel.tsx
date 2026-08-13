@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { CombatEvent, Observer, WeaponType } from "../../types/telemetry";
 import styles from "./WeaponsPanel.module.css";
@@ -42,40 +42,44 @@ function WeaponIcon({ type }: { type: WeaponType | "all" }) {
 interface WeaponsPanelProps {
   observer: Observer;
   targetName: string;
-  event?: CombatEvent;
+  events?: CombatEvent[];
   disabled?: boolean;
   onFire(weapon: WeaponType | "all"): Promise<string | null>;
 }
 
-export function WeaponsPanel({ observer, targetName, event, disabled, onFire }: WeaponsPanelProps) {
+export function WeaponsPanel({ observer, targetName, events, disabled, onFire }: WeaponsPanelProps) {
   const [charging, setCharging] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState("WEAPONS HOT // AWAITING FIRE ORDER");
+  const lastEventIdRef = useRef(0);
   const installed = useMemo(() => WEAPONS.filter((weapon) => {
     const count = Number(observer.weapons?.[weapon.field] || 0);
     return count > 0 && (!weapon.launcher || Number(observer.weapons?.missileTubes || 0) > 0);
   }), [observer.weapons]);
 
   useEffect(() => {
-    if (!event) return;
-    if (event.type === "launch") {
-      if (event.weapon !== "best") {
-        setCharging((current) => new Set(current).add(event.weapon));
+    for (const event of events ?? []) {
+      if (event.id <= lastEventIdRef.current) continue;
+      lastEventIdRef.current = event.id;
+      if (event.type === "launch") {
+        if (event.weapon !== "best") {
+          setCharging((current) => new Set(current).add(event.weapon));
+        }
+        setStatus(`${event.count || 1} ${event.weapon.toUpperCase()} // FIRED`);
+      } else if (event.type === "impact") {
+        setStatus(`${event.weapon.toUpperCase()} // ${event.outcome === "hit" ? "TARGET HIT" : "SHOT MISSED"}`);
+      } else if (event.type === "charged") {
+        setCharging((current) => {
+          const next = new Set(current);
+          next.delete(event.weapon);
+          return next;
+        });
+        const launcher = WEAPONS.find((weapon) => weapon.type === event.weapon)?.launcher;
+        setStatus(`${event.weapon.toUpperCase()} // ${launcher ? "LAUNCHER RELOADED" : "FULLY CHARGED"}`);
+      } else if (event.type === "failure") {
+        setStatus(`${event.weapon.toUpperCase()} // ${(event.reason || "FIRE CONTROL LOCK FAILED").toUpperCase()}`);
       }
-      setStatus(`${event.count || 1} ${event.weapon.toUpperCase()} // FIRED`);
-    } else if (event.type === "impact") {
-      setStatus(`${event.weapon.toUpperCase()} // ${event.outcome === "hit" ? "TARGET HIT" : "SHOT MISSED"}`);
-    } else if (event.type === "charged") {
-      setCharging((current) => {
-        const next = new Set(current);
-        next.delete(event.weapon);
-        return next;
-      });
-      const launcher = WEAPONS.find((weapon) => weapon.type === event.weapon)?.launcher;
-      setStatus(`${event.weapon.toUpperCase()} // ${launcher ? "LAUNCHER RELOADED" : "FULLY CHARGED"}`);
-    } else if (event.type === "failure") {
-      setStatus(`${event.weapon.toUpperCase()} // ${(event.reason || "FIRE CONTROL LOCK FAILED").toUpperCase()}`);
     }
-  }, [event]);
+  }, [events]);
 
   const fire = async (weapon: WeaponType | "all") => {
     setStatus(`${weapon.toUpperCase()} // TRANSMITTING FIRE ORDER`);

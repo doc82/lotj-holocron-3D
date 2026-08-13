@@ -68,6 +68,7 @@ export interface SystemSnapshot {
     autotrackResponse?: string;
     combatTarget?: string;
     combatEvent?: CombatEvent;
+    combatEvents?: CombatEvent[];
     [key: string]: unknown;
   };
 }

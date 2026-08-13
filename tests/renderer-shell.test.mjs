@@ -329,6 +329,8 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   }
   assert.match(panelCss, /weapons-enter/);
   assert.match(canvas, /pushCombatEvent/);
+  assert.match(canvas, /for \(const event of combatEvents/);
+  assert.match(panel, /lastEventIdRef/);
   assert.match(engine, /rebuildCombatBuffers/);
   assert.match(engine, /combatEffects/);
   assert.match(scraper, /registerIntentHandler\("fire_weapon"/);
