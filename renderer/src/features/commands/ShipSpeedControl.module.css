@@ -1,0 +1,96 @@
+.speedControl {
+  margin-top: 9px;
+}
+
+.speedControl label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #89abb3;
+  font: 10px/1.3 ui-monospace, "Cascadia Mono", monospace;
+}
+
+.speedControl label strong {
+  color: #c5eff7;
+}
+
+.speedControl input {
+  width: 100%;
+  height: 14px;
+  margin: 9px 0;
+  accent-color: #39b9ed;
+}
+
+.presets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.presets button {
+  position: relative;
+  display: grid;
+  min-height: 32px;
+  place-items: center;
+  border: 1px solid rgba(82, 220, 244, 0.3);
+  padding: 5px 2px;
+  color: #83b9c4;
+  background: rgba(13, 48, 61, 0.5);
+  cursor: pointer;
+}
+
+.presets button:hover:not(:disabled),
+.presets button:focus-visible:not(:disabled) {
+  border-color: rgba(80, 199, 255, 0.82);
+  outline: none;
+  color: #d8f8ff;
+  background: rgba(23, 116, 156, 0.48);
+}
+
+.presets button:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+
+.presets svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+  stroke-width: 1.6;
+}
+
+.iconButton::before {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  z-index: 30;
+  width: max-content;
+  padding: 5px 7px;
+  border: 1px solid rgba(103, 218, 242, 0.42);
+  color: #d9f8ff;
+  content: attr(data-tooltip);
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(2, 13, 22, 0.96);
+  transform: translate(-50%, 3px);
+  transition: opacity 100ms ease, transform 100ms ease;
+  font: 700 9px/1.25 ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.iconButton:hover::before,
+.iconButton:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.speedUnavailable {
+  display: block;
+  margin-top: 7px;
+  color: #d2a95a;
+  font: 800 9px/1.3 ui-monospace, monospace;
+  letter-spacing: 0.06em;
+}

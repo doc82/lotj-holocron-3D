@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { formatCoordinate } from "../../domain/scene";
-import type { SystemSnapshot, Vector3 } from "../../types/telemetry";
+import type { CombatEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
 import { TacticalEngine, type ClusterLabel, type CourseLabel, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
 
@@ -32,6 +32,7 @@ interface TacticalCanvasProps {
   snapshot: SystemSnapshot | null;
   radarBubbleEnabled: boolean;
   originGridEnabled: boolean;
+  combatEvents?: CombatEvent[];
   onSelect(id: string | null): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
@@ -39,7 +40,7 @@ interface TacticalCanvasProps {
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
+  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
@@ -78,6 +79,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
       engineRef.current?.setOriginGridEnabled(originGridEnabled);
     }, [originGridEnabled]);
 
+    useEffect(() => {
+      for (const event of combatEvents ?? []) engineRef.current?.pushCombatEvent(event);
+    }, [combatEvents]);
+
     useImperativeHandle(ref, () => ({
       fitSystem: () => engineRef.current?.fitSystem(),
       sectorView: () => engineRef.current?.sectorView(),
@@ -94,9 +99,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             YOUR SHIP <span>// {snapshot.observer?.name || "PLAYER SHIP"}</span>
           </div>
         )}
-        <div className={styles.fidelity} aria-live="polite">
-          {fidelity === "strategic" ? "STRATEGIC CONTACTS" : fidelity === "model" ? "MODEL DETAIL" : "RESOLVING HULLS"}
-        </div>
+        {fidelity === "strategic" && <div className={styles.fidelity}>STRATEGIC CONTACTS</div>}
         {clusterLabels.map((label) => (
           <button
             key={label.id}

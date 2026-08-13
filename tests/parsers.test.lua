@@ -53,6 +53,15 @@ equal(liveRadar.entities[2].name, "MK1AF19")
 equal(liveRadar.entities[2].class, "Mark-I Assault Frigate")
 equal(liveRadar.observer.z, -1400)
 
+local projectileRadar = assert(parsers.parse("radar projectiles", [[
+Esstran Sector
+Mark-I Assault Frigate 'MK1AF19'                          -369 -34 -120
+A Concussion Missile                                      -240 -34 -120
+Your Coordinates:                                         0 0 0
+]]))
+equal(projectileRadar.entities[2].name, "A Concussion Missile")
+equal(projectileRadar.entities[2].kind, "projectile")
+
 local prox = assert(parsers.parseProx([[
 Proximity scan
 Corellia                                              Prox: 1,250 units

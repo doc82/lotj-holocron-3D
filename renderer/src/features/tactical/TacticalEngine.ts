@@ -13,7 +13,7 @@ import {
   type ScenePoint,
   type TacticalScene,
 } from "../../domain/scene";
-import type { Color3, SystemSnapshot, Vector3 } from "../../types/telemetry";
+import type { Color3, CombatEvent, SystemSnapshot, Vector3, WeaponType } from "../../types/telemetry";
 import { shipModelFor } from "../../domain/shipModels";
 
 const VERTEX_SOURCE = `
@@ -127,6 +127,17 @@ export interface TacticalEngineCallbacks {
 }
 
 interface DragState { x: number; y: number; moved: boolean; button: number }
+interface CombatEffect {
+  id: number;
+  type: "projectile" | "impact";
+  weapon: WeaponType;
+  targetName: string;
+  start: number;
+  duration: number;
+  from: Vector3;
+  to: Vector3;
+  outcome?: "hit" | "miss";
+}
 
 function requireBuffer(gl: WebGLRenderingContext): WebGLBuffer {
   const buffer = gl.createBuffer();
@@ -147,6 +158,8 @@ export class TacticalEngine {
   private readonly radarSurfaceBuffer: WebGLBuffer;
   private readonly radarWireBuffer: WebGLBuffer;
   private readonly originGridBuffer: WebGLBuffer;
+  private readonly combatLineBuffer: WebGLBuffer;
+  private readonly combatPointBuffer: WebGLBuffer;
   private readonly program: WebGLProgram;
   private readonly resizeObserver: ResizeObserver;
   private readonly locations: {
@@ -170,6 +183,8 @@ export class TacticalEngine {
   private radarSurfaceCount = 0;
   private radarWireCount = 0;
   private originGridCount = 0;
+  private combatLineCount = 0;
+  private combatPointCount = 0;
   private radarRange = 0;
   private radarBubbleEnabled = true;
   private originGridEnabled = false;
@@ -191,6 +206,8 @@ export class TacticalEngine {
   private movementActive = false;
   private movementInteractive = false;
   private movementVector: Vector3 = [100, 0, 0];
+  private combatEffects: CombatEffect[] = [];
+  private lastCombatEventId = 0;
 
   constructor(canvas: HTMLCanvasElement, callbacks: TacticalEngineCallbacks) {
     this.canvas = canvas;
@@ -218,6 +235,8 @@ export class TacticalEngine {
     this.radarSurfaceBuffer = requireBuffer(gl);
     this.radarWireBuffer = requireBuffer(gl);
     this.originGridBuffer = requireBuffer(gl);
+    this.combatLineBuffer = requireBuffer(gl);
+    this.combatPointBuffer = requireBuffer(gl);
     this.rebuildBuffers();
     this.bindEvents();
     this.resizeObserver = new ResizeObserver(() => this.requestRender());
@@ -320,6 +339,44 @@ export class TacticalEngine {
     this.movementInteractive = false;
   }
 
+  pushCombatEvent(event: CombatEvent): void {
+    if (!event.id || event.id <= this.lastCombatEventId
+        || event.type === "charged" || event.type === "failure") return;
+    this.lastCombatEventId = event.id;
+    const target = this.findPointByName(event.targetName);
+    if (!target) return;
+    const now = performance.now();
+    if (event.type === "launch") {
+      const projectile = ["missile", "torpedo", "rocket", "burst"].includes(event.weapon);
+      const targetDistance = Math.hypot(...target.position3d);
+      const projectileDuration = Math.min(4_200, 1_400 + targetDistance * 2.4)
+        * (event.weapon === "torpedo" ? 1.15 : event.weapon === "rocket" ? 0.78 : 1);
+      this.combatEffects.push({
+        id: event.id,
+        type: "projectile",
+        weapon: event.weapon,
+        targetName: target.name,
+        start: now,
+        duration: projectile ? projectileDuration : 620,
+        from: [0, 0, 0],
+        to: [...target.position3d],
+      });
+    } else if (event.type === "impact") {
+      this.combatEffects.push({
+        id: event.id,
+        type: "impact",
+        weapon: event.weapon,
+        targetName: target.name,
+        start: now,
+        duration: 780,
+        from: [0, 0, 0],
+        to: [...target.position3d],
+        outcome: event.outcome,
+      });
+    }
+    this.requestRender();
+  }
+
   dispose(): void {
     this.disposed = true;
     if (this.animationFrame !== null) cancelAnimationFrame(this.animationFrame);
@@ -333,6 +390,8 @@ export class TacticalEngine {
     this.gl.deleteBuffer(this.radarSurfaceBuffer);
     this.gl.deleteBuffer(this.radarWireBuffer);
     this.gl.deleteBuffer(this.originGridBuffer);
+    this.gl.deleteBuffer(this.combatLineBuffer);
+    this.gl.deleteBuffer(this.combatPointBuffer);
     this.gl.deleteProgram(this.program);
   }
 
@@ -387,15 +446,18 @@ export class TacticalEngine {
 
   private rebuildPointBuffers(): void {
     const strategic = this.scene.points.flatMap((point) => {
-      const size = point.kind === "cluster" ? Math.min(18, point.pointSize) : point.kind === "observer" ? 8 : 5;
+      const size = point.kind === "cluster" ? Math.min(18, point.pointSize)
+        : point.kind === "observer" ? 8 : point.kind === "projectile" ? point.pointSize : 5;
       return this.interleavedVertex(
-        point.position3d, point.color, size, 0, this.headingFor(point),
+        point.position3d, point.color, size,
+        point.kind === "projectile" ? point.markerShape : 0, this.headingFor(point),
       );
     });
     const landmarks = this.scene.points
       .filter((point) => !["ship", "observer"].includes(point.kind))
       .flatMap((point) => this.interleavedVertex(
-        point.position3d, point.color, point.pointSize, 0, this.headingFor(point),
+        point.position3d, point.color, point.pointSize,
+        point.kind === "projectile" ? point.markerShape : 0, this.headingFor(point),
       ));
     this.pointCount = this.scene.points.length;
     this.landmarkCount = landmarks.length / 11;
@@ -631,6 +693,81 @@ export class TacticalEngine {
     this.upload(this.originGridBuffer, grid);
   }
 
+  private findPointByName(name?: string): ScenePoint | null {
+    if (!name) return null;
+    const wanted = name.trim().toLowerCase();
+    for (const point of this.scene.points) {
+      if ((point.name || "").trim().toLowerCase() === wanted) return point;
+      const member = point.members?.find((candidate) =>
+        (candidate.name || "").trim().toLowerCase() === wanted);
+      if (member) return member;
+    }
+    return null;
+  }
+
+  private weaponColor(weapon: WeaponType): Color3 {
+    if (weapon === "ion") return [0.3, 0.72, 1];
+    if (["missile", "torpedo", "rocket"].includes(weapon)) return [1, 0.58, 0.18];
+    if (weapon === "burst") return [0.72, 0.38, 1];
+    if (weapon === "turbolaser") return [0.3, 1, 0.42];
+    return [1, 0.18, 0.2];
+  }
+
+  private rebuildCombatBuffers(now: number): void {
+    const lines: number[] = [];
+    const points: number[] = [];
+    const lerp = (from: Vector3, to: Vector3, amount: number): Vector3 => [
+      from[0] + (to[0] - from[0]) * amount,
+      from[1] + (to[1] - from[1]) * amount,
+      from[2] + (to[2] - from[2]) * amount,
+    ];
+    this.combatEffects = this.combatEffects.filter((effect) => now - effect.start < effect.duration);
+    for (const effect of this.combatEffects) {
+      const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
+      const color = effect.outcome === "miss" ? [0.52, 0.72, 0.82] as Color3 : this.weaponColor(effect.weapon);
+      const liveTarget = this.findPointByName(effect.targetName);
+      const targetPosition = liveTarget?.position3d ?? effect.to;
+      const missOffset = effect.outcome === "miss"
+        ? Math.max(8, Math.hypot(...targetPosition) * 0.045)
+        : 0;
+      const endpoint: Vector3 = [
+        targetPosition[0] + missOffset,
+        targetPosition[1] + missOffset * 0.35,
+        targetPosition[2],
+      ];
+      if (effect.type === "projectile") {
+        const eased = 1 - (1 - progress) ** 2;
+        const head = lerp(effect.from, endpoint, Math.min(0.96, eased));
+        const tail = lerp(effect.from, endpoint, Math.max(0, eased - 0.13));
+        const strategicProjectile = ["missile", "torpedo", "rocket", "burst"].includes(effect.weapon);
+        const coreSize = effect.weapon === "torpedo" ? 14
+          : effect.weapon === "missile" ? 13
+            : effect.weapon === "rocket" ? 11 : effect.weapon === "burst" ? 10 : 8;
+        const glowColor = color.map((channel) => channel * 0.28) as Color3;
+        lines.push(...this.interleavedVertex(tail, color), ...this.interleavedVertex(head, color));
+        if (strategicProjectile) {
+          points.push(...this.interleavedVertex(head, glowColor, coreSize * 2.35));
+        }
+        points.push(...this.interleavedVertex(head, color, coreSize));
+      } else {
+        const radius = Math.sin(progress * Math.PI) * (effect.outcome === "hit" ? 24 : 14);
+        const segments = 16;
+        for (let index = 0; index < segments; index += 1) {
+          const a = index / segments * Math.PI * 2;
+          const b = (index + 1) / segments * Math.PI * 2;
+          const start: Vector3 = [endpoint[0] + Math.cos(a) * radius, endpoint[1] + Math.sin(a) * radius, endpoint[2]];
+          const end: Vector3 = [endpoint[0] + Math.cos(b) * radius, endpoint[1] + Math.sin(b) * radius, endpoint[2]];
+          lines.push(...this.interleavedVertex(start, color), ...this.interleavedVertex(end, color));
+        }
+        points.push(...this.interleavedVertex(endpoint, color, effect.outcome === "hit" ? 18 : 8));
+      }
+    }
+    this.combatLineCount = lines.length / 11;
+    this.combatPointCount = points.length / 11;
+    this.upload(this.combatLineBuffer, lines, this.gl.DYNAMIC_DRAW);
+    this.upload(this.combatPointBuffer, points, this.gl.DYNAMIC_DRAW);
+  }
+
   private rebuildBuffers(): void {
     this.rebuildPointBuffers();
     this.rebuildShipMeshBuffer();
@@ -726,6 +863,7 @@ export class TacticalEngine {
     this.scene = this.interpolator.sample(now);
     this.rebuildPointBuffers();
     this.rebuildShipMeshBuffer();
+    this.rebuildCombatBuffers(now);
     const pixelRatio = this.resize();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0.008, 0.016, 0.031, 1);
@@ -789,9 +927,18 @@ export class TacticalEngine {
       gl.depthMask(true);
       gl.enable(gl.DEPTH_TEST);
     }
+    if (this.combatLineCount > 0 || this.combatPointCount > 0) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      gl.uniform1f(this.locations.markerScale, 1);
+      this.drawBuffer(this.combatLineBuffer, this.combatLineCount, gl.LINES, false, 0.98);
+      this.drawBuffer(this.combatPointBuffer, this.combatPointCount, gl.POINTS, true, 1);
+      gl.depthMask(true);
+      gl.enable(gl.DEPTH_TEST);
+    }
     this.publishClusterLabels();
     this.publishCourseLabel();
-    if (this.interpolator.isAnimating(now) || this.camera.isMoving()) {
+    if (this.interpolator.isAnimating(now) || this.camera.isMoving() || this.combatEffects.length > 0) {
       this.scheduleActiveFrame();
     }
   };

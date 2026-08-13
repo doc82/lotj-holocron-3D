@@ -37,8 +37,16 @@ function finite(value: unknown, fallback = 0): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
-export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position">): Color3 {
+export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">): { color: Color3; shape: number; pixels: number } {
+  const identity = `${entity.class || ""} ${entity.name || ""}`.toLowerCase();
+  if (identity.includes("torpedo")) return { color: [0.72, 0.3, 1], shape: 11, pixels: 15 };
+  if (identity.includes("rocket")) return { color: [1, 0.14, 0.06], shape: 2, pixels: 12 };
+  return { color: [1, 0.52, 0.08], shape: 6, pixels: 14 };
+}
+
+export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position" | "name" | "class">): Color3 {
   if (entity.id === "player-ship") return [0.5, 0.96, 1];
+  if (entity.kind === "projectile") return projectileVisual(entity).color;
   if (["celestial", "planet", "star"].includes(entity.kind ?? "")) return [0.66, 0.5, 1];
   if (entity.kind === "ship") {
     const disposition = (entity as TelemetryEntity).disposition;
@@ -116,6 +124,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       finite(entity.z) - origin[2],
     ];
     const visual = shipVisual(entity.shipCategory);
+    const projectile = entity.kind === "projectile" ? projectileVisual(entity) : null;
     contacts.push({
       ...entity,
       name: entity.name || entity.id,
@@ -123,8 +132,9 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       position3d,
       worldPosition: [finite(entity.x), finite(entity.y), finite(entity.z)],
       color: colorFor(entity),
-      pointSize: ["celestial", "planet", "star"].includes(entity.kind || "") ? 13 : visual.pixels,
-      markerShape: entity.kind === "ship" ? visual.shape : 0,
+      pointSize: ["celestial", "planet", "star"].includes(entity.kind || "")
+        ? 13 : projectile?.pixels ?? visual.pixels,
+      markerShape: entity.kind === "ship" ? visual.shape : projectile?.shape ?? 0,
       shipSize: visual.size,
     });
   }

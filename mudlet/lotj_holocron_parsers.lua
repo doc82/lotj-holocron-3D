@@ -503,6 +503,7 @@ function Parsers.parse(command, input)
   local normalized = trim(command):lower():gsub("%s+", " ")
   local dispatch = {
     radar = Parsers.parseRadar,
+    ["radar projectiles"] = Parsers.parseRadar,
     prox = Parsers.parseProx,
     proximity = Parsers.parseProx,
     ["prox velocity"] = Parsers.parseProxVelocity,

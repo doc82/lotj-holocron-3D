@@ -12,6 +12,7 @@ local stateTriggers = {}
 local timers = {}
 local sentCommands = {}
 local deletedLines = 0
+local deniedSends = 0
 
 local function id(prefix)
   nextId = nextId + 1
@@ -100,8 +101,8 @@ end
 
 assert(scraper.setup(proxy))
 assert(#scraper.eventHandlerIds == 1, "expected one outgoing-command listener")
-assert(#scraper.stateTriggerIds == 6,
-  "expected space, maneuver, and autotrack response triggers")
+assert(#scraper.stateTriggerIds == 15,
+  "expected space, maneuver, targeting, and autotrack response triggers")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
   "polling must remain dormant until space activity is positively confirmed")
@@ -126,6 +127,10 @@ assert(snapshots[1].metadata.system == "Corellian System")
 assert(spaceStates[1].inSpace == true, "successful space data should establish in-space state")
 assert(scraper.getPollingState().timerId,
   "successful manual space output should activate dormant polling")
+local startupHydration = scraper.getPollingState().hydrationQueue
+assert(#startupHydration == 2 and startupHydration[1] == "status"
+    and startupHydration[2] == "info",
+  "a successful reconnect radar should prioritize missing observer status and info")
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "prox")
 scraper.captureLine("Wayfarer  375")
@@ -166,6 +171,8 @@ assert(snapshots[4].observer.sensorArray == 7)
 assert(snapshots[4].observer.radarRange == 570)
 assert(snapshots[4].observer.hatchway == nil, "access codes must not enter snapshots")
 assert(scraper.lastCapture.lines[1]:find("redacted", 1, true), "info diagnostics must be redacted")
+assert(#scraper.getPollingState().hydrationQueue == 0,
+  "manual observer telemetry should satisfy the reconnect hydration queue")
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "fleetradar")
 scraper.captureLine("Ship                     Squadron Leader          Position")
@@ -249,6 +256,10 @@ local dispositionWayfarer
 for _, entity in ipairs(snapshots[#snapshots].entities) do
   if entity.name == "Wayfarer" then dispositionWayfarer = entity end
 end
+
+function denyCurrentSend()
+  deniedSends = deniedSends + 1
+end
 assert(dispositionWayfarer and dispositionWayfarer.disposition == "enemy")
 local scanTimer = scraper.getPollingState().timerId
 timers[scanTimer].callback()
@@ -262,11 +273,30 @@ assert(scraper.finishCapture("test prompt"))
 assert(type(intentHandlers.target_ship) == "function", "ship target intent should be registered")
 local targeted, targetError = intentHandlers.target_ship({targetId = "wayfarer"}, {id = "target-test-1"})
 assert(targeted, targetError)
-assert(sentCommands[#sentCommands - 1].command == "target Wayfarer",
+assert(sentCommands[#sentCommands].command == "target Wayfarer",
   "target intent should issue LotJ's target command for the selected ship")
+assert(scraper.getPollingState().timerId == nil,
+  "polling must remain suspended throughout target-lock concentration")
+local commandsWhileTargeting = #sentCommands
+local blockedScan, blockedScanError = intentHandlers.scan_ship({
+  targetId = "wayfarer", source = "info",
+}, {id = "blocked-during-target"})
+assert(not blockedScan and blockedScanError:find("target lock", 1, true),
+  "other Holocron commands should be rejected while target concentration is active")
+assert(#sentCommands == commandsWhileTargeting,
+  "no command may be emitted while target concentration is active")
+scraper.handleOutgoingCommand("sysDataSendRequest", "look")
+assert(deniedSends == 1,
+  "manually typed commands should be suppressed while target concentration is active")
+for _, trigger in pairs(stateTriggers) do
+  if trigger.pattern == "Target Locked." then trigger.callback() end
+end
 assert(sentCommands[#sentCommands].command == "autotrack"
     and sentCommands[#sentCommands].echo == false,
-  "targeting should enable the default autotrack combat preference")
+  "default combat autotrack should wait until LotJ confirms Target Locked")
+assert(intentAcks[#intentAcks].id == "target-test-1"
+    and intentAcks[#intentAcks].status == "completed",
+  "Target Locked should complete the target intent")
 assert(scraper.handleAutotrackResponse("Autotracking on.") == true)
 assert(snapshots[#snapshots].observer.autotrack == true,
   "confirmed autotrack state should be published with the observer")
@@ -276,6 +306,127 @@ for _, entity in ipairs(snapshots[#snapshots].entities) do
 end
 assert(targetedWayfarer and targetedWayfarer.disposition == "enemy",
   "targeting a ship should immediately classify it as an enemy")
+
+local failedTarget, failedTargetError = intentHandlers.target_ship(
+  {targetId = "wayfarer"}, {id = "target-test-2"})
+assert(failedTarget, failedTargetError)
+for _, trigger in pairs(stateTriggers) do
+  if trigger.pattern == "Your concentration is broken. You fail to lock on to your target." then
+    trigger.callback()
+  end
+end
+assert(intentAcks[#intentAcks].id == "target-test-2"
+    and intentAcks[#intentAcks].status == "rejected",
+  "concentration failure should reject and release the target intent")
+assert(scraper.getPollingState().timerId,
+  "polling should resume after targeting definitively fails")
+
+local incomingTargetSnapshots = #snapshots
+assert(scraper.handleIncomingTargeting(
+  "You are being targeted by Mark-I Assault Frigate 'Wayfarer'."))
+local incomingTargetWayfarer
+for _, entity in ipairs(snapshots[#snapshots].entities) do
+  if entity.name == "Wayfarer" then incomingTargetWayfarer = entity end
+end
+assert(#snapshots == incomingTargetSnapshots + 1,
+  "an incoming targeting event should immediately publish a new snapshot")
+assert(incomingTargetWayfarer and incomingTargetWayfarer.disposition == "enemy",
+  "a ship targeting the observer should immediately become an enemy")
+assert(scraper.pendingCommandKind == nil,
+  "an incoming targeting event must not affect the outgoing target-lock gate")
+
+assert(type(intentHandlers.fire_weapon) == "function", "weapon firing intent should be registered")
+scraper.state.observer.weapons = {
+  autoblasters = 5, laserCannons = 1, turbolasers = 0, ionCannons = 2,
+  maximumMissiles = 10, maximumTorpedoes = 0, maximumRockets = 0,
+  maximumPulses = 0, missileTubes = 2,
+}
+scraper.state.observer.hasWeapons = true
+local commandsBeforeSalvo = #sentCommands
+local firedAll, fireAllError = intentHandlers.fire_weapon({weapon = "all"}, {id = "fire-all-1"})
+assert(firedAll, fireAllError)
+assert(#sentCommands == commandsBeforeSalvo + 4,
+  "fire all should issue only the four installed weapon commands")
+assert(sentCommands[#sentCommands - 3].command == "fire autoblaster")
+assert(sentCommands[#sentCommands - 2].command == "fire laser")
+assert(sentCommands[#sentCommands - 1].command == "fire ion")
+assert(sentCommands[#sentCommands].command == "fire missile")
+
+local combatSnapshots = #snapshots
+assert(scraper.handleCombatLine("1 ion cannons fired..."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "launch")
+assert(snapshots[#snapshots].metadata.combatEvent.weapon == "ion")
+assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
+assert(scraper.handleCombatLine(
+  "Your ship's ion cannons fire at Mark-I Assault Frigate 'Wayfarer' but miss."))
+assert(snapshots[#snapshots].metadata.combatEvent.outcome == "miss")
+local queuedCombatEvents = snapshots[#snapshots].metadata.combatEvents
+assert(queuedCombatEvents[#queuedCombatEvents - 1].type == "launch"
+    and queuedCombatEvents[#queuedCombatEvents].type == "impact",
+  "combat telemetry must retain launch events when impact output follows immediately")
+assert(scraper.handleCombatLine("Ion cannons fully charged."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
+assert(#snapshots == combatSnapshots + 3,
+  "launch, impact, and recharge messages should each publish combat telemetry")
+
+assert(scraper.handleCombatLine("You fail to lock on to your target!"))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "failure")
+assert(snapshots[#snapshots].metadata.combatEvent.weapon == "missile")
+local forwardArcCases = {
+  {"The autoblaster cannons can only fire forwards. You'll need to turn your ship!", "autoblaster"},
+  {"The main laser can only fire forwards. You'll need to turn your ship!", "laser"},
+  {"The ion cannons can only fire forwards. You'll need to turn your ship!", "ion"},
+  {"Missiles can only fire forwards. You'll need to turn your ship!", "missile"},
+}
+for _, forwardArcCase in ipairs(forwardArcCases) do
+  assert(scraper.handleCombatLine(forwardArcCase[1]))
+  local blockedEvent = snapshots[#snapshots].metadata.combatEvent
+  assert(blockedEvent.type == "failure" and blockedEvent.weapon == forwardArcCase[2])
+  assert(blockedEvent.reason == "Forward arc blocked // turn ship")
+end
+assert(scraper.handleCombatLine("Missile launcher(s) reloaded."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
+assert(scraper.handleCombatLine("Missile launched."))
+local immediateMissileEventId = snapshots[#snapshots].metadata.combatEvent.id
+assert(snapshots[#snapshots].metadata.combatEvent.type == "launch"
+    and snapshots[#snapshots].metadata.combatEvent.weapon == "missile",
+  "the immediate launcher confirmation should start the missile animation")
+assert(scraper.handleCombatLine(
+  "A missile is launched toward Mark-I Assault Frigate 'Wayfarer' by your ship."))
+assert(snapshots[#snapshots].metadata.combatEvent.type == "launch")
+assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
+assert(snapshots[#snapshots].metadata.combatEvent.id == immediateMissileEventId,
+  "the detailed missile line must not duplicate the immediate launch animation")
+assert(scraper.handleCombatLine(
+  "Your ship's missile hits Mark-I Assault Frigate 'Wayfarer' dead on!"))
+assert(snapshots[#snapshots].metadata.combatEvent.outcome == "hit")
+
+local commandsBeforeProjectileRadar = #sentCommands
+assert(scraper.handleProjectileSummary("1 projectiles, 0 incoming (See radar projectiles)"))
+assert(#sentCommands == commandsBeforeProjectileRadar + 1)
+assert(sentCommands[#sentCommands].command == "radar projectiles")
+assert(scraper.active and scraper.active.sentCommand == "radar projectiles")
+scraper.captureLine("Corellian System")
+scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
+scraper.captureLine("A Concussion Missile  110 25 20")
+scraper.captureLine("Your Coordinates:  20 30 40")
+local trackedProjectile
+for _, entity in ipairs(snapshots[#snapshots].entities) do
+  if entity.kind == "projectile" then trackedProjectile = entity end
+end
+assert(trackedProjectile and trackedProjectile.name == "A Concussion Missile",
+  "radar projectiles should add live ordnance to the tactical snapshot")
+
+scraper.combat.lastRadarAt = 0
+local combatRadarTimer = scraper.getPollingState().timerId
+assert(combatRadarTimer and timers[combatRadarTimer])
+timers[combatRadarTimer].callback()
+assert(sentCommands[#sentCommands].command == "radar projectiles",
+  "combat should prioritize the projectile-inclusive radar command")
+scraper.captureLine("Corellian System")
+scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
+scraper.captureLine("A Concussion Missile  90 22 18")
+scraper.captureLine("Your Coordinates:  20 30 40")
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({
@@ -370,6 +521,42 @@ assert(snapshots[#snapshots].metadata.autotrackDesired == false)
 assert(intentAcks[#intentAcks].id == "autotrack-off-test-1"
     and intentAcks[#intentAcks].status == "completed",
   "the desired autotrack state should complete only after LotJ confirms it")
+
+assert(type(intentHandlers.recharge_shields) == "function",
+  "manual shield recharge intent should be registered")
+assert(type(intentHandlers.set_auto_recharge) == "function",
+  "automatic shield recharge toggle should be registered")
+scraper.pendingCommandKind = nil
+scraper.state.observer.shields = {current = 40, maximum = 100}
+local recharging, rechargeError = intentHandlers.recharge_shields({}, {id = "recharge-test-1"})
+assert(recharging, rechargeError)
+assert(sentCommands[#sentCommands].command == "recharge")
+for attempt = 1, 9 do
+  assert(scraper.handleRechargeResponse("Recharging shields.."))
+  local timerId = scraper.shields.actionTimerId
+  assert(timerId and timers[timerId])
+  timers[timerId].callback()
+  assert(sentCommands[#sentCommands].command == "recharge")
+end
+assert(scraper.handleRechargeResponse("Recharging shields.."))
+assert(scraper.shields.statusPending == true,
+  "ten successful recharge attempts should force an authoritative status check")
+assert(sentCommands[#sentCommands].command == "status")
+scraper.captureLine("Readout for Rojan-class Patrol Craft 'Forrestal':")
+scraper.captureLine("Shields: 100/100 [100%]")
+assert(scraper.finishCapture("shield safety check"))
+assert(scraper.shields.recharging == false)
+assert(intentAcks[#intentAcks].id == "recharge-test-1"
+    and intentAcks[#intentAcks].status == "completed")
+
+scraper.state.observer.shields = {current = 50, maximum = 100}
+assert(scraper.handleShipHit(
+  "You are hit by lasers from Assassin-Class Corvette 'Calculated'!", false))
+local damageTimerId = scraper.shields.damageTimerId
+assert(damageTimerId and timers[damageTimerId])
+timers[damageTimerId].callback()
+assert(sentCommands[#sentCommands].command == "status",
+  "a damage burst should schedule one consolidated shield status check")
 
 scraper.state.observer.hasWeapons = false
 local unarmedTarget, unarmedTargetError = intentHandlers.target_ship({targetId = "wayfarer"})

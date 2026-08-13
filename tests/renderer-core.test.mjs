@@ -12,6 +12,7 @@ import {
   perspective,
   pointerToXZVector,
   project,
+  projectileVisual,
   sensorRangeFor,
   scenesHaveMotion,
 } from "../renderer/src/domain/scene.ts";
@@ -48,6 +49,27 @@ test("every ship category has a unique military marker and experimental pixel wi
   assert.deepEqual(markers[0].color, [0.16, 0.58, 1]);
   assert.deepEqual(markers[1].color, [1, 0.16, 0.2]);
   assert.deepEqual(markers[2].color, [1, 0.76, 0.12]);
+});
+
+test("missiles, torpedoes, and rockets have distinct tactical signatures", () => {
+  const signatures = [
+    projectileVisual({ name: "A Concussion Missile" }),
+    projectileVisual({ name: "A Proton Torpedo" }),
+    projectileVisual({ name: "A Heavy Rocket" }),
+  ];
+  assert.equal(new Set(signatures.map(({ shape }) => shape)).size, 3);
+  assert.equal(new Set(signatures.map(({ color }) => color.join(":"))).size, 3);
+  assert.ok(signatures.every(({ pixels }) => pixels >= 12),
+    "live ordnance should remain visible at strategic radar zoom");
+  const scene = buildScene({
+    observer: { id: "player-ship", x: 0, y: 0, z: 0 },
+    entities: [
+      { id: "missile", name: "A Concussion Missile", kind: "projectile", x: 10, y: 0, z: 0 },
+      { id: "torpedo", name: "A Proton Torpedo", kind: "projectile", x: 20, y: 0, z: 0 },
+      { id: "rocket", name: "A Heavy Rocket", kind: "projectile", x: 30, y: 0, z: 0 },
+    ],
+  });
+  assert.equal(new Set(scene.points.slice(1).map(({ markerShape }) => markerShape)).size, 3);
 });
 
 test("orthographic tactical scale projects ten pixels per distance unit", () => {
