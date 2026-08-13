@@ -328,6 +328,10 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
     assert.match(panel, new RegExp(`type: "${weapon}"`));
   }
   assert.match(panelCss, /weapons-enter/);
+  assert.match(panel, /setRumbleToken/);
+  assert.match(panel, /styles\.rumbleOdd/);
+  assert.match(panelCss, /weapons-rumble-odd/);
+  assert.match(panelCss, /weapons-rumble-even/);
   assert.match(canvas, /pushCombatEvent/);
   assert.match(canvas, /for \(const event of combatEvents/);
   assert.match(panel, /lastEventIdRef/);
@@ -342,6 +346,8 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(scraper, /handleProjectileSummary/);
   assert.match(scraper, /"radar projectiles"/);
   assert.match(scraper, /You fail to lock on to your target/);
+  assert.match(scraper, /can%s\+only%s\+fire%s\+forwards/);
+  assert.match(scraper, /Forward arc blocked \/\/ turn ship/);
   assert.match(scraper, /launcher%\(s%\)%s\+reloaded/);
   assert.match(scraper, /fully%s\+charged/);
   assert.match(scraper, /but%s\+miss/);

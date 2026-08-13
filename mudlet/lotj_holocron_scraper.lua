@@ -651,6 +651,19 @@ function Scraper.handleCombatLine(text)
     return true
   end
 
+  local forwardOnlyWeapon = value:match(
+    "^The%s+(.+)%s+can%s+only%s+fire%s+forwards%.%s+You'll%s+need%s+to%s+turn%s+your%s+ship!$")
+    or value:match(
+      "^(.+)%s+can%s+only%s+fire%s+forwards%.%s+You'll%s+need%s+to%s+turn%s+your%s+ship!$")
+  if forwardOnlyWeapon then
+    local weapon = normalizeWeapon(forwardOnlyWeapon)
+    if weapon then
+      publishCombatEvent({type = "failure", weapon = weapon,
+        reason = "Forward arc blocked // turn ship"})
+      return true
+    end
+  end
+
   local launchedWeapon, launchedTarget = value:match(
     "^A%s+(.+)%s+is%s+launched%s+toward%s+.-'([^']+)'%s+by%s+your%s+ship%.$")
   if launchedWeapon and launchedTarget then
@@ -1723,7 +1736,7 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("^\\s*(?:Shields ON\\. Autorecharge ON\\.|Autorecharge OFF\\. Shields IDLING\\.)\\s*$", function()
       Scraper.handleShieldPowerResponse(line or "")
     end),
-    tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
+    tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|(?:The\\s+)?.+\\s+can\\s+only\\s+fire\\s+forwards\\.\\s+You'll\\s+need\\s+to\\s+turn\\s+your\\s+ship!|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|Your ship's\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
       Scraper.handleCombatLine(line or "")
     end),
     tempRegexTrigger("^\\s*\\d+\\s+projectiles?,\\s+\\d+\\s+incoming.*$", function()

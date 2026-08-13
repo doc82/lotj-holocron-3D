@@ -372,6 +372,18 @@ assert(#snapshots == combatSnapshots + 3,
 assert(scraper.handleCombatLine("You fail to lock on to your target!"))
 assert(snapshots[#snapshots].metadata.combatEvent.type == "failure")
 assert(snapshots[#snapshots].metadata.combatEvent.weapon == "missile")
+local forwardArcCases = {
+  {"The autoblaster cannons can only fire forwards. You'll need to turn your ship!", "autoblaster"},
+  {"The main laser can only fire forwards. You'll need to turn your ship!", "laser"},
+  {"The ion cannons can only fire forwards. You'll need to turn your ship!", "ion"},
+  {"Missiles can only fire forwards. You'll need to turn your ship!", "missile"},
+}
+for _, forwardArcCase in ipairs(forwardArcCases) do
+  assert(scraper.handleCombatLine(forwardArcCase[1]))
+  local blockedEvent = snapshots[#snapshots].metadata.combatEvent
+  assert(blockedEvent.type == "failure" and blockedEvent.weapon == forwardArcCase[2])
+  assert(blockedEvent.reason == "Forward arc blocked // turn ship")
+end
 assert(scraper.handleCombatLine("Missile launcher(s) reloaded."))
 assert(snapshots[#snapshots].metadata.combatEvent.type == "charged")
 assert(scraper.handleCombatLine(

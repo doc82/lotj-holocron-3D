@@ -50,6 +50,7 @@ interface WeaponsPanelProps {
 export function WeaponsPanel({ observer, targetName, events, disabled, onFire }: WeaponsPanelProps) {
   const [charging, setCharging] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState("WEAPONS HOT // AWAITING FIRE ORDER");
+  const [rumbleToken, setRumbleToken] = useState(0);
   const lastEventIdRef = useRef(0);
   const installed = useMemo(() => WEAPONS.filter((weapon) => {
     const count = Number(observer.weapons?.[weapon.field] || 0);
@@ -76,7 +77,15 @@ export function WeaponsPanel({ observer, targetName, events, disabled, onFire }:
         const launcher = WEAPONS.find((weapon) => weapon.type === event.weapon)?.launcher;
         setStatus(`${event.weapon.toUpperCase()} // ${launcher ? "LAUNCHER RELOADED" : "FULLY CHARGED"}`);
       } else if (event.type === "failure") {
+        if (event.weapon !== "best") {
+          setCharging((current) => {
+            const next = new Set(current);
+            next.delete(event.weapon);
+            return next;
+          });
+        }
         setStatus(`${event.weapon.toUpperCase()} // ${(event.reason || "FIRE CONTROL LOCK FAILED").toUpperCase()}`);
+        setRumbleToken((token) => token + 1);
       }
     }
   }, [events]);
@@ -88,7 +97,9 @@ export function WeaponsPanel({ observer, targetName, events, disabled, onFire }:
   };
 
   return (
-    <section className={styles.panel} aria-label="Weapons control">
+    <section className={`${styles.panel} ${rumbleToken > 0
+      ? rumbleToken % 2 === 0 ? styles.rumbleEven : styles.rumbleOdd
+      : ""}`} aria-label="Weapons control">
       <header>
         <div><p>WEAPONS CONTROL</p><strong>TARGET // {targetName.toUpperCase()}</strong></div>
         <span>{status}</span>
