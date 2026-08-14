@@ -124,6 +124,7 @@ local function radarSystemName(line)
   if explicit and explicit ~= "" then return explicit end
   if line:find(":", 1, true) or not line:match("^[%w][%w%s'%-]+$") then return nil end
   local lower = line:lower()
+  if lower == "uncharted space" or lower == "unknown space" then return line end
   if lower:match("%ssector$") or lower:match("%ssystem$") then return line end
   return nil
 end
@@ -416,6 +417,86 @@ function Parsers.parseInfo(input)
   return resultOrError(result, recognized, "info")
 end
 
+local function durationSeconds(value)
+  value = trim(value or "")
+  local minutes, seconds = value:match("^(%d+)m%s+(%d+)s$")
+  if minutes then return tonumber(minutes) * 60 + tonumber(seconds) end
+  seconds = value:match("^(%d+)s$")
+  return seconds and tonumber(seconds) or nil
+end
+
+function Parsers.parseNavstat(input)
+  local lines, err = linesFrom(input)
+  if not lines then return nil, err end
+  local result = {source = "navstat"}
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local coordinates = line:match("^[Cc]urrent%s+[Cc]oordinates:%s*(.+)$")
+    local heading = line:match("^[Cc]urrent%s+[Hh]eading:%s*(.+)$")
+    local speed = line:match("^[Cc]urrent%s+[Ss]peed:%s*(.+)$")
+    local system = line:match("^[Cc]urrent%s+[Ss]ystem:%s*(.+)$")
+    local galaxyX, galaxyY = line:match("^[Cc]urrent%s+[Ss]ystem%s+X/Y:%s*%(([+-]?%d+),%s*([+-]?%d+)%)")
+    local jumpSystem = line:match("^[Jj]ump%s+[Ss]ystem:%s*(.+)$")
+    local jumpDistance = line:match("^[Jj]ump%s+[Dd]istance:%s*([%d,.]+)%s+parsecs")
+    local jumpTime = line:match("^[Jj]ump%s+[Tt]ime:%s*(.+)$")
+    if coordinates and vector(coordinates) then result.coordinates = vector(coordinates); recognized = recognized + 1
+    elseif heading and vector(heading) then result.heading = vector(heading); recognized = recognized + 1
+    elseif speed and amount(speed) then result.speed = amount(speed); recognized = recognized + 1
+    elseif system then result.system = trim(system); recognized = recognized + 1
+    elseif galaxyX then result.galaxy = {x = number(galaxyX), y = number(galaxyY)}; recognized = recognized + 1
+    elseif jumpSystem then result.jumpSystem = trim(jumpSystem); recognized = recognized + 1
+    elseif jumpDistance then result.jumpDistanceParsecs = number(jumpDistance); recognized = recognized + 1
+    elseif jumpTime then
+      result.jumpTime = trim(jumpTime)
+      result.jumpTimeSeconds = durationSeconds(result.jumpTime)
+      recognized = recognized + 1
+    elseif line:find("jump to all standard sectors", 1, true) then
+      result.standardSectorsAvailable = true; recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "navstat")
+end
+
+function Parsers.parseCalculate(input)
+  local lines, err = linesFrom(input)
+  if not lines then return nil, err end
+  local result = {source = "calculate", destinations = {}}
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local remaining = line:match("^[Cc]alculating%s+[Hh]yperspace%s+[Tt]rajectory:%s*(%d+)%s+seconds%s+remaining")
+    if remaining then
+      result.mode = "status"
+      result.remainingSeconds = tonumber(remaining)
+      recognized = recognized + 1
+    elseif line:find("Possible destinations:", 1, true) then
+      result.mode = "destinations"
+    elseif not line:match("^Starsystem%s+") then
+      local name, parsecs = line:match("^(.-)%s+([%d,.]+)%s+%(Out of Range%)%s*$")
+      if name then
+        table.insert(result.destinations, {
+          system = trim(name), distanceParsecs = number(parsecs), reachable = false,
+        })
+        result.mode = "destinations"
+        recognized = recognized + 1
+      else
+        local reachableName, reachableParsecs, time, fuel = line:match(
+          "^(.-)%s+([%d,.]+)%s+([%dsmh%s]+)%s+([%d]+)%%%s*$")
+        if reachableName then
+          time = trim(time)
+          table.insert(result.destinations, {
+            system = trim(reachableName), distanceParsecs = number(reachableParsecs),
+            travelTime = time, travelTimeSeconds = durationSeconds(time),
+            fuelPercent = tonumber(fuel), reachable = true,
+          })
+          result.mode = "destinations"
+          recognized = recognized + 1
+        end
+      end
+    end
+  end
+  return resultOrError(result, recognized, "calculate")
+end
+
 local function splitColumns(line)
   local columns = {}
   for value in (line .. "  "):gmatch("(.-)%s%s+") do
@@ -432,12 +513,20 @@ function Parsers.parseFleetRadar(input)
   local result = {source = "fleetradar", entities = {}}
   local recognized = 0
   local columns = nil
+  local currentGroup = nil
 
   for _, line in ipairs(lines) do
     local lower = line:lower()
     if not isDecoration(line) then
+      local system = radarSystemName(line)
       local header = splitColumns(line)
-      if lower:find("ship", 1, true) and lower:find("position", 1, true)
+      if system then
+        result.system = system
+        recognized = recognized + 1
+      elseif lower:match("battlegroup:%s*$") then
+        currentGroup = line:match("'([^']+)'s%s+[Bb]attlegroup:%s*$")
+          or trim(line:gsub("['’]s%s+[Bb]attlegroup:%s*$", ""))
+      elseif lower:find("ship", 1, true) and lower:find("position", 1, true)
           and (#header >= 2) then
         columns = {}
         for index, heading in ipairs(header) do
@@ -453,10 +542,28 @@ function Parsers.parseFleetRadar(input)
       elseif not lower:match("^fleet%s*radar") then
         local values = splitColumns(line)
         local entity = {kind = "ship"}
-        local pipeName, pipeLeader, pipePosition = line:match(
-          "^%s*(.-)%s*|%s*(.-)%s*|%s*(.-)%s*$"
+        local coordinateName, tactical, x, y, z = line:match(
+          "^(.-)%s+%((.-)%)%s+([+-]?[%d,]+)%s+([+-]?[%d,]+)%s+([+-]?[%d,]+)%s*$"
         )
-        if pipeName then
+        if not coordinateName then
+          coordinateName, x, y, z = line:match(
+            "^(.-)%s+([+-]?[%d,]+)%s+([+-]?[%d,]+)%s+([+-]?[%d,]+)%s*$"
+          )
+        end
+        local pipeName, pipeLeader, pipePosition = line:match(
+          "^%s*(.-)%s*|%s*(.-)%s*|%s*(.-)%s*$")
+        if coordinateName then
+          coordinateName = trim(coordinateName)
+          if coordinateName:lower():match("^your%s+coordinates%s*:") then
+            result.observer = {x = number(x), y = number(y), z = number(z)}
+            recognized = recognized + 1
+          else
+            entity.name = coordinateName
+            entity.leader = currentGroup
+            entity.position = tactical
+            entity.x, entity.y, entity.z = number(x), number(y), number(z)
+          end
+        elseif pipeName then
           entity.name = pipeName
           entity.leader = pipeLeader
           entity.position = pipePosition
@@ -468,7 +575,8 @@ function Parsers.parseFleetRadar(input)
           entity.name, entity.leader, entity.position = line:match("^(.-)%s%s+(.-)%s%s+(.+)$")
         end
 
-        if entity.name and (entity.leader or entity.position) then
+        if entity.name and (entity.leader or entity.position
+            or entity.x ~= nil or entity.y ~= nil or entity.z ~= nil) then
           entity.name, entity.class = parseDisplayName(trim(entity.name))
           entity.kind = classify(entity.name, entity.class)
           if entity.leader then
@@ -524,6 +632,9 @@ function Parsers.parse(command, input)
     ["proximity speed"] = Parsers.parseProxVelocity,
     status = Parsers.parseStatus,
     info = Parsers.parseInfo,
+    navstat = Parsers.parseNavstat,
+    calc = Parsers.parseCalculate,
+    calculate = Parsers.parseCalculate,
     fleetradar = Parsers.parseFleetRadar,
     ["fleetradar targets"] = Parsers.parseFleetRadar,
   }

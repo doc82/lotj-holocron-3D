@@ -77,6 +77,11 @@ const host = createTelemetryHost({
   shutdown,
 });
 
+const automationLeaseTimer = setInterval(() => {
+  write({ v: PROTOCOL_VERSION, type: "automation_lease", expiresInSeconds: 6 });
+}, 2_000);
+automationLeaseTimer.unref();
+
 const websocketServer = new WebSocketServer({
   host: "127.0.0.1",
   port: requestedPort,

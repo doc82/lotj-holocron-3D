@@ -1,7 +1,7 @@
 lotjHolocron3DPackage = lotjHolocron3DPackage or {}
 
 local Package = lotjHolocron3DPackage
-Package.VERSION = "0.1.0"
+Package.VERSION = "0.1.1"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
 
@@ -190,6 +190,105 @@ function Package.status()
     or "desktop mode: installed app")
 end
 
+local function profileRate(value, elapsed)
+  if not elapsed or elapsed <= 0 then return 0 end
+  return (tonumber(value) or 0) / elapsed
+end
+
+local function profileTimingLine(name, timing)
+  if type(timing) ~= "table" or (timing.count or 0) == 0 then return nil end
+  local totalMs = (timing.totalSeconds or 0) * 1000
+  return string.format("%s: %.2f ms total // %.3f ms avg // %.3f ms max // %d calls",
+    name, totalMs, totalMs / timing.count, (timing.maxSeconds or 0) * 1000, timing.count)
+end
+
+local function showProfileReport(report)
+  local elapsed = math.max(0.001, tonumber(report.elapsedSeconds) or 0)
+  local counts = report.counts or {}
+  say("cyan", string.format("profiler %s // %.1fs elapsed",
+    report.enabled and "running" or "stopped", elapsed))
+  say("cyan", string.format("GMCP Ship.Info: %d (%.2f/s) // snapshots: %d (%.2f/s), %d failures",
+    counts.shipGmcpEvents or 0, profileRate(counts.shipGmcpEvents, elapsed),
+    counts.snapshotPublishes or 0, profileRate(counts.snapshotPublishes, elapsed),
+    counts.snapshotFailures or 0))
+  say("cyan", string.format("captures: %d started, %d finished, %d abandoned, %d polled",
+    counts.capturesStarted or 0, counts.capturesFinished or 0,
+    counts.capturesAbandoned or 0, counts.polledCaptures or 0))
+  say("cyan", string.format("capture traffic: %d line checks, %d owned, %d deleted, %.1f KiB retained",
+    counts.lineChecks or 0, counts.capturedLines or 0, counts.deletedLines or 0,
+    (counts.capturedBytes or 0) / 1024))
+
+  for _, name in ipairs({"line", "parse", "apply", "publish", "ship_gmcp"}) do
+    local timingLine = profileTimingLine(name, report.timings and report.timings[name])
+    if timingLine then say("dim_grey", timingLine) end
+  end
+  local captureLine = profileTimingLine("capture response window",
+    report.timings and report.timings.capture)
+  if captureLine then say("dim_grey", captureLine) end
+
+  local commands = {}
+  for command, count in pairs(report.commands or {}) do
+    table.insert(commands, {command = command, count = count})
+  end
+  table.sort(commands, function(left, right)
+    if left.count == right.count then return left.command < right.command end
+    return left.count > right.count
+  end)
+  if #commands > 0 then
+    local parts = {}
+    for index = 1, math.min(#commands, 12) do
+      table.insert(parts, commands[index].command .. "=" .. commands[index].count)
+    end
+    say("cyan", "captures by command: " .. table.concat(parts, ", "))
+  end
+
+  local current, initial = report.objectCounts, report.objectCountsAtStart
+  if type(current) == "table" then
+    local parts = {}
+    for _, name in ipairs({"triggers", "patterns", "timers", "aliases", "scripts"}) do
+      if current[name] ~= nil then
+        local delta = type(initial) == "table" and initial[name] ~= nil
+          and current[name] - initial[name] or nil
+        table.insert(parts, name .. "=" .. current[name]
+          .. (delta and string.format(" (%+d)", delta) or ""))
+      end
+    end
+    if #parts > 0 then say("cyan", "Mudlet objects: " .. table.concat(parts, ", ")) end
+  else
+    say("dim_grey", "Mudlet object counts require Mudlet 4.15 or newer")
+  end
+end
+
+function Package.profile(argument)
+  local action = trim(argument):lower()
+  if action == "" then action = "report" end
+  local scraper = lotjHolocron3D and lotjHolocron3D.scraper
+  if not scraper then
+    say("yellow", "telemetry must be running before profiling")
+    return nil, "telemetry is not running"
+  end
+  if action == "start" then
+    scraper.startProfiler()
+    say("green", "profiler started; play normally, then enter h3d profile report")
+    return true
+  end
+  local report, reportError
+  if action == "report" then
+    report, reportError = scraper.getProfilerReport()
+  elseif action == "stop" then
+    report, reportError = scraper.stopProfiler()
+  else
+    say("yellow", "usage: h3d profile start | report | stop")
+    return nil, "invalid profiler command"
+  end
+  if not report then
+    say("yellow", tostring(reportError))
+    return nil, reportError
+  end
+  showProfileReport(report)
+  return report
+end
+
 function Package.command(action, argument)
   action = (action or "status"):lower()
   if action == "start" then return Package.start() end
@@ -204,7 +303,9 @@ function Package.command(action, argument)
     return
   end
   if action == "dev" then return Package.setDevelopmentMode(argument) end
-  say("cyan", "commands: h3d start | stop | status | snapshot | dev | help")
+  if action == "profile" then return Package.profile(argument) end
+  say("cyan", "commands: h3d start | stop | status | snapshot | profile | dev | help")
+  say("cyan", "profiling: h3d profile start | report | stop")
   say("cyan", "development: h3d dev on <repository path> | h3d dev off")
 end
 

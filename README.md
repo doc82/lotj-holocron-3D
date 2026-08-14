@@ -28,7 +28,10 @@ is not code-signed, so Windows SmartScreen may display a warning.
 ## Current capabilities
 
 - Parses live `info`, `radar`, `prox`, `prox velocity`, `status`, and `fleetradar` output.
-- Polls those commands sequentially while suppressing automated command output.
+- Uses `fleetradar` as the normal moving-ship feed, reconciles the complete
+  `radar` contact list every 60 seconds, and switches to fast `radar projectiles`
+  updates during combat. Contact proximity is derived from coordinates, avoiding
+  redundant `prox` and `prox velocity` captures.
 - Probes with one hidden `radar` after startup and Mudlet connection; recurring
   ship scraping starts only when that response confirms the player is in space.
 - Preserves manually entered command output for normal Mudlet use.
@@ -125,6 +128,9 @@ polling results arrive.
 | `h3d stop` | Stop polling and close the relay connection. |
 | `h3d status` | Show bridge and polling state. |
 | `h3d snapshot` | Display the current normalized snapshot inside Mudlet. |
+| `h3d profile start` | Begin collecting low-overhead Mudlet telemetry performance metrics. |
+| `h3d profile report` | Report event rates, command/capture traffic, Lua timings, and active Mudlet object counts without stopping collection. |
+| `h3d profile stop` | Print a final performance report and stop collecting metrics. |
 | `h3d dev on <path>` | Persistently use `Holocron3D.exe` from a repository, unpacked `out` directory, or explicit executable path. |
 | `h3d dev off` | Return to the installed application on subsequent starts. |
 | `h3d dev status` | Display the configured desktop application mode. |
@@ -132,6 +138,18 @@ polling results arrive.
 
 The older `lua dofile(...)` launcher is no longer needed for normal use. It is
 preserved under `poc/` solely for regression work.
+
+For a useful performance sample, enter `h3d profile start`, play normally for
+at least 30 seconds (preferably in a populated system or combat), and then enter
+`h3d profile stop`. The report separates GMCP event and snapshot rates from
+command captures, parsing, state merging, line deletion, and bridge publishing.
+Mudlet object-count deltas are included on Mudlet 4.15 and newer to expose
+trigger or timer leaks.
+
+A selected or locked target does not by itself enable high-frequency projectile
+polling. Holocron3D temporarily accelerates `radar projectiles` only after actual
+combat telemetry or while live/incoming projectiles are known, returning to the
+normal radar cycle after ten quiet seconds.
 
 ## Controls
 

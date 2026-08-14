@@ -2,7 +2,7 @@
 -- Lua 5.1 / Mudlet with spawn() support
 
 local Proxy = {
-  VERSION = "0.1.0",
+  VERSION = "0.1.1",
   PROTOCOL_VERSION = 1,
   MAX_BUFFER_BYTES = 1024 * 1024,
   MAX_LINE_BYTES = 256 * 1024,
@@ -208,11 +208,26 @@ function Proxy.handleMessage(message)
         diagnostic("error", "onReady callback failed: " .. tostring(err))
       end
     end
+    if Proxy.scraper then
+      if type(Proxy.scraper.requestShipGmcpSupport) == "function" then
+        pcall(Proxy.scraper.requestShipGmcpSupport)
+      end
+      if type(Proxy.scraper.publishGalaxyCatalog) == "function" then
+        pcall(Proxy.scraper.publishGalaxyCatalog)
+      end
+    end
     return
   end
 
   if message.type == "intent" then
     handleIntent(message)
+    return
+  end
+
+  if message.type == "automation_lease" then
+    if Proxy.scraper and type(Proxy.scraper.refreshAutomationLease) == "function" then
+      Proxy.scraper.refreshAutomationLease(tonumber(message.expiresInSeconds) or 6)
+    end
     return
   end
 

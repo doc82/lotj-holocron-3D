@@ -5,12 +5,21 @@ local Scraper = {
   CAPTURE_TIMEOUT_SECONDS = 8,
   MAX_CAPTURE_LINES = 300,
   MAX_CAPTURE_BYTES = 256 * 1024,
-  POLL_COMMANDS = {"status", "info", "radar", "prox", "prox velocity", "fleetradar"},
+  -- Radar and observer coordinates are sufficient to derive proximity. Keep
+  -- prox parsers for visible/manual commands, but do not spend two captures
+  -- per cycle asking LotJ to calculate data we already have.
+  POLL_COMMANDS = {"status", "info"},
   POLL_COMMAND_GAP_SECONDS = 1,
   POLL_CYCLE_DELAY_SECONDS = 5,
   HOSTILE_SCAN_INTERVAL_SECONDS = 4,
   STANDARD_SCAN_INTERVAL_SECONDS = 10,
   COMBAT_RADAR_INTERVAL_SECONDS = 2,
+  FLEETRADAR_INTERVAL_SECONDS = 6,
+  COMBAT_FLEETRADAR_INTERVAL_SECONDS = 12,
+  RADAR_RECONCILE_INTERVAL_SECONDS = 60,
+  MIN_HYPERSPACE_CLEARANCE = 500,
+  HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS = 15,
+  COMBAT_ACTIVITY_WINDOW_SECONDS = 10,
   USER_IDLE_POLL_DELAY_SECONDS = 2.5,
   SHIP_GMCP_STALE_SECONDS = 10,
   eventHandlerIds = {},
@@ -20,7 +29,7 @@ local Scraper = {
   state = nil,
   lastCapture = nil,
   polling = {enabled = false, index = 1, timerId = nil, dispatching = false,
-    hydrationQueue = {}},
+    hydrationQueue = {}, lastFleetRadarAt = 0},
   scanState = {},
   pendingCommandIntentId = nil,
   pendingCommandTimerId = nil,
@@ -41,6 +50,9 @@ local Scraper = {
     timeoutTimerId = nil,
   },
   shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil},
+  hyperspace = {phase = "idle", initiatedByHolocron = false, acknowledgedFuelRisk = false,
+    activeIntentId = nil, statusTimerId = nil},
+  profiler = {enabled = false},
 }
 
 local scheduleNextPoll
@@ -50,9 +62,96 @@ local handleShieldStatus
 local queueObserverHydration
 local clearObserverHydration
 local queueObserverInfo
+local dispatchSpaceProbe
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function profileObjectCounts()
+  if type(getProfileStats) ~= "function" then return nil end
+  local ok, stats = pcall(getProfileStats)
+  if not ok or type(stats) ~= "table" then return nil end
+  local function active(group, child)
+    local value = stats[group]
+    if type(value) ~= "table" then return nil end
+    if child then value = value[child] end
+    if type(value) == "table" then value = value.active end
+    return tonumber(value)
+  end
+  return {
+    triggers = active("triggers"),
+    patterns = active("triggers", "patterns") or active("patterns"),
+    timers = active("timers"),
+    aliases = active("aliases"),
+    scripts = active("scripts"),
+  }
+end
+
+local function profileCount(name, amount)
+  local profiler = Scraper.profiler
+  if not profiler.enabled then return end
+  profiler.counts[name] = (profiler.counts[name] or 0) + (amount or 1)
+end
+
+local function profileCommand(command)
+  local profiler = Scraper.profiler
+  if not profiler.enabled then return end
+  local normalized = trim(command):lower():gsub("%s+", " ")
+  profiler.commands[normalized] = (profiler.commands[normalized] or 0) + 1
+end
+
+local function profileTiming(name, startedAt)
+  local profiler = Scraper.profiler
+  if not profiler.enabled or not startedAt then return end
+  local elapsed = math.max(0, os.clock() - startedAt)
+  local timing = profiler.timings[name] or {count = 0, totalSeconds = 0, maxSeconds = 0}
+  timing.count = timing.count + 1
+  timing.totalSeconds = timing.totalSeconds + elapsed
+  timing.maxSeconds = math.max(timing.maxSeconds, elapsed)
+  profiler.timings[name] = timing
+end
+
+local function profileCopy(value)
+  if type(value) ~= "table" then return value end
+  local result = {}
+  for key, child in pairs(value) do result[key] = profileCopy(child) end
+  return result
+end
+
+function Scraper.startProfiler()
+  Scraper.profiler = {
+    enabled = true,
+    startedAt = os.time(),
+    counts = {},
+    commands = {},
+    timings = {},
+    objectCountsAtStart = profileObjectCounts(),
+  }
+  return true
+end
+
+function Scraper.getProfilerReport()
+  local profiler = Scraper.profiler or {enabled = false}
+  if not profiler.startedAt then return nil, "the profiler has not been started" end
+  local report = {
+    enabled = profiler.enabled == true,
+    elapsedSeconds = math.max(0, os.time() - profiler.startedAt),
+    counts = profileCopy(profiler.counts or {}),
+    commands = profileCopy(profiler.commands or {}),
+    timings = profileCopy(profiler.timings or {}),
+    objectCountsAtStart = profileCopy(profiler.objectCountsAtStart),
+    objectCounts = profileObjectCounts(),
+  }
+  return report
+end
+
+function Scraper.stopProfiler()
+  local report, reportError = Scraper.getProfilerReport()
+  if not report then return nil, reportError end
+  Scraper.profiler.enabled = false
+  report.enabled = false
+  return report
 end
 
 local function radarSystemName(value)
@@ -61,6 +160,7 @@ local function radarSystemName(value)
   if explicit and explicit ~= "" then return explicit end
   if value:find(":", 1, true) or not value:match("^[%w][%w%s'%-]+$") then return nil end
   local lower = value:lower()
+  if lower == "uncharted space" or lower == "unknown space" then return value end
   if lower:match("%ssector$") or lower:match("%ssystem$") then return value end
   return nil
 end
@@ -219,6 +319,10 @@ local function captureOwnsLine(capture, value)
   end
 
   if capture.parserCommand == "fleetradar" then
+    if radarSystemName(value) ~= nil or isCoordinateRow(value)
+        or lower:match("battlegroup:%s*$") then
+      return markResponseStarted(capture)
+    end
     if lower:find("ship", 1, true) and lower:find("position", 1, true) then
       capture.fleetHeaderSeen = true
       return markResponseStarted(capture)
@@ -228,6 +332,26 @@ local function captureOwnsLine(capture, value)
     if capture.fleetHeaderSeen == true and value:match("%s%s+") then
       return markResponseStarted(capture)
     end
+  end
+
+  if capture.parserCommand == "navstat" then
+    if lower:match("^readout%s+for%s+.-:$")
+        or lower:match("^current%s+coordinates:")
+        or lower:match("^current%s+system:")
+        or lower:match("^current%s+system%s+x/y:")
+        or lower:match("^jump%s+")
+        or lower:find("standard sectors", 1, true) then
+      return markResponseStarted(capture)
+    end
+  end
+
+  if capture.parserCommand == "calculate" then
+    if lower == "possible destinations:"
+        or lower:match("^starsystem%s+parsecs")
+        or lower:match("^calculating%s+hyperspace%s+trajectory:") then
+      return markResponseStarted(capture)
+    end
+    if capture.responseStarted and value:match("%s%s+") then return true end
   end
 
   -- Once a hidden response has positively begun, its prose, decorations,
@@ -291,6 +415,7 @@ local function freshState()
       shieldRechargeAttempts = 0,
       shieldStatusPending = false,
       mudletCompatibility = {lotjUiDetected = hasLotjUi},
+      hyperspace = {phase = "idle"},
     },
   }
 end
@@ -357,6 +482,52 @@ local function arrayOfEntities()
     return tostring(left.id or left.name) < tostring(right.id or right.name)
   end)
   return entities
+end
+
+local function refreshDerivedDistances()
+  if not Scraper.state then return end
+  local observer = Scraper.state.observer or {}
+  local ox, oy, oz = tonumber(observer.x), tonumber(observer.y), tonumber(observer.z)
+  if not ox or not oy or not oz then return end
+  for _, entity in pairs(Scraper.state.entities or {}) do
+    local x, y, z = tonumber(entity.x), tonumber(entity.y), tonumber(entity.z)
+    if x and y and z then
+      entity.distance = math.floor(math.sqrt(
+        (x - ox) ^ 2 + (y - oy) ^ 2 + (z - oz) ^ 2
+      ) + 0.5)
+    end
+  end
+end
+
+local function checkHyperspaceClearance()
+  if not Scraper.state then return false, "fresh radar clearance is required" end
+  local observer = Scraper.state.observer or {}
+  local ox, oy, oz = tonumber(observer.x), tonumber(observer.y), tonumber(observer.z)
+  if not ox or not oy or not oz then return false, "observer coordinates are unavailable" end
+  local sources = Scraper.state.metadata and Scraper.state.metadata.sources or {}
+  local spatialAt = math.max(tonumber(sources.radar) or 0, tonumber(sources.fleetradar) or 0)
+  if spatialAt <= 0 or os.time() - spatialAt > Scraper.HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS then
+    return false, "fresh radar clearance is required"
+  end
+
+  local nearest, nearestName
+  for _, entity in pairs(Scraper.state.entities or {}) do
+    if entity.kind == "ship" or entity.kind == "planet"
+        or entity.kind == "celestial" or entity.kind == "star" then
+      local x, y, z = tonumber(entity.x), tonumber(entity.y), tonumber(entity.z)
+      if x and y and z and entity.id ~= "player-ship" then
+        local distance = math.sqrt((x - ox) ^ 2 + (y - oy) ^ 2 + (z - oz) ^ 2)
+        if not nearest or distance < nearest then
+          nearest, nearestName = distance, entity.name or entity.id
+        end
+      end
+    end
+  end
+  if nearest and nearest < Scraper.MIN_HYPERSPACE_CLEARANCE then
+    return false, string.format("%s is only %d units away; 500 units are required",
+      tostring(nearestName or "an object"), math.floor(nearest + 0.5))
+  end
+  return true
 end
 
 local function applyStatus(result, sentCommand)
@@ -431,7 +602,38 @@ function Scraper.applyResult(result, sentCommand)
     applyStatus(result, sentCommand)
   elseif source == "info" then
     applyInfo(result, sentCommand)
+  elseif source == "navstat" then
+    if result.coordinates then
+      Scraper.state.observer.x, Scraper.state.observer.y, Scraper.state.observer.z =
+        result.coordinates.x, result.coordinates.y, result.coordinates.z
+    end
+    if result.heading then Scraper.state.observer.heading = copyTable(result.heading) end
+    if result.speed then Scraper.state.observer.speed = copyTable(result.speed) end
+    if result.system then Scraper.state.metadata.system = result.system end
+    Scraper.state.metadata.navigation = Scraper.state.metadata.navigation or {}
+    if Scraper.state.metadata.hyperspace
+        and Scraper.state.metadata.hyperspace.phase == "arrived" then
+      Scraper.state.metadata.navigation.arrivalRefreshedAt = os.time()
+    end
+    for _, key in ipairs({"galaxy", "jumpSystem", "jumpDistanceParsecs", "jumpTime",
+        "jumpTimeSeconds", "standardSectorsAvailable"}) do
+      if result[key] ~= nil then Scraper.state.metadata.navigation[key] = copyTable(result[key]) end
+    end
+  elseif source == "calculate" then
+    Scraper.state.metadata.navigation = Scraper.state.metadata.navigation or {}
+    if result.mode == "destinations" then
+      Scraper.state.metadata.navigation.destinations = copyTable(result.destinations or {})
+      Scraper.state.metadata.navigation.destinationsObservedAt = os.time()
+    elseif result.mode == "status" then
+      Scraper.state.metadata.hyperspace = Scraper.state.metadata.hyperspace or {}
+      Scraper.state.metadata.hyperspace.phase = "calculating"
+      Scraper.state.metadata.hyperspace.remainingSeconds = result.remainingSeconds
+    end
   else
+    if source == "fleetradar" then
+      Scraper.polling.lastFleetRadarAt = os.time()
+      if result.system then Scraper.state.metadata.system = result.system end
+    end
     if result.observer then
       Scraper.state.observer.x = result.observer.x
       Scraper.state.observer.y = result.observer.y
@@ -452,32 +654,39 @@ function Scraper.applyResult(result, sentCommand)
             end
           end
         end
-      elseif source == "fleetradar"
-          and Scraper.state.metadata.sources.radar
-          and not findEntity(entity) then
-        -- Radar owns the system contact list. Once it has run, fleetradar only
-        -- enriches known contacts; this also prevents the player's own ship
-        -- from becoming a second entity before status has identified it.
       else
         mergeEntity(entity, source == "prox" or source == "prox_velocity")
       end
     end
   end
 
+  refreshDerivedDistances()
   Scraper.state.metadata.lastSource = source
   Scraper.state.metadata.lastObservedAt = os.time()
   return true
 end
 
 function Scraper.publish()
+  local profiling = Scraper.profiler.enabled == true
+  local profileStarted = profiling and os.clock() or nil
+  if profiling then profileCount("snapshotPublishes") end
   if not Scraper.proxy or type(Scraper.proxy.publishSnapshot) ~= "function" then
+    if profiling then
+      profileCount("snapshotFailures")
+      profileTiming("publish", profileStarted)
+    end
     return nil, "scraper has no proxy"
   end
-  return Scraper.proxy.publishSnapshot(
+  local published, publishError = Scraper.proxy.publishSnapshot(
     copyTable(Scraper.state.observer),
     arrayOfEntities(),
     copyTable(Scraper.state.metadata)
   )
+  if profiling then
+    if not published then profileCount("snapshotFailures") end
+    profileTiming("publish", profileStarted)
+  end
+  return published, publishError
 end
 
 local function clearCaptureHandles(capture)
@@ -501,6 +710,9 @@ local function abandonCapture(reason)
   if not capture then return end
   Scraper.active = nil
   clearCaptureHandles(capture)
+  profileCount("capturesAbandoned")
+  profileCount("captureReason:" .. tostring(reason or "abandoned"))
+  profileTiming("capture", capture.profileStarted)
   Scraper.lastCapture = {
     command = capture.sentCommand,
     parserCommand = capture.parserCommand,
@@ -588,6 +800,7 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.combat.pendingTargetName = nil
     Scraper.combat.lastActivityAt = 0
     Scraper.combat.lastRadarAt = 0
+    Scraper.polling.lastFleetRadarAt = 0
     Scraper.combat.lastLaunchWeapon = nil
     Scraper.combat.lastLaunchTarget = nil
     Scraper.combat.lastLaunchAt = 0
@@ -639,6 +852,9 @@ function Scraper.finishCapture(reason)
   if not capture then return nil, "no capture is active" end
   Scraper.active = nil
   clearCaptureHandles(capture)
+  profileCount("capturesFinished")
+  profileCount("captureReason:" .. tostring(reason or "completed"))
+  profileTiming("capture", capture.profileStarted)
   if capture.polled and scheduleNextPoll then
     scheduleNextPoll(capture.pollDelay)
   end
@@ -669,11 +885,14 @@ function Scraper.finishCapture(reason)
     return nil, commandFailure
   end
 
+  local parseStarted = Scraper.profiler.enabled and os.clock() or nil
   local parsed, parseError = Scraper.proxy.parseGameOutput(
     capture.parserCommand,
     capture.lines
   )
+  profileTiming("parse", parseStarted)
   if not parsed then
+    profileCount("parseFailures")
     if capture.spaceProbe then
       Scraper.setInSpace(false, "startup radar did not return space data")
     end
@@ -694,8 +913,11 @@ function Scraper.finishCapture(reason)
     Scraper.setInSpace(true, capture.sentCommand .. " returned space data")
   end
 
+  local applyStarted = Scraper.profiler.enabled and os.clock() or nil
   local applied, applyError = Scraper.applyResult(parsed, capture.sentCommand)
+  profileTiming("apply", applyStarted)
   if not applied then
+    profileCount("applyFailures")
     diagnostic("error", "could not merge " .. capture.sentCommand .. " output: "
       .. tostring(applyError))
     return nil, applyError
@@ -716,6 +938,15 @@ function Scraper.finishCapture(reason)
     return parsed, publishError
   end
 
+  -- Arrival navigation must be committed before radar is requested. Starting
+  -- both captures together lets radar supersede navstat and leaves the client
+  -- displaying the system from before the jump.
+  if capture.followupRadar and dispatchSpaceProbe then
+    tempTimer(0.05, function()
+      dispatchSpaceProbe({}, nil)
+    end)
+  end
+
   if not capture.polled then
     diagnostic("info", "parsed " .. capture.sentCommand .. " ("
       .. tostring(parsed.recognizedLines or 0) .. " data lines)")
@@ -724,13 +955,27 @@ function Scraper.finishCapture(reason)
 end
 
 function Scraper.captureLine(value)
+  local profiling = Scraper.profiler.enabled == true
+  local profileStarted = profiling and os.clock() or nil
+  if profiling then profileCount("lineChecks") end
   local capture = Scraper.active
-  if not capture then return false end
+  if not capture then
+    if profiling then profileTiming("line", profileStarted) end
+    return false
+  end
 
   value = tostring(value or ""):gsub("\r", "")
-  if not captureOwnsLine(capture, value) then return false end
+  if not captureOwnsLine(capture, value) then
+    if profiling then profileTiming("line", profileStarted) end
+    return false
+  end
+  if profiling then
+    profileCount("capturedLines")
+    profileCount("capturedBytes", #value + 1)
+  end
   if capture.polled and type(deleteLine) == "function" then
     pcall(deleteLine)
+    if profiling then profileCount("deletedLines") end
   end
   capture.bytes = capture.bytes + #value + 1
   if #capture.lines >= Scraper.MAX_CAPTURE_LINES
@@ -738,6 +983,10 @@ function Scraper.captureLine(value)
     diagnostic("error", "aborted oversized " .. capture.sentCommand .. " capture")
     Scraper.active = nil
     clearCaptureHandles(capture)
+    if profiling then
+      profileCount("oversizedCaptures")
+      profileTiming("line", profileStarted)
+    end
     return false
   end
   table.insert(capture.lines, value)
@@ -750,6 +999,7 @@ function Scraper.captureLine(value)
       and value:lower():match("^%s*your%s+coordinates%s*:") then
     Scraper.finishCapture("radar terminator")
   end
+  if profiling then profileTiming("line", profileStarted) end
   return true
 end
 
@@ -786,8 +1036,13 @@ function Scraper.startCapture(parserCommand, sentCommand, options)
     pollDelay = options and options.pollDelay or nil,
     intentId = options and options.intentId or nil,
     spaceProbe = options and options.spaceProbe == true,
+    followupRadar = options and options.followupRadar == true,
+    profileStarted = Scraper.profiler.enabled and os.clock() or nil,
   }
   Scraper.active = capture
+  profileCount("capturesStarted")
+  if capture.polled then profileCount("polledCaptures") else profileCount("manualCaptures") end
+  profileCommand(capture.sentCommand)
 
   capture.lineTriggerId = tempRegexTrigger("^.*$", function()
     Scraper.captureLine(line or "")
@@ -814,6 +1069,8 @@ local function parserForCommand(command)
   if normalized == "fleetradar" or normalized == "fleetradar targets" then
     return "fleetradar"
   end
+  if normalized == "navstat" then return "navstat" end
+  if normalized == "calc" or normalized == "calculate" then return "calculate" end
 
   local first, rest = normalized:match("^(%S+)%s*(.-)$")
   if first == "prox" or first == "proximity" then
@@ -829,6 +1086,214 @@ local function parserForCommand(command)
     return mode and "prox velocity" or "prox"
   end
   return nil
+end
+
+local function hyperspaceMetadata()
+  Scraper.state = Scraper.state or freshState()
+  Scraper.state.metadata.hyperspace = Scraper.state.metadata.hyperspace or {phase = "idle"}
+  return Scraper.state.metadata.hyperspace
+end
+
+local function publishHyperspace(phase, extra)
+  local metadata = hyperspaceMetadata()
+  metadata.phase = phase
+  metadata.observedAt = os.time()
+  for key, value in pairs(extra or {}) do metadata[key] = value end
+  Scraper.hyperspace.phase = phase
+  return Scraper.publish()
+end
+
+function Scraper.disarmAutomation(reason)
+  Scraper.stopPolling()
+  safeKill("killTimer", Scraper.shields.damageTimerId)
+  safeKill("killTimer", Scraper.shields.actionTimerId)
+  safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  Scraper.shields.recharging = false
+  Scraper.shields.awaiting = false
+  Scraper.shields.statusPending = false
+  Scraper.shields.manualIntentId = nil
+  Scraper.autotrack.pending = false
+  Scraper.autotrack.intentId = nil
+  Scraper.hyperspace.activeIntentId = nil
+  Scraper.hyperspace.initiatedByHolocron = false
+  if Scraper.active and Scraper.active.polled then abandonCapture(reason or "automation disarmed") end
+  if Scraper.state then
+    Scraper.state.metadata.automationArmed = false
+    Scraper.state.metadata.automationDisarmedReason = reason or "Electron disconnected"
+    Scraper.publish()
+  end
+  return true
+end
+
+function Scraper.refreshAutomationLease(seconds)
+  safeKill("killTimer", Scraper.automationLeaseTimerId)
+  if Scraper.state then Scraper.state.metadata.automationArmed = true end
+  Scraper.automationLeaseTimerId = tempTimer(math.max(2, tonumber(seconds) or 6), function()
+    Scraper.automationLeaseTimerId = nil
+    Scraper.disarmAutomation("Electron automation lease expired")
+  end)
+  return true
+end
+
+local function finishHyperspaceIntent(status, reason)
+  local intentId = Scraper.hyperspace.activeIntentId
+  Scraper.hyperspace.activeIntentId = nil
+  if intentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+    Scraper.proxy.publishIntentAck(intentId, status, reason)
+  end
+end
+
+function Scraper.handleHyperspaceLine(text)
+  local value = trim(text)
+  local lower = value:lower()
+  if value == "Hyperspace course locked. Running final jump checks..." then
+    publishHyperspace("calculating", {error = nil})
+  elseif lower:match("^jump requires [%d,]+ units of fuel")
+      and lower:find("it will consume", 1, true) then
+    local required = value:match("[Jj]ump requires%s+([%d,]+)%s+units")
+    local percent = value:match("consume%s+([%d,]+)%%")
+    publishHyperspace("calculating", {
+      fuelRequired = required and tonumber((required:gsub(",", ""))) or nil,
+      fuelPercent = percent and tonumber((percent:gsub(",", ""))) or nil,
+    })
+  elseif value == "Warning - Not enough fuel to complete the jump!" then
+    publishHyperspace("fuel_warning", {insufficientFuel = true})
+  elseif lower:match("^jump requires [%d,]+ units of fuel%. you only have [%d,]+") then
+    local required, available = value:match(
+      "[Jj]ump requires%s+([%d,]+)%s+units%s+of%s+fuel%.%s+[Yy]ou%s+only%s+have%s+([%d,]+)")
+    local extra = {insufficientFuel = true}
+    if required then extra.fuelRequired = tonumber((required:gsub(",", ""))) end
+    if available then extra.fuelAvailable = tonumber((available:gsub(",", ""))) end
+    publishHyperspace("fuel_warning", extra)
+    if Scraper.hyperspace.initiatedByHolocron and not Scraper.hyperspace.acknowledgedFuelRisk then
+      Scraper.polling.dispatching = true
+      pcall(send, "calc stop", false)
+      Scraper.polling.dispatching = false
+      extra.autoAborted = true
+      publishHyperspace("fuel_warning", extra)
+    end
+  elseif value == "[Status]: Hyperspace calculations have been completed." then
+    publishHyperspace("ready", {remainingSeconds = 0, insufficientFuel = nil})
+    finishHyperspaceIntent("completed", value)
+  elseif value == "[ALERT]: Aborting Hyperspace calculation. Terminal reset." then
+    local phase = hyperspaceMetadata().insufficientFuel and "fuel_warning" or "idle"
+    publishHyperspace(phase, {remainingSeconds = nil, aborted = true})
+    Scraper.hyperspace.initiatedByHolocron = false
+    finishHyperspaceIntent("completed", value)
+  elseif lower:find("jump coordinates too close to stellar object", 1, true) then
+    publishHyperspace("failed", {error = value})
+    finishHyperspaceIntent("rejected", value)
+  elseif lower:match("^you are too close to .+ to make the jump to lightspeed!$") then
+    publishHyperspace("ready", {error = value})
+    finishHyperspaceIntent("rejected", value)
+  elseif value == "You push forward the hyperspeed lever." then
+    publishHyperspace("engaging", {error = nil})
+  elseif value == "The stars become streaks of light as you enter hyperspace." then
+    publishHyperspace("hyperspace")
+    finishHyperspaceIntent("completed", value)
+  elseif value == "Destination reached. Initiating realspace reentry..." then
+    publishHyperspace("reentry")
+  elseif value == "Hyperjump complete." then
+    publishHyperspace("arrived", {arrivedAt = os.time()})
+    Scraper.hyperspace.initiatedByHolocron = false
+  else
+    local seconds = value:match("^[Cc]alculating%s+[Hh]yperspace%s+[Tt]rajectory:%s*(%d+)%s+seconds%s+remaining")
+    if not seconds then return false end
+    publishHyperspace("calculating", {remainingSeconds = tonumber(seconds)})
+  end
+  return true
+end
+
+function Scraper.publishGalaxyCatalog()
+  if not Scraper.proxy or type(Scraper.proxy.sendMessage) ~= "function" then return false end
+  local systems = _G.gmcp and _G.gmcp.Galaxy and _G.gmcp.Galaxy.Systems or {}
+  if type(systems) ~= "table" then systems = {} end
+  if next(systems) == nil and type(_G.lotj) == "table"
+      and type(_G.lotj.galaxyMap) == "table"
+      and type(_G.lotj.galaxyMap.systems) == "table" then
+    systems = _G.lotj.galaxyMap.systems
+  end
+  local shipSystem = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.System or nil
+  local custom = type(_G.lotj) == "table" and type(_G.lotj.galaxyMap) == "table"
+    and _G.lotj.galaxyMap.recorded or {}
+  local sent = Scraper.proxy.sendMessage({
+    type = "galaxy_catalog", observedAt = os.time(), systems = copyTable(systems),
+    customSystems = copyTable(custom), shipSystem = copyTable(shipSystem),
+  })
+  return sent == true
+end
+
+local function validateSystemCoordinate(value)
+  value = tonumber(value)
+  if not value or value ~= value or value < -50000 or value > 50000 then return nil end
+  return value >= 0 and math.floor(value + 0.5) or math.ceil(value - 0.5)
+end
+
+local function dispatchHyperspacePlot(payload, message)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "hyperspace navigation is unavailable while landed"
+  end
+  if Scraper.hyperspace.phase == "calculating" then
+    return false, "a hyperspace calculation is already running"
+  end
+  local destination = type(payload.destination) == "table" and payload.destination or {}
+  local x, y, z = validateSystemCoordinate(destination.x),
+    validateSystemCoordinate(destination.y), validateSystemCoordinate(destination.z)
+  if not x or not y or not z then
+    return false, "system coordinates must be within -50,000 and 50,000"
+  end
+  local mode = trim(payload.mode):lower()
+  local command
+  if mode == "local" then
+    command = string.format("calculate local %d %d %d", x, y, z)
+  elseif mode == "galactic" then
+    local galaxy = type(payload.galaxy) == "table" and payload.galaxy or {}
+    local gx, gy = tonumber(galaxy.x), tonumber(galaxy.y)
+    if not gx or not gy or gx ~= gx or gy ~= gy or math.abs(gx) > 100000 then
+      return false, "galaxy coordinates are invalid"
+    end
+    command = string.format("calculate '%d %d' %d %d %d",
+      math.floor(gx + 0.5), math.floor(gy + 0.5), x, y, z)
+  else
+    return false, "hyperspace mode must be local or galactic"
+  end
+  Scraper.hyperspace.initiatedByHolocron = true
+  Scraper.hyperspace.acknowledgedFuelRisk = payload.acknowledgeFuelRisk == true
+  Scraper.hyperspace.activeIntentId = message and message.id or nil
+  local metadata = hyperspaceMetadata()
+  metadata.route = copyTable(payload)
+  metadata.insufficientFuel = nil
+  metadata.aborted = nil
+  metadata.error = nil
+  publishHyperspace("calculating")
+  Scraper.polling.dispatching = true
+  local ok, sendError = pcall(send, command, false)
+  Scraper.polling.dispatching = false
+  if not ok then return false, tostring(sendError) end
+  return true
+end
+
+local function dispatchNavigationRefresh(payload, message)
+  if Scraper.active then
+    if not Scraper.active.polled then
+      return false, "a manual telemetry capture is active"
+    end
+    abandonCapture("preempted by navigation refresh")
+    cancelPollTimer()
+  end
+  local command = trim(payload.command):lower()
+  if command ~= "calc" and command ~= "navstat" then command = "navstat" end
+  local parser = command == "calc" and "calculate" or "navstat"
+  local started, err = Scraper.startCapture(parser, command, {
+    polled = true, pollDelay = 0.25, intentId = message and message.id or nil,
+    followupRadar = payload.followupRadar == true,
+  })
+  if not started then return false, err end
+  Scraper.polling.dispatching = true
+  local ok, sendError = pcall(send, command, false)
+  Scraper.polling.dispatching = false
+  if not ok then abandonCapture("navigation refresh send failed"); return false, tostring(sendError) end
+  return true
 end
 
 local function normalizeWeapon(value)
@@ -881,7 +1346,6 @@ function Scraper.handleCombatLine(text)
   if displayedTarget then
     if Scraper.combat.targetName ~= displayedTarget then
       Scraper.combat.targetName = displayedTarget
-      Scraper.combat.lastActivityAt = os.time()
       Scraper.state.observer.target = displayedTarget
       Scraper.state.metadata.combatTarget = displayedTarget
       Scraper.publish()
@@ -1042,6 +1506,10 @@ local function updatePollingMetadata(command)
     hostileScanIntervalSeconds = Scraper.polling.hostileScanIntervalSeconds,
     standardScanIntervalSeconds = Scraper.polling.standardScanIntervalSeconds,
     combatRadarIntervalSeconds = Scraper.polling.combatRadarIntervalSeconds,
+    fleetRadarIntervalSeconds = Scraper.polling.fleetRadarIntervalSeconds,
+    combatFleetRadarIntervalSeconds = Scraper.polling.combatFleetRadarIntervalSeconds,
+    radarReconcileIntervalSeconds = Scraper.polling.radarReconcileIntervalSeconds,
+    combatActivityWindowSeconds = Scraper.polling.combatActivityWindowSeconds,
     hydratingObserver = #(Scraper.polling.hydrationQueue or {}) > 0,
   }
 end
@@ -1050,6 +1518,18 @@ local function shipGmcpIsFresh(now)
   local lastAt = tonumber(Scraper.shipGmcp and Scraper.shipGmcp.lastAt) or 0
   return lastAt > 0 and (tonumber(now) or os.time()) - lastAt
     <= Scraper.SHIP_GMCP_STALE_SECONDS
+end
+
+function Scraper.isCombatPollingActive(now)
+  now = tonumber(now) or os.time()
+  local lastActivityAt = tonumber(Scraper.combat.lastActivityAt) or 0
+  local activityWindow = tonumber(Scraper.polling.combatActivityWindowSeconds)
+    or Scraper.COMBAT_ACTIVITY_WINDOW_SECONDS
+  local recentlyActive = lastActivityAt > 0 and now - lastActivityAt <= activityWindow
+  local metadata = Scraper.state and Scraper.state.metadata or {}
+  local liveProjectiles = (tonumber(metadata.projectileCount) or 0) > 0
+    or (tonumber(metadata.incomingProjectileCount) or 0) > 0
+  return recentlyActive or liveProjectiles
 end
 
 local function pollOnce()
@@ -1066,13 +1546,21 @@ local function pollOnce()
   end
 
   local now = os.time()
-  local recentlyActive = now - (Scraper.combat.lastActivityAt or 0) <= 30
-  local combatActive = Scraper.combat.targetName ~= nil or recentlyActive
+  local combatActive = Scraper.isCombatPollingActive(now)
   local combatRadarDue = combatActive
     and now - (Scraper.combat.lastRadarAt or 0)
       >= (Scraper.polling.combatRadarIntervalSeconds or Scraper.COMBAT_RADAR_INTERVAL_SECONDS)
+  local radarReconcileDue = not combatActive
+    and now - (Scraper.combat.lastRadarAt or 0)
+      >= (Scraper.polling.radarReconcileIntervalSeconds or Scraper.RADAR_RECONCILE_INTERVAL_SECONDS)
+  local fleetRadarInterval = combatActive
+    and (Scraper.polling.combatFleetRadarIntervalSeconds
+      or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS)
+    or (Scraper.polling.fleetRadarIntervalSeconds or Scraper.FLEETRADAR_INTERVAL_SECONDS)
+  local fleetRadarDue = now - (Scraper.polling.lastFleetRadarAt or 0) >= fleetRadarInterval
   local hydrationCommand = (Scraper.polling.hydrationQueue or {})[1]
-  local scanCandidate = not hydrationCommand and not combatRadarDue and scanCommandDue() or nil
+  local scanCandidate = not hydrationCommand and not combatRadarDue
+    and not radarReconcileDue and not fleetRadarDue and scanCommandDue() or nil
   local dueScan = scanCandidate and (scanCandidate.discovery
     or Scraper.polling.scansSinceCore < 2) and scanCandidate or nil
   local command
@@ -1082,13 +1570,18 @@ local function pollOnce()
   elseif combatRadarDue then
     command = "radar projectiles"
     Scraper.polling.scansSinceCore = 0
+  elseif radarReconcileDue then
+    command = "radar"
+    Scraper.polling.scansSinceCore = 0
+  elseif fleetRadarDue then
+    command = "fleetradar"
+    Scraper.polling.scansSinceCore = 0
   elseif dueScan then
     command = dueScan.command
     Scraper.polling.scansSinceCore = Scraper.polling.scansSinceCore + 1
     Scraper.scanState[dueScan.key][dueScan.source .. "At"] = os.time()
   else
     command = Scraper.POLL_COMMANDS[Scraper.polling.index]
-    if combatActive and command == "radar" then command = "radar projectiles" end
     Scraper.polling.scansSinceCore = 0
   end
   if dueScan then
@@ -1104,7 +1597,7 @@ local function pollOnce()
     return
   end
   local completedCycle = false
-  if not hydrationCommand and not combatRadarDue then
+  if not hydrationCommand and not combatRadarDue and not radarReconcileDue and not fleetRadarDue then
     Scraper.polling.index = Scraper.polling.index + 1
     completedCycle = Scraper.polling.index > #Scraper.POLL_COMMANDS
     if completedCycle then Scraper.polling.index = 1 end
@@ -1194,6 +1687,7 @@ function Scraper.startPolling(options)
   options = type(options) == "table" and options or {}
   Scraper.polling.enabled = true
   Scraper.polling.index = 1
+  Scraper.polling.lastFleetRadarAt = 0
   Scraper.polling.commandGapSeconds = math.max(0.5,
     tonumber(options.commandGapSeconds) or Scraper.POLL_COMMAND_GAP_SECONDS)
   Scraper.polling.cycleDelaySeconds = math.max(1,
@@ -1204,6 +1698,15 @@ function Scraper.startPolling(options)
     tonumber(options.standardScanIntervalSeconds) or Scraper.STANDARD_SCAN_INTERVAL_SECONDS)
   Scraper.polling.combatRadarIntervalSeconds = math.max(1,
     tonumber(options.combatRadarIntervalSeconds) or Scraper.COMBAT_RADAR_INTERVAL_SECONDS)
+  Scraper.polling.fleetRadarIntervalSeconds = math.max(3,
+    tonumber(options.fleetRadarIntervalSeconds) or Scraper.FLEETRADAR_INTERVAL_SECONDS)
+  Scraper.polling.combatFleetRadarIntervalSeconds = math.max(5,
+    tonumber(options.combatFleetRadarIntervalSeconds)
+      or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS)
+  Scraper.polling.radarReconcileIntervalSeconds = math.max(30,
+    tonumber(options.radarReconcileIntervalSeconds) or Scraper.RADAR_RECONCILE_INTERVAL_SECONDS)
+  Scraper.polling.combatActivityWindowSeconds = math.max(5,
+    tonumber(options.combatActivityWindowSeconds) or Scraper.COMBAT_ACTIVITY_WINDOW_SECONDS)
   Scraper.polling.scansSinceCore = 2
   updatePollingMetadata(nil)
   scheduleNextPoll(tonumber(options.initialDelaySeconds) or 0.5)
@@ -1478,8 +1981,17 @@ local function gmcpNumber(info, key)
 end
 
 function Scraper.handleShipGmcp()
+  local profiling = Scraper.profiler.enabled == true
+  local profileStarted = profiling and os.clock() or nil
+  if profiling then profileCount("shipGmcpEvents") end
   local info = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.Info or nil
-  if type(info) ~= "table" or next(info) == nil then return false end
+  if type(info) ~= "table" or next(info) == nil then
+    if profiling then
+      profileCount("emptyShipGmcpEvents")
+      profileTiming("ship_gmcp", profileStarted)
+    end
+    return false
+  end
 
   Scraper.state = Scraper.state or freshState()
   local observer = Scraper.state.observer
@@ -1531,6 +2043,7 @@ function Scraper.handleShipGmcp()
   Scraper.state.metadata.lastObservedAt = Scraper.shipGmcp.lastAt
   Scraper.state.metadata.shipGmcpHealthy = true
   clearObserverHydration("status")
+  refreshDerivedDistances()
 
   if Scraper.shipGmcp.damageSequence ~= nil
       and Scraper.shipGmcp.sequence > Scraper.shipGmcp.damageSequence then
@@ -1547,6 +2060,7 @@ function Scraper.handleShipGmcp()
   else
     Scraper.publish()
   end
+  if profiling then profileTiming("ship_gmcp", profileStarted) end
   return true
 end
 
@@ -1816,7 +2330,6 @@ local function completeTargetLock(status, reason)
   if Scraper.pendingCommandKind ~= "target" then return false end
   if status == "completed" then
     Scraper.combat.targetName = Scraper.combat.pendingTargetName
-    Scraper.combat.lastActivityAt = os.time()
     Scraper.state.observer.target = Scraper.combat.targetName
     Scraper.state.metadata.combatTarget = Scraper.combat.targetName
   end
@@ -1939,7 +2452,7 @@ local function dispatchFireWeapon(payload)
   return true
 end
 
-local function dispatchSpaceProbe(_, message)
+dispatchSpaceProbe = function(_, message)
   local gateError = commandGateError()
   if gateError then return false, gateError end
   if Scraper.active and not Scraper.active.polled then
@@ -1973,6 +2486,12 @@ end
 function Scraper.handleOutgoingCommand(eventName, command)
   if Scraper.polling.dispatching then return end
   refreshLotjUiCompatibility()
+  local normalizedOutgoing = trim(command):lower():gsub("%s+", " ")
+  if normalizedOutgoing == "calc" or normalizedOutgoing == "calculate"
+      or normalizedOutgoing:match("^calc .+") or normalizedOutgoing:match("^calculate .+") then
+    Scraper.hyperspace.initiatedByHolocron = false
+    Scraper.hyperspace.acknowledgedFuelRisk = false
+  end
   if Scraper.pendingCommandKind == "target" then
     if type(denyCurrentSend) == "function" then denyCurrentSend() end
     if type(cecho) == "function" then
@@ -2029,8 +2548,9 @@ end
 function Scraper.requestShipGmcpSupport(eventName, protocol)
   if protocol and tostring(protocol):upper() ~= "GMCP" then return false end
   if type(sendGMCP) ~= "function" then return false end
-  local ok = pcall(sendGMCP, "Core.Supports.Add", '["Ship 1"]')
-  return ok
+  local shipOk = pcall(sendGMCP, "Core.Supports.Add", '["Ship 1"]')
+  local galaxyOk = pcall(sendGMCP, "Core.Supports.Add", '["Galaxy 1"]')
+  return shipOk and galaxyOk
 end
 
 function Scraper.setup(proxy, options)
@@ -2076,9 +2596,12 @@ function Scraper.setup(proxy, options)
   Scraper.eventHandlerIds = {
     registerAnonymousEventHandler("sysDataSendRequest", Scraper.handleOutgoingCommand),
     registerAnonymousEventHandler("gmcp.Ship.Info", Scraper.handleShipGmcp),
+    registerAnonymousEventHandler("gmcp.Galaxy.Systems", Scraper.publishGalaxyCatalog),
+    registerAnonymousEventHandler("gmcp.Ship.System", Scraper.publishGalaxyCatalog),
     registerAnonymousEventHandler("sysProtocolEnabled", Scraper.requestShipGmcpSupport),
   }
   Scraper.requestShipGmcpSupport()
+  Scraper.publishGalaxyCatalog()
   Scraper.stateTriggerIds = {
     tempTrigger("Wait until after you launch!", function()
       Scraper.setInSpace(false, "LotJ reports that the ship has not launched")
@@ -2135,6 +2658,9 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("(?i)^.*auto.*track.*$", function()
       Scraper.handleAutotrackResponse(line or "")
     end),
+    tempRegexTrigger("^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.)\\s*$", function()
+      Scraper.handleHyperspaceLine(line or "")
+    end),
   }
   proxy.scraper = Scraper
   if type(proxy.registerIntentHandler) == "function" then
@@ -2161,6 +2687,58 @@ function Scraper.setup(proxy, options)
         return false, "autotrack enabled must be a boolean"
       end
       return requestAutotrack(payload.enabled, message and message.id or nil)
+    end)
+    proxy.registerIntentHandler("plot_hyperspace", dispatchHyperspacePlot)
+    proxy.registerIntentHandler("refresh_navigation", dispatchNavigationRefresh)
+    proxy.registerIntentHandler("refresh_galaxy_catalog", function()
+      Scraper.requestShipGmcpSupport()
+      Scraper.publishGalaxyCatalog()
+      local systems = _G.gmcp and _G.gmcp.Galaxy and _G.gmcp.Galaxy.Systems
+      if type(systems) ~= "table" or next(systems) == nil then
+        local now = os.time()
+        if not Scraper.galaxyCatalogRequestAt or now - Scraper.galaxyCatalogRequestAt >= 5 then
+          Scraper.galaxyCatalogRequestAt = now
+          pcall(send, "planets", false)
+        end
+      end
+      return true
+    end)
+    proxy.registerIntentHandler("stop_hyperspace", function(_, message)
+      if Scraper.hyperspace.phase ~= "calculating" then
+        return false, "no hyperspace calculation is running"
+      end
+      Scraper.hyperspace.activeIntentId = message and message.id or nil
+      Scraper.polling.dispatching = true
+      local ok, err = pcall(send, "calc stop", false)
+      Scraper.polling.dispatching = false
+      return ok or false, ok and nil or tostring(err)
+    end)
+    proxy.registerIntentHandler("engage_hyperdrive", function(_, message)
+      if Scraper.hyperspace.phase ~= "ready" then
+        return false, "hyperspace calculations are not ready"
+      end
+      local clear, clearanceError = checkHyperspaceClearance()
+      if not clear then return false, clearanceError end
+      Scraper.hyperspace.activeIntentId = message and message.id or nil
+      Scraper.polling.dispatching = true
+      local ok, err = pcall(send, "hyper", false)
+      Scraper.polling.dispatching = false
+      return ok or false, ok and nil or tostring(err)
+    end)
+    proxy.registerIntentHandler("escape_hyperspace", function()
+      if Scraper.hyperspace.phase ~= "hyperspace" then
+        return false, "the ship is not currently traveling through hyperspace"
+      end
+      Scraper.polling.dispatching = true
+      local sent, sendResult, sendError = pcall(send, "hyper off", false)
+      Scraper.polling.dispatching = false
+      if not sent or sendResult == false then
+        return false, tostring(sent and sendError or sendResult)
+      end
+      local metadata = hyperspaceMetadata()
+      metadata.escapeRequestedAt = os.time()
+      Scraper.publish()
+      return true
     end)
     proxy.registerIntentHandler("navigate_ship", function(payload, message)
       local gateError = commandGateError()
@@ -2243,7 +2821,7 @@ function Scraper.setup(proxy, options)
       return true
     end)
   end
-  diagnostic("info", "live scraping enabled for info, radar, prox, status, and fleetradar")
+  diagnostic("info", "live scraping enabled for info, radar, status, and fleetradar; proximity is derived from coordinates")
   if not options or options.polling ~= false then
     local pollingOptions = options and options.polling or nil
     local pollingReady, pollingError = Scraper.startPolling(pollingOptions)
@@ -2280,6 +2858,8 @@ function Scraper.teardown()
   Scraper.shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil}
   safeKill("killTimer", Scraper.pendingCommandTimerId)
   Scraper.pendingCommandTimerId = nil
+  safeKill("killTimer", Scraper.automationLeaseTimerId)
+  Scraper.automationLeaseTimerId = nil
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
   Scraper.autotrack.timeoutTimerId = nil
   Scraper.autotrack.pending = false

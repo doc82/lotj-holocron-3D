@@ -51,6 +51,53 @@ export interface PollingState {
   command?: string;
 }
 
+export interface GalaxyPlanet {
+  name: string;
+  government?: string;
+  x?: number;
+  y?: number;
+  z?: number;
+}
+
+export interface GalaxySystem {
+  name: string;
+  x: number;
+  y: number;
+  planets: GalaxyPlanet[];
+  custom?: boolean;
+}
+
+export interface GalaxyCatalog {
+  type?: "galaxy_catalog";
+  observedAt?: number;
+  systems?: Record<string, Record<string, unknown>>;
+  customSystems?: Record<string, Record<string, unknown>>;
+  shipSystem?: { x?: number; y?: number; name?: string };
+}
+
+export interface HyperspaceRoutePayload {
+  mode: "local" | "galactic";
+  destination: { x: number; y: number; z: number };
+  galaxy?: { x: number; y: number };
+  systemName?: string;
+  planetName?: string;
+  acknowledgeFuelRisk?: boolean;
+}
+
+export interface HyperspaceState {
+  phase?: "idle" | "calculating" | "fuel_warning" | "ready" | "engaging" | "hyperspace" | "reentry" | "arrived" | "failed";
+  route?: HyperspaceRoutePayload;
+  remainingSeconds?: number;
+  fuelRequired?: number;
+  fuelAvailable?: number;
+  fuelPercent?: number;
+  insufficientFuel?: boolean;
+  autoAborted?: boolean;
+  escapeRequestedAt?: number;
+  error?: string;
+  arrivedAt?: number;
+}
+
 export interface SystemSnapshot {
   v?: number;
   type?: "system_snapshot";
@@ -73,6 +120,23 @@ export interface SystemSnapshot {
     shieldRecharging?: boolean;
     shieldRechargeAttempts?: number;
     shieldStatusPending?: boolean;
+    hyperspace?: HyperspaceState;
+    navigation?: {
+      galaxy?: { x?: number; y?: number };
+      arrivalRefreshedAt?: number;
+      jumpSystem?: string;
+      jumpDistanceParsecs?: number;
+      jumpTime?: string;
+      jumpTimeSeconds?: number;
+      destinations?: Array<{
+        system: string;
+        distanceParsecs: number;
+        reachable: boolean;
+        travelTime?: string;
+        travelTimeSeconds?: number;
+        fuelPercent?: number;
+      }>;
+    };
     [key: string]: unknown;
   };
 }
@@ -91,6 +155,7 @@ export interface InitialState {
   connected?: boolean;
   snapshot?: SystemSnapshot | null;
   spaceState?: SpaceState | null;
+  galaxyCatalog?: GalaxyCatalog | null;
 }
 
 export interface HolocronApi {
@@ -99,6 +164,7 @@ export interface HolocronApi {
   sendIntent(action: string, payload?: Record<string, unknown>): Promise<{ accepted?: boolean; reason?: string; id?: string }>;
   onSnapshot(callback: (snapshot: SystemSnapshot) => void): () => void;
   onSpaceState(callback: (state: SpaceState) => void): () => void;
+  onGalaxyCatalog(callback: (catalog: GalaxyCatalog) => void): () => void;
   onConnectionState(callback: (state: ConnectionState) => void): () => void;
   onIntentAck(callback: (ack: { id?: string; status?: "accepted" | "rejected" | "completed"; reason?: string }) => void): () => void;
 }

@@ -5,7 +5,11 @@
 - Mudlet child-process transport with newline-delimited JSON framing.
 - Safe typed-intent boundary from external clients back to Mudlet.
 - Live parsing and snapshot merging for radar, proximity, velocity, status, and
-  fleet radar.
+  fleet radar; automatic polling derives proximity from coordinates instead of
+  issuing redundant proximity commands.
+- Tiered spatial polling: fleetradar tracks ordinary ship movement, full radar
+  periodically reconciles celestial and omitted contacts, and projectile radar
+  becomes the high-frequency combat feed.
 - Launch/landing state propagation and stale-scene clearing.
 
 ## Completed network milestone
@@ -42,6 +46,23 @@
 - Communicate observation freshness, confidence, and sensor uncertainty.
 - Add product icons and Windows code signing before public distribution.
 - Exercise installation and upgrades in a clean Windows VM.
+
+## Hyperspace navigation milestone
+
+- Parse `navstat`, destination listings, calculation countdowns, fuel checks,
+  cancellation, engagement, transit, and realspace reentry.
+- Provide full-screen local and galactic route planners backed by live GMCP
+  systems, planets, governments, and personal charts.
+- Plot safe 500-unit planet arrivals with editable stand-off distances.
+- Support an optional, Electron-owned escape leg that calculates only after the
+  expected primary system arrival and never engages automatically.
+- Offer escape planning for both local and galactic primary jumps. Known OOR
+  systems are excluded, while exact and randomized galactic coordinates must
+  remain inside the ship's conservatively confirmed `calculate` range.
+- Abort unacknowledged insufficient-fuel calculations and require explicit
+  confirmation before calculating or engaging anyway.
+- Render seeded rotating planet previews and progressively improve them toward
+  full tactical WebGL planet materials.
 
 ## Deferred advanced scan metadata
 

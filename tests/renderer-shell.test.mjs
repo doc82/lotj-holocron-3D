@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("renderer includes the cinematic startup and disconnected uplink states", async () => {
-  const [html, app, startup, telemetry, uplink, globalStyles, startupStyles, uplinkStyles] = await Promise.all([
+  const [html, app, startup, hyperspaceField, telemetry, uplink, globalStyles, startupStyles, uplinkStyles] = await Promise.all([
     readFile("renderer/index.html", "utf8"),
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/startup/StartupSequence.tsx", "utf8"),
+    readFile("renderer/src/features/hyperspace/HyperspaceField.tsx", "utf8"),
     readFile("renderer/src/features/telemetry/useTelemetry.ts", "utf8"),
     readFile("renderer/src/features/connection/UplinkNotice.tsx", "utf8"),
     readFile("renderer/styles.css", "utf8"),
@@ -17,7 +18,7 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.match(html, /src="\/src\/main\.tsx"/);
   assert.match(startup, /setPhase\("lotjDeparting"\), 4_000/);
   assert.match(startup, /setPhase\("intro"\), 4_550/);
-  assert.match(startup, /setPhase\("jumping"\);\s*\}, 8_450\)/);
+  assert.match(startup, /setPhase\("jumping"\), 8_450/);
   assert.match(startup, /A long time ago in a galaxy far, far away/);
   assert.match(startup, /Legends of<br \/>the Jedi/);
   assert.match(startup, /The Galaxy Awaits/);
@@ -26,7 +27,8 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.doesNotMatch(startupStyles, /\.rule|startup-rule|\.kicker|\.status/);
   assert.match(startup, /styles\.threeD/);
   assert.match(startup, /event\.key !== "Escape"/);
-  assert.match(startup, /edgeActivation/);
+  assert.match(startup, /HyperspaceField/);
+  assert.match(hyperspaceField, /edgeActivation/);
   assert.doesNotMatch(startup, /dissolving/);
   assert.match(startup, /styles\.hyperspace/);
   assert.match(telemetry, /connectionLabel/);

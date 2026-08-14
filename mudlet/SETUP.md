@@ -16,9 +16,15 @@ the Windows desktop renderer without competing with existing LotJ aliases.
 ```
 
 The package starts automatically. Enter `h3d status` in Mudlet to verify it, or
-use `h3d start`, `h3d stop`, `h3d snapshot`, and `h3d help` as needed. Mudlet
+use `h3d start`, `h3d stop`, `h3d snapshot`, `h3d profile`, and `h3d help` as needed. Mudlet
 stores its own copy after import, so the source `.mpackage` does not need to
 remain selected or open. This follows Mudlet's standard Package Manager flow.
+
+To profile Mudlet performance, enter `h3d profile start`, use the client
+normally for at least 30 seconds, and enter `h3d profile stop`. Use
+`h3d profile report` for an intermediate report without stopping collection.
+The report includes GMCP and snapshot rates, scrape command volume, captured
+and deleted lines, retained bytes, Lua timings, and Mudlet trigger/timer deltas.
 
 The remaining steps document the repository-based development fallback.
 
@@ -31,9 +37,12 @@ Mudlet -> Holocron3D proxy -> network bridge -> WebSocket client
 Mudlet <- Holocron3D proxy <- network bridge <- WebSocket client
 ```
 
-If it works, Mudlet will say that the bridge connected. Holocron3D polls
-`status`, `info`, `radar`, `prox`, `prox velocity`, and `fleetradar` sequentially while
-hiding automated output. Typing one yourself still performs a visible refresh.
+If it works, Mudlet will say that the bridge connected. Holocron3D uses
+`fleetradar` for regular ship movement, performs a complete `radar`
+reconciliation every 60 seconds, and prioritizes `radar projectiles` during
+combat while refreshing fleet positions more slowly. Proximity is calculated
+locally from coordinates, so `prox` and `prox velocity` remain available for
+visible manual refreshes but are not automatically polled.
 Only `Sensor Array` is retained from `info`; access codes are discarded and
 redacted from the package's last-capture diagnostics.
 
@@ -122,7 +131,7 @@ The following messages should appear in Mudlet, usually within a second:
 
 ```text
 [Holocron3D] Bridge process started; waiting for its reply...
-[Holocron3D] live scraping enabled for info, radar, prox, status, and fleetradar
+[Holocron3D] live scraping enabled for info, radar, status, and fleetradar; proximity is derived from coordinates
 [Holocron3D] bridge is ready: network-bridge
 [Holocron3D] Mudlet and the bridge are connected.
 [Holocron3D] WebSocket endpoint: ws://127.0.0.1:8787

@@ -27,6 +27,7 @@ export function createTelemetryHost({ write, emit, broadcast, shutdown }) {
     websocketUrl: null,
     latestSnapshot: null,
     latestSpaceState: null,
+    latestGalaxyCatalog: null,
     readySent: false,
   };
 
@@ -93,6 +94,11 @@ export function createTelemetryHost({ write, emit, broadcast, shutdown }) {
         broadcast(message);
         send({ type: "space_state_received", inSpace: message.inSpace === true });
         break;
+      case "galaxy_catalog":
+        state.latestGalaxyCatalog = message;
+        emit("galaxy-catalog", message);
+        broadcast(message);
+        break;
       case "intent_ack":
         emit("intent-ack", message);
         broadcast(message);
@@ -122,6 +128,7 @@ export function createTelemetryHost({ write, emit, broadcast, shutdown }) {
       connected: state.mudletConnected,
       snapshot: state.latestSnapshot,
       spaceState: state.latestSpaceState,
+      galaxyCatalog: state.latestGalaxyCatalog,
       websocketUrl: state.websocketUrl,
     };
   }

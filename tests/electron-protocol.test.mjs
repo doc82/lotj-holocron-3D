@@ -50,6 +50,11 @@ test("Electron telemetry host preserves the Mudlet protocol contract", () => {
   assert.equal(written.at(-1).polled, true);
   assert.equal(host.initialState().snapshot.sequence, 42);
 
+  const galaxy = { v: 1, type: "galaxy_catalog", systems: { "Esstran Sector": { x: 92, y: 12 } } };
+  host.handleMudletMessage(galaxy);
+  assert.equal(emitted.at(-1).type, "galaxy-catalog");
+  assert.equal(host.initialState().galaxyCatalog, galaxy);
+
   const intent = host.handleIntent({
     v: 1,
     type: "intent",
