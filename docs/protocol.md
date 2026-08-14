@@ -34,7 +34,7 @@ Sent when Mudlet starts the child process.
   "v": 1,
   "type": "hello",
   "source": "mudlet",
-  "proxyVersion": "0.1.0"
+  "proxyVersion": "0.1.1"
 }
 ```
 
@@ -90,6 +90,18 @@ Reports whether Mudlet accepted an intent for local handling.
 human-readable `reason`. Initial acceptance confirms only local dispatch;
 long-running operations such as course changes may later emit `completed` with
 the same intent ID when LotJ reports their completion.
+
+### `galaxy_catalog`
+
+Publishes the live `gmcp.Galaxy.Systems` hierarchy independently of tactical
+snapshots. `systems` contains timeline-owned systems and planets;
+`customSystems` contains an optional read-only import from the official LotJ
+Mudlet UI's personal registry. `shipSystem` is the current GMCP galactic
+location. Clients must treat all three collections as dynamic.
+
+```json
+{"v":1,"type":"galaxy_catalog","systems":{"Esstran Sector":{"x":92,"y":12,"Dromund Kaas":{"x":0,"y":0,"z":0,"government":"Red"}}}}
+```
 
 ### `shutdown`
 
@@ -198,6 +210,28 @@ observed value on the observer, and completes the intent only after the desired
 state is confirmed. If the first response is opposite the requested state,
 Mudlet sends one corrective toggle. Targeting defaults to an enabled desired
 state unless the player has explicitly switched that preference off.
+
+Hyperspace uses typed `plot_hyperspace`, `stop_hyperspace`,
+`engage_hyperdrive`, `escape_hyperspace`, and `refresh_navigation` intents. A local route contains
+only bounded system coordinates. A galactic route additionally contains the
+galactic X/Y location. Mudlet constructs `calculate` commands from those
+validated numbers and never accepts a command string from Electron.
+
+`system_snapshot.metadata.hyperspace` reports calculation, fuel-warning,
+ready, engagement, transit, reentry, arrival, and failure states.
+`metadata.navigation` carries parsed `navstat` and `calculate` destination-list
+information. If an Electron-initiated route reports insufficient fuel, Mudlet
+sends `calc stop` unless the payload explicitly acknowledges that risk.
+During confirmed hyperspace transit, `escape_hyperspace` issues the explicit
+`hyper off` command. Mudlet rejects that intent outside the `hyperspace` phase.
+
+### `automation_lease`
+
+Electron renews a short automation lease every two seconds. Mudlet disarms
+polling, recharge loops, queued commands, and renderer-owned automation if the
+lease expires. A lease never stores or executes an escape plan in Lua; escape
+routing remains Electron-owned and can never engage the hyperdrive without a
+current user action.
 
 ## Compatibility rules
 

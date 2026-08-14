@@ -129,6 +129,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       ...entity,
       name: entity.name || entity.id,
       kind: entity.kind || "unknown",
+      distance: Math.round(Math.hypot(...position3d)),
       position3d,
       worldPosition: [finite(entity.x), finite(entity.y), finite(entity.z)],
       color: colorFor(entity),

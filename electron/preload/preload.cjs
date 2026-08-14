@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("holocron", Object.freeze({
   ),
   onSnapshot: (callback) => subscribe("holocron:snapshot", callback),
   onSpaceState: (callback) => subscribe("holocron:space-state", callback),
+  onGalaxyCatalog: (callback) => subscribe("holocron:galaxy-catalog", callback),
   onConnectionState: (callback) => subscribe("holocron:connection", callback),
   onIntentAck: (callback) => subscribe("holocron:intent-ack", callback),
 }));

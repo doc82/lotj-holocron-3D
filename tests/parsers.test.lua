@@ -47,6 +47,13 @@ Your Coordinates:                                         332 807 -1400
 ]]))
 equal(liveRadar.system, "Esstran Sector")
 
+local unchartedRadar = assert(parsers.parseRadar([[
+Uncharted space
+YT-1300 'Wayfarer'  100 200 300
+Your Coordinates:  10 20 30
+]]))
+equal(unchartedRadar.system, "Uncharted space")
+
 local chatInterleavedRadar = assert(parsers.parseRadar([[
 (OOC) @Bando [NEW]: My apologies, Paragod.
 [Red Team]{The Grand Council}<New Meat>[A Human male]: are you en route?
@@ -188,6 +195,7 @@ equal(fleet.entities[1].leader, "Resolute")
 equal(fleet.entities[2].position, "Independent")
 
 local liveFleet = assert(parsers.parseFleetRadar([[
+Esstran Sector
 Imperial-II Class Star Destroyer 'Pollution' |  | (Ctr) -51 62 32
 Victory-II Class Star Destroyer 'Gore' |  | (Out) 0 0 0
 ]]))
@@ -198,9 +206,73 @@ equal(liveFleet.entities[1].position, "Ctr")
 equal(liveFleet.entities[1].x, -51)
 equal(liveFleet.entities[2].name, "Gore")
 
+local groupedFleet = assert(parsers.parseFleetRadar([[
+Esstran Sector
+Mark-I Assault Frigate 'MK1AF19'                            -369 -34 -120
+
+Imperial-II Class Star Destroyer 'Verdandi's battlegroup:
+Imperial-II Class Star Destroyer 'Verdandi'           (Ctr) 0 0 0
+Victory-II Class Star Destroyer 'Stella'              (Mid) 0 0 0
+
+Your Coordinates: 0 0 0
+]]))
+equal(groupedFleet.system, "Esstran Sector")
+equal(#groupedFleet.entities, 3)
+equal(groupedFleet.entities[1].name, "MK1AF19")
+equal(groupedFleet.entities[1].x, -369)
+equal(groupedFleet.entities[2].name, "Verdandi")
+equal(groupedFleet.entities[2].leader, "Verdandi")
+equal(groupedFleet.entities[2].position, "Ctr")
+equal(groupedFleet.entities[3].position, "Mid")
+equal(groupedFleet.observer.x, 0)
+
 local dispatched = assert(parsers.parse("proximity speed", "Wayfarer  75"))
 equal(dispatched.source, "prox_velocity")
 equal(dispatched.entities[1].speed, 75)
+
+local navstat = assert(parsers.parse("navstat", [[
+Readout for E-wing Escort Fighter 'Booger':
+Current Coordinates: 5 10 -17
+Current Heading: 0 1 -1
+Current Speed: 0/170
+Current System: Esstran Sector
+Current System X/Y: (92, 12)
+This ship can jump to all standard sectors.
+Jump System: Mandalore Sector
+Jump Distance: 49.5 parsecs
+Jump Time: 7m 36s
+]]))
+equal(liveFleet.system, "Esstran Sector")
+equal(navstat.system, "Esstran Sector")
+equal(navstat.galaxy.x, 92)
+equal(navstat.galaxy.y, 12)
+equal(navstat.jumpSystem, "Mandalore Sector")
+equal(navstat.jumpDistanceParsecs, 49.5)
+equal(navstat.jumpTimeSeconds, 456)
+equal(navstat.standardSectorsAvailable, true)
+
+local destinations = assert(parsers.parse("calc", [[
+Possible destinations:
+Starsystem                      Parsecs   Time    Fuel
+Mandalore Sector                   49.5   7m 36s   87%
+Wroona System                      67.1                 (Out of Range)
+Esstran Sector                      0.0      06s    0%
+]]))
+equal(destinations.mode, "destinations")
+equal(#destinations.destinations, 3)
+equal(destinations.destinations[1].system, "Mandalore Sector")
+equal(destinations.destinations[1].travelTimeSeconds, 456)
+equal(destinations.destinations[1].reachable, true)
+equal(destinations.destinations[2].reachable, false)
+equal(destinations.destinations[3].reachable, true)
+equal(destinations.destinations[3].travelTimeSeconds, 6)
+
+local calculation = assert(parsers.parse("calculate", [[
+Calculating Hyperspace Trajectory: 31 seconds remaining.
+Use CALC STOP to abort the sequence.
+]]))
+equal(calculation.mode, "status")
+equal(calculation.remainingSeconds, 31)
 
 local bad, badError = parsers.parse("unknown", "anything")
 equal(bad, nil)

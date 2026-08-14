@@ -108,13 +108,17 @@ proxy.parseGameOutput = function(command, output)
 end
 
 assert(scraper.setup(proxy))
-assert(#scraper.eventHandlerIds == 3,
-  "expected outgoing-command, Ship.Info, and GMCP protocol listeners")
-assert(#scraper.stateTriggerIds == 16,
-  "expected space, piloting, maneuver, targeting, and autotrack response triggers")
+assert(scraper.startProfiler(), "profiler should start on demand")
+assert(#scraper.eventHandlerIds == 5,
+  "expected outgoing-command, ship, galaxy, and GMCP protocol listeners")
+assert(#scraper.stateTriggerIds == 17,
+  "expected space, piloting, maneuver, targeting, autotrack, and hyperspace triggers")
 assert(gmcpRequests[1].command == "Core.Supports.Add"
     and gmcpRequests[1].payload == '["Ship 1"]',
   "Holocron3D should add Ship.Info support without replacing other GMCP supports")
+assert(gmcpRequests[2].command == "Core.Supports.Add"
+    and gmcpRequests[2].payload == '["Galaxy 1"]',
+  "Holocron3D should add Galaxy support without replacing other GMCP supports")
 assert(scraper.getPollingState().enabled == true, "polling should start with the scraper")
 assert(scraper.getPollingState().timerId == nil,
   "polling must remain dormant until space activity is positively confirmed")
@@ -155,6 +159,12 @@ assert(#snapshots == 1)
 assert(snapshots[1].observer.z == -5)
 assert(#snapshots[1].entities == 2)
 assert(snapshots[1].metadata.system == "Corellian System")
+local radarWayfarer
+for _, entity in ipairs(snapshots[1].entities) do
+  if entity.name == "Wayfarer" then radarWayfarer = entity end
+end
+assert(radarWayfarer and radarWayfarer.distance == 836,
+  "radar coordinates should derive contact proximity without a prox poll")
 assert(spaceStates[1].inSpace == true, "successful space data should establish in-space state")
 assert(scraper.getPollingState().timerId,
   "successful manual space output should activate dormant polling")
@@ -173,7 +183,8 @@ local wayfarer
 for _, entity in ipairs(snapshots[2].entities) do
   if entity.name == "Wayfarer" then wayfarer = entity end
 end
-assert(wayfarer and wayfarer.distance == 375)
+assert(wayfarer and wayfarer.distance == 835,
+  "snapshot distance should remain coordinate-derived after a manual prox refresh")
 assert(wayfarer.x == 800, "proximity should enrich rather than replace radar data")
 for _, entity in ipairs(snapshots[2].entities) do
   if entity.name == "Corellia" then
@@ -206,6 +217,7 @@ assert(#scraper.getPollingState().hydrationQueue == 0,
   "manual observer telemetry should satisfy the reconnect hydration queue")
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "fleetradar")
+scraper.captureLine("Corellian System")
 scraper.captureLine("Ship                     Squadron Leader          Position")
 scraper.captureLine("Wayfarer                 Resolute                 Screen")
 scraper.captureLine("Rojan-class Patrol Craft 'Forrestal' |  | (Ctr) 10 20 -5")
@@ -218,10 +230,15 @@ end
 assert(fleetWayfarer and fleetWayfarer.leader == "Resolute")
 assert(fleetWayfarer.position == "Screen")
 assert(snapshots[5].observer.position == "Ctr")
+assert(snapshots[5].metadata.system == "Corellian System",
+  "fleetradar should keep the current system fresh without a full radar poll")
+local discoveredFleetContact
 for _, entity in ipairs(snapshots[5].entities) do
   assert(entity.name ~= "Forrestal", "observer must not be duplicated by fleetradar")
-  assert(entity.name ~= "Not On Radar", "fleetradar must not expand a radar-owned contact list")
+  if entity.name == "Not On Radar" then discoveredFleetContact = entity end
 end
+assert(discoveredFleetContact and discoveredFleetContact.position == "Out",
+  "fleetradar should discover new moving ship contacts between radar reconciliations")
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "status")
 scraper.captureLine("Wait until after you launch!")
@@ -373,6 +390,20 @@ for _, entity in ipairs(snapshots[#snapshots].entities) do
 end
 assert(targetedWayfarer and targetedWayfarer.disposition == "enemy",
   "targeting a ship should immediately classify it as an enemy")
+scraper.combat.lastActivityAt = 0
+scraper.state.metadata.projectileCount = 0
+scraper.state.metadata.incomingProjectileCount = 0
+assert(scraper.combat.targetName == "Wayfarer")
+assert(scraper.isCombatPollingActive(os.time()) == false,
+  "a selected or locked target alone must not enable fast projectile polling")
+scraper.combat.lastActivityAt = os.time()
+assert(scraper.isCombatPollingActive(os.time()) == true,
+  "actual recent combat activity should enable fast projectile polling")
+scraper.combat.lastActivityAt = 0
+scraper.state.metadata.projectileCount = 1
+assert(scraper.isCombatPollingActive(os.time()) == true,
+  "known live projectiles should keep projectile polling active")
+scraper.state.metadata.projectileCount = 0
 
 local failedTarget, failedTargetError = intentHandlers.target_ship(
   {targetId = "wayfarer"}, {id = "target-test-2"})
@@ -574,6 +605,21 @@ local changedSpeed, speedError = intentHandlers.set_ship_speed({speed = 75}, {id
 assert(changedSpeed, speedError)
 assert(sentCommands[#sentCommands].command == "speed 75")
 
+assert(type(intentHandlers.escape_hyperspace) == "function",
+  "hyperspace transit should expose an emergency cutoff intent")
+scraper.hyperspace.phase = "idle"
+local invalidEscape, invalidEscapeError = intentHandlers.escape_hyperspace({})
+assert(not invalidEscape and invalidEscapeError:find("not currently", 1, true),
+  "the emergency cutoff must be rejected outside hyperspace")
+scraper.hyperspace.phase = "hyperspace"
+local escaped, escapeError = intentHandlers.escape_hyperspace({})
+assert(escaped, escapeError)
+assert(sentCommands[#sentCommands].command == "hyper off"
+    and sentCommands[#sentCommands].echo == false,
+  "the emergency cutoff should issue the explicit hyper off command")
+assert(scraper.state.metadata.hyperspace.escapeRequestedAt ~= nil)
+scraper.hyperspace.phase = "idle"
+
 assert(type(intentHandlers.set_autotrack) == "function", "autotrack intent should be registered")
 local disabledTracking, disabledTrackingError = intentHandlers.set_autotrack({enabled = false}, {
   id = "autotrack-off-test-1",
@@ -665,6 +711,23 @@ scraper.state.observer.hasWeapons = false
 local unarmedTarget, unarmedTargetError = intentHandlers.target_ship({targetId = "wayfarer"})
 assert(not unarmedTarget and unarmedTargetError == "this ship has no weapons",
   "Mudlet must reject target commands when info confirms the player ship is unarmed")
+
+local profileReport = assert(scraper.getProfilerReport())
+assert(profileReport.enabled == true)
+assert((profileReport.counts.capturesStarted or 0) > 0,
+  "profiler should count capture activity")
+assert((profileReport.counts.capturedLines or 0) > 0,
+  "profiler should count owned output lines")
+assert((profileReport.counts.snapshotPublishes or 0) > 0,
+  "profiler should count full snapshot publications")
+assert((profileReport.counts.shipGmcpEvents or 0) == 2,
+  "profiler should count Ship.Info events")
+assert(type(profileReport.timings.publish) == "table"
+    and profileReport.timings.publish.count > 0,
+  "profiler should time snapshot publication")
+local stoppedProfile = assert(scraper.stopProfiler())
+assert(stoppedProfile.enabled == false and scraper.profiler.enabled == false,
+  "stopping the profiler should retain its final report and disable collection")
 
 assert(scraper.teardown())
 assert(proxy.scraper == nil)

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 
-import type { InitialState, SpaceState, SystemSnapshot } from "../../types/telemetry";
+import type { GalaxyCatalog, InitialState, SpaceState, SystemSnapshot } from "../../types/telemetry";
 
 export interface TelemetryState {
   connected: boolean;
   connectionLabel: string;
   snapshot: SystemSnapshot | null;
   spaceState: SpaceState | null;
+  galaxyCatalog: GalaxyCatalog | null;
 }
 
 const initialTelemetry: TelemetryState = {
@@ -14,6 +15,7 @@ const initialTelemetry: TelemetryState = {
   connectionLabel: "CONNECTING",
   snapshot: null,
   spaceState: null,
+  galaxyCatalog: null,
 };
 
 function mergeInitial(current: TelemetryState, initial: InitialState): TelemetryState {
@@ -23,6 +25,7 @@ function mergeInitial(current: TelemetryState, initial: InitialState): Telemetry
     connectionLabel: connected ? "MUDLET LINK" : "WAITING FOR MUDLET",
     snapshot: initial.snapshot ?? current.snapshot,
     spaceState: initial.spaceState ?? current.spaceState,
+    galaxyCatalog: initial.galaxyCatalog ?? current.galaxyCatalog,
   };
 }
 
@@ -39,6 +42,7 @@ export function useTelemetry(): TelemetryState {
       cleanups.push(
         api.onSnapshot((snapshot) => setTelemetry((current) => ({ ...current, snapshot }))),
         api.onSpaceState((spaceState) => setTelemetry((current) => ({ ...current, spaceState }))),
+        api.onGalaxyCatalog((galaxyCatalog) => setTelemetry((current) => ({ ...current, galaxyCatalog }))),
         api.onConnectionState((connection) => {
           const connected = connection?.connected === true;
           setTelemetry((current) => ({
@@ -91,6 +95,8 @@ export function useTelemetry(): TelemetryState {
           setTelemetry((current) => ({ ...current, snapshot: message as unknown as SystemSnapshot }));
         } else if (message.type === "space_state") {
           setTelemetry((current) => ({ ...current, spaceState: message as unknown as SpaceState }));
+        } else if (message.type === "galaxy_catalog") {
+          setTelemetry((current) => ({ ...current, galaxyCatalog: message as unknown as GalaxyCatalog }));
         }
       });
       socket.addEventListener("close", () => {

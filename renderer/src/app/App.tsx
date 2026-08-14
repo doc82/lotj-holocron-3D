@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { buildScene, findScenePoint, formatCoordinate, sensorRangeFor, type ScenePoint } from "../domain/scene";
+import { hyperspaceClearance } from "../domain/hyperspace";
 import { NavigationDrawer } from "../features/commands/NavigationDrawer";
 import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
 import { UplinkNotice } from "../features/connection/UplinkNotice";
+import { HyperspacePlanner, type EscapePlanDraft } from "../features/hyperspace/HyperspacePlanner";
+import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
+import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
 import { RangeMeter, type RangeReading } from "../features/telemetry/RangeMeter";
 import { useTelemetry } from "../features/telemetry/useTelemetry";
 import { WeaponsPanel } from "../features/weapons/WeaponsPanel";
 import styles from "./App.module.css";
-import type { ShipDisposition, Vector3, WeaponType } from "../types/telemetry";
+import type { HyperspaceRoutePayload, ShipDisposition, Vector3, WeaponType } from "../types/telemetry";
 
 const DISPOSITION_STORAGE_KEY = "holocron3d.ship-dispositions.v1";
 const dispositionKey = (name: string) => name.trim().toLowerCase();
@@ -81,6 +85,13 @@ function MoveIcon() {
   return <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 24 21 8M14 8h7v7M5 24h15M5 24V9" /></svg>;
 }
 
+function HyperspaceIcon({ galactic = false }: { galactic?: boolean }) {
+  return <svg viewBox="0 0 32 32" aria-hidden="true">
+    {galactic ? <><circle cx="16" cy="16" r="3" /><circle cx="7" cy="9" r="2" /><circle cx="25" cy="7" r="2" /><circle cx="24" cy="24" r="2" /><path d="M9 10.5 14 14M19 14l4.5-5M19 18l3.5 4.5M5 25C13 19 20 12 27 4" /></>
+      : <><circle cx="16" cy="16" r="10" /><path d="M3 16h9M20 16h9M16 3v9M16 20v9M11 21 21 11M12 10l10 10" /><circle cx="16" cy="16" r="2" /></>}
+  </svg>;
+}
+
 type CommandIconType = "target" | "scan" | "info" | "to" | "away" | "track"
   | "cancel" | "neutral" | "friendly" | "enemy" | "recharge" | "autoRecharge";
 
@@ -124,12 +135,17 @@ export function App() {
   const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
   const [manualScanStatus, setManualScanStatus] = useState("");
   const [spaceProbeAttempt, setSpaceProbeAttempt] = useState(0);
+  const [hyperspacePlanner, setHyperspacePlanner] = useState<"local" | "galactic" | null>(null);
+  const [activeRoute, setActiveRoute] = useState<HyperspaceRoutePayload | null>(null);
+  const [escapePlan, setEscapePlan] = useState<EscapePlanDraft | undefined>();
+  const [hyperspaceEscapePending, setHyperspaceEscapePending] = useState(false);
   const [dispositions, setDispositions] = useState<Record<string, ShipDisposition>>(loadDispositions);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const syncedDispositionsRef = useRef(new Map<string, ShipDisposition>());
   const pendingIntentIdsRef = useRef(new Set<string>());
   const manualScanIntentIdsRef = useRef(new Set<string>());
   const autotrackIntentIdsRef = useRef(new Set<string>());
+  const hyperspaceEscapeIntentIdsRef = useRef(new Set<string>());
   const targetIntentShipsRef = useRef(new Map<string, { name: string }>());
   const lastObservedSpeedRef = useRef<number | null>(null);
   const lastMaximumSpeedRef = useRef<number | null>(null);
@@ -141,6 +157,8 @@ export function App() {
   const spaceProbeSentRef = useRef(false);
   const spaceProbeIntentIdsRef = useRef(new Set<string>());
   const spaceProbeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const escapeTriggeredRef = useRef(false);
+  const arrivalRefreshAtRef = useRef<number | null>(null);
   const classifiedSnapshot = useMemo(() => telemetry.snapshot ? {
     ...telemetry.snapshot,
     entities: telemetry.snapshot.entities?.map((entity) => ({
@@ -243,6 +261,143 @@ export function App() {
   const shieldRecharging = telemetry.snapshot?.metadata?.shieldRecharging === true;
   const shieldStatusPending = telemetry.snapshot?.metadata?.shieldStatusPending === true;
   const autoRechargeEnabled = telemetry.snapshot?.metadata?.autoRechargeEnabled !== false;
+  const hyperspaceState = telemetry.snapshot?.metadata?.hyperspace || { phase: "idle" as const };
+  const hyperdriveClearance = hyperspaceClearance(telemetry.snapshot);
+  const navigationDestinations = telemetry.snapshot?.metadata?.navigation?.destinations || [];
+  const navigationGalaxy = telemetry.snapshot?.metadata?.navigation?.galaxy;
+  const catalogGalaxy = telemetry.galaxyCatalog?.shipSystem;
+  const currentGalaxyPosition = Number.isFinite(Number(navigationGalaxy?.x))
+      && Number.isFinite(Number(navigationGalaxy?.y))
+    ? { x: Number(navigationGalaxy?.x), y: Number(navigationGalaxy?.y) }
+    : Number.isFinite(Number(catalogGalaxy?.x)) && Number.isFinite(Number(catalogGalaxy?.y))
+    ? { x: Number(catalogGalaxy?.x), y: Number(catalogGalaxy?.y) }
+    : undefined;
+  const galaxyCatalogSize = Object.keys(telemetry.galaxyCatalog?.systems || {}).length
+    + Object.keys(telemetry.galaxyCatalog?.customSystems || {}).length;
+
+  const plotHyperspace = useCallback(async (route: HyperspaceRoutePayload, escape?: EscapePlanDraft) => {
+    setActiveRoute(route);
+    setEscapePlan(escape);
+    setHyperspacePlanner(null);
+    escapeTriggeredRef.current = false;
+    const result = await window.holocron?.sendIntent("plot_hyperspace", route as unknown as Record<string, unknown>);
+    if (result?.accepted === false) {
+      setCommandAlert(`ROUTE REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+    }
+  }, []);
+
+  const stopHyperspace = useCallback(async () => {
+    const result = await window.holocron?.sendIntent("stop_hyperspace");
+    if (result?.accepted === false) setCommandAlert(`ABORT REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+  }, []);
+
+  const dismissHyperspace = useCallback(() => {
+    setActiveRoute(null);
+    setEscapePlan(undefined);
+    escapeTriggeredRef.current = false;
+  }, []);
+
+  const engageHyperspace = useCallback(async () => {
+    if (!hyperdriveClearance.allowed) {
+      setCommandAlert(`HYPERDRIVE BLOCKED // ${String(hyperdriveClearance.reason || "FRESH RADAR CLEARANCE REQUIRED").toUpperCase()}`);
+      return;
+    }
+    const result = await window.holocron?.sendIntent("engage_hyperdrive");
+    if (result?.accepted === false) setCommandAlert(`HYPERDRIVE BLOCKED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+  }, [hyperdriveClearance.allowed, hyperdriveClearance.reason]);
+
+  const escapeHyperspace = useCallback(async () => {
+    setHyperspaceEscapePending(true);
+    const result = await window.holocron?.sendIntent("escape_hyperspace");
+    if (result?.id) hyperspaceEscapeIntentIdsRef.current.add(result.id);
+    if (result?.accepted === false) {
+      setHyperspaceEscapePending(false);
+      setCommandAlert(`HYPERSPACE CUTOFF REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+    }
+  }, []);
+
+  const calculateAnyway = useCallback(() => {
+    if (!activeRoute) return;
+    void plotHyperspace({ ...activeRoute, acknowledgeFuelRisk: true }, escapePlan);
+  }, [activeRoute, escapePlan, plotHyperspace]);
+
+  useEffect(() => {
+    if (hyperspaceState.phase !== "calculating") return;
+    const timer = setInterval(() => void window.holocron?.sendIntent("refresh_navigation", { command: "calc" }), 5_000);
+    return () => clearInterval(timer);
+  }, [hyperspaceState.phase]);
+
+  useEffect(() => {
+    if (!activeRoute || hyperspaceState.phase !== "ready" || hyperdriveClearance.known) return;
+    const refreshClearance = () => void window.holocron?.sendIntent("probe_space");
+    refreshClearance();
+    const timer = setInterval(refreshClearance, 5_000);
+    return () => clearInterval(timer);
+  }, [activeRoute, hyperdriveClearance.known, hyperspaceState.phase]);
+
+  useEffect(() => {
+    if (!hyperspacePlanner) return;
+    const needsRange = navigationDestinations.length === 0;
+    const needsCatalog = hyperspacePlanner === "galactic" && galaxyCatalogSize === 0;
+    const needsPosition = !currentGalaxyPosition;
+    if (!needsRange && !needsCatalog && !needsPosition) return;
+
+    const refreshMissingNavigationData = () => {
+      if (needsCatalog) void window.holocron?.sendIntent("refresh_galaxy_catalog");
+      if (needsPosition) void window.holocron?.sendIntent("refresh_navigation", { command: "navstat" });
+      else if (needsRange) void window.holocron?.sendIntent("refresh_navigation", { command: "calc" });
+    };
+    refreshMissingNavigationData();
+    const timer = setInterval(refreshMissingNavigationData, 2_500);
+    return () => clearInterval(timer);
+  }, [currentGalaxyPosition?.x, currentGalaxyPosition?.y, galaxyCatalogSize, hyperspacePlanner, navigationDestinations.length]);
+
+  useEffect(() => {
+    if (hyperspaceState.phase !== "hyperspace") setHyperspaceEscapePending(false);
+  }, [hyperspaceState.phase]);
+
+  useEffect(() => {
+    if (hyperspaceState.phase !== "arrived") {
+      arrivalRefreshAtRef.current = null;
+      return;
+    }
+
+    // A completed route is no longer actionable. Remove its computer panel as
+    // soon as arrival is confirmed, even while destination telemetry refreshes.
+    setActiveRoute(null);
+
+    const arrivedAt = Number(hyperspaceState.arrivedAt) || 0;
+    const arrivalNavigationReady = Number(telemetry.snapshot?.metadata?.navigation?.arrivalRefreshedAt) >= arrivedAt;
+    if (arrivalRefreshAtRef.current !== arrivedAt) {
+      arrivalRefreshAtRef.current = arrivedAt;
+      void window.holocron?.sendIntent("refresh_navigation", {
+        command: "navstat",
+        followupRadar: true,
+      });
+    }
+
+    if (escapePlan && !escapeTriggeredRef.current) {
+      if (!arrivalNavigationReady) return;
+      const actualX = Number(currentGalaxyPosition?.x);
+      const actualY = Number(currentGalaxyPosition?.y);
+      if (actualX !== escapePlan.triggerGalaxy.x || actualY !== escapePlan.triggerGalaxy.y) return;
+      escapeTriggeredRef.current = true;
+      const escapeRoute = escapePlan.route;
+      setActiveRoute(escapeRoute);
+      setEscapePlan(undefined);
+      void window.holocron?.sendIntent("plot_hyperspace", escapeRoute as unknown as Record<string, unknown>);
+      return;
+    }
+  }, [currentGalaxyPosition?.x, currentGalaxyPosition?.y, escapePlan, hyperspaceState.arrivedAt,
+    hyperspaceState.phase, telemetry.snapshot?.metadata?.navigation?.arrivalRefreshedAt]);
+
+  useEffect(() => {
+    if (telemetry.connected) return;
+    setHyperspacePlanner(null);
+    setActiveRoute(null);
+    setEscapePlan(undefined);
+    escapeTriggeredRef.current = false;
+  }, [telemetry.connected]);
 
   const cancelNavigation = useCallback(() => {
     setNavigationMode("idle");
@@ -488,6 +643,14 @@ export function App() {
       }
       return;
     }
+    if (ack.id && hyperspaceEscapeIntentIdsRef.current.has(ack.id)) {
+      hyperspaceEscapeIntentIdsRef.current.delete(ack.id);
+      if (ack.status === "rejected") {
+        setHyperspaceEscapePending(false);
+        setCommandAlert(`HYPERSPACE CUTOFF REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`);
+      }
+      return;
+    }
     if (!ack.id || !pendingIntentIdsRef.current.has(ack.id)) return;
     const autotrackIntent = autotrackIntentIdsRef.current.has(ack.id);
     if (autotrackIntent && ack.status !== "accepted") {
@@ -637,6 +800,9 @@ export function App() {
   return (
     <>
       {starting && <StartupSequence onComplete={finishStartup} />}
+      {!starting && ["hyperspace", "reentry"].includes(hyperspaceState.phase || "") &&
+        <HyperspaceTransit reentry={hyperspaceState.phase === "reentry"}
+          escapePending={hyperspaceEscapePending} onEscape={() => void escapeHyperspace()} />}
       <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
         <TacticalCanvas
           ref={tacticalRef}
@@ -681,6 +847,12 @@ export function App() {
                 data-tooltip="STRATEGIC SECTOR VIEW"
                 onClick={() => tacticalRef.current?.sectorView()}
               ><ViewIcon type="sector" /></button>
+              <button type="button" className={styles.iconButton} disabled={landed || activeRoute !== null}
+                aria-label="Plot a local hyperspace jump" data-tooltip="LOCAL JUMP"
+                onClick={() => setHyperspacePlanner("local")}><HyperspaceIcon /></button>
+              <button type="button" className={styles.iconButton} disabled={landed || activeRoute !== null}
+                aria-label="Plot a galactic hyperspace route" data-tooltip="PLOT HYPERSPACE ROUTE"
+                onClick={() => setHyperspacePlanner("galactic")}><HyperspaceIcon galactic /></button>
             </nav>
           )}
           <div className={styles.connection}>
@@ -697,6 +869,15 @@ export function App() {
         )}
 
         {!telemetry.connected && <UplinkNotice />}
+
+        {hyperspacePlanner && <HyperspacePlanner mode={hyperspacePlanner} catalog={telemetry.galaxyCatalog}
+          currentSystem={scene.system} currentGalaxy={currentGalaxyPosition} observer={telemetry.snapshot?.observer || {}}
+          destinations={navigationDestinations}
+          onCancel={() => setHyperspacePlanner(null)} onPlot={(route, escape) => void plotHyperspace(route, escape)} />}
+
+        {activeRoute && !hyperspacePlanner && <NavigationComputer route={activeRoute} state={hyperspaceState}
+          escape={escapePlan} clearance={hyperdriveClearance} onStop={() => void stopHyperspace()} onDismiss={dismissHyperspace}
+          onEngage={() => void engageHyperspace()} onCalculateAnyway={calculateAnyway} />}
 
         {telemetry.connected && navigationMode !== "idle" && (
           <NavigationDrawer

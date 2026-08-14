@@ -2,7 +2,7 @@
   {
     "name": "holocron3d.command",
     "isActive": "yes",
-    "regex": "^h3d(?:\\s+(start|stop|status|snapshot|help|dev)(?:\\s+(.+))?)?$",
+    "regex": "^h3d(?:\\s+(start|stop|status|snapshot|help|dev|profile)(?:\\s+(.+))?)?$",
     "script": "",
     "isFolder": "no"
   }
