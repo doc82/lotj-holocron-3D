@@ -26,6 +26,9 @@ test("main version bumps gate release publication on tests and all installers", 
   assert.match(workflow, /SHA256SUMS\.txt/);
   assert.match(workflow, /luac5\.1 -p/);
   assert.doesNotMatch(workflow, /lua5\.1 tests\/(?:parsers|scraper)\.test\.lua/);
+  assert.match(workflow, /muddle-shadow-\$env:MUDDLER_VERSION/);
+  assert.match(workflow, /--strip-components=1/);
+  assert.doesNotMatch(workflow, /\$home\s*=/i);
   assert.match(workflow, /--draft=false/);
   assert.doesNotMatch(workflow, /corepack/);
 });
