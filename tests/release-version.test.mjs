@@ -18,4 +18,3 @@ test("manual release resumption must match package.json", () => {
     currentVersion: "1.2.3", requestedVersion: "1.2.4", manual: true,
   }), /does not match/);
 });
-

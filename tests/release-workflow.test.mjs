@@ -27,4 +27,3 @@ test("main version bumps gate release publication on tests and all installers", 
   assert.match(workflow, /--draft=false/);
   assert.doesNotMatch(workflow, /corepack/);
 });
-
