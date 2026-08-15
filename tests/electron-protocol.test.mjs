@@ -139,6 +139,9 @@ test("release tooling builds native macOS relays and DMG artifacts without extra
   assert.match(forge, /holocron-relay/);
   assert.match(release, /build-dmg\.mjs/);
   assert.match(dmg, /hdiutil/);
+  assert.match(dmg, /package\.json/);
+  assert.match(dmg, /\$\{version\}/);
+  assert.doesNotMatch(dmg, /LotJ-Holocron-3D-\d+\.\d+\.\d+/);
   assert.match(manifest, /make:mac:arm64/);
   assert.match(manifest, /make:mac:x64/);
 });

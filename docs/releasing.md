@@ -19,12 +19,42 @@ Do not substitute an unpacked application directory, source archive, relay
 binary, or Squirrel `.nupkg` file for an installer. GitHub's automatically
 generated source archives do not contain an installable application.
 
+## Automated release path
+
+Pull requests into `main` run the complete JavaScript/TypeScript, Node, Go, and
+Lua test suite. Configure the repository's `main` branch protection to require
+the **CI / Full test suite** check before merging.
+
+After a PR merges, the **Release** workflow compares `package.json` between the
+old and new `main` commits. If the version did not change, it exits without
+creating a release. If the version increased, it repeats the full test suite,
+builds all required Windows, macOS, and Mudlet artifacts, verifies their names
+and sizes, generates `SHA256SUMS.txt`, and publishes the release only after every
+job succeeds.
+
+For a release PR, update all synchronized version declarations and let the
+existing version-consistency test verify them. `package.json` is the trigger and
+the source of the version embedded in DMG filenames. Do not manually create the
+GitHub release before merging the version PR.
+
+If a release run is interrupted after a merge, use **Actions > Release > Run
+workflow** with the version currently in `package.json`. The workflow can resume
+an existing draft release, replaces its artifacts, re-verifies the complete set,
+and publishes it. It refuses to overwrite an already-published release.
+
+## Manual build and verification reference
+
+The remaining instructions document the underlying build steps for local
+verification and troubleshooting. The automated workflow is the authoritative
+public release path.
+
 ## 1. Prepare the release
 
 1. Start from a clean release branch and pull the intended release commit.
-2. Update the version in `package.json`, the Muddler metadata, and any
-   versioned artifact names. Search the repository for the previous version to
-   catch embedded values:
+2. Update the version in `package.json`, `mudlet-package/mfile`, and the Mudlet
+   bootstrap. DMG filenames read the version directly from `package.json`.
+   Search the repository for the previous version to catch other embedded
+   values:
 
    ```powershell
    rg -n "<previous-version>" -g "!pnpm-lock.yaml"
@@ -69,7 +99,7 @@ Get-Item -LiteralPath .\out\mudlet\Holocron3D.mpackage
 Install `Holocron3D-Setup.exe` on a clean or representative Windows account and
 confirm that the application opens and the bundled Mudlet package can connect.
 
-For an official release, the repository's **Build release artifacts** GitHub
+For an official release, the repository's **Release** GitHub
 Actions workflow repeats this build on a clean Windows runner and preserves the
 installer and Mudlet package as workflow artifacts.
 
@@ -95,16 +125,16 @@ Mount each DMG and confirm it contains `LotJ Holocron 3D.app` plus the
 available. Because the current builds are unsigned, document the expected
 Gatekeeper warning in the release notes.
 
-The **Build release artifacts** GitHub Actions workflow builds both DMGs on
+The **Release** GitHub Actions workflow builds both DMGs on
 native macOS runners. Run it for the merged release commit and download all four
 workflow artifacts before creating the GitHub release.
 
 ## 4. Create and attach the GitHub release
 
-Create the tag from the exact commit that produced the artifacts. Keep the
-GitHub release in draft state while uploading. Upload all four assets from the
-table above; do not publish a release containing only GitHub's generated source
-archives.
+The automated workflow creates the tag from the exact merged commit and keeps
+the GitHub release in draft state while uploading. It uploads all four assets
+from the table above plus `SHA256SUMS.txt`; it will not publish a release
+containing only GitHub's generated source archives.
 
 The GitHub web interface can be used, or the GitHub CLI can create a draft and
 upload the artifacts:
@@ -150,5 +180,6 @@ Only after these checks pass should the release be announced to users.
 - [ ] macOS Intel DMG was built and smoke-tested.
 - [ ] Standalone Mudlet package was built.
 - [ ] Draft GitHub release contains all four required assets.
+- [ ] `SHA256SUMS.txt` covers all four required assets.
 - [ ] Assets were downloaded back from GitHub and verified.
 - [ ] Release was published only after attachment verification.

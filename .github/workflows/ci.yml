@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.19.0
+  PNPM_VERSION: 11.19.0
+  GO_VERSION: 1.25.3
+
+jobs:
+  test:
+    name: Full test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check JavaScript and TypeScript
+        run: pnpm check
+      - name: Test renderer and protocol
+        run: pnpm test
+      - name: Test relay
+        run: pnpm relay:test
+      - name: Test Lua parser and scraper
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes lua5.1
+          lua5.1 tests/parsers.test.lua
+          lua5.1 tests/scraper.test.lua
