@@ -77,9 +77,14 @@ is not code-signed, so Windows SmartScreen may display a warning.
   collapse into compact glowing disposition-colored contacts; scrolling inward
   cross-fades them back into shaded 3D models.
 - Uses a Homeworld-inspired command deck: selected-contact commands on the left,
-  selected vessel telemetry in the center, and a fleet/battle-group bank on the
-  right. Player speed controls live with the left-side ship commands so the
-  right panel remains dedicated to the future battlegroup or squadron roster.
+  selected vessel telemetry in the center, and a formation roster on the right.
+  Active battlegroups and squadrons expose parsed member health, location, role,
+  autopilot/order state, and command scopes appropriate to the player's role.
+- Provides a first pass on formation commands. Battlegroup commanders can issue
+  scoped movement, speed, targeting, weapon, shield, chaff, and autopilot orders;
+  squadron leads can issue the lead-ship actions supported by LotJ plus squadron
+  roll, chaff, Fire Assist, and subsystem-aim orders. Squadron wings continue to
+  inherit navigation, targeting, and fire behavior from the lead ship.
 - Provides player-ship navigation orders from the command deck. `M` opens a
   Homeworld-style course vector: pointer movement chooses X/Z, holding Shift
   adjusts Y, and a blue arrow previews the continuing heading. Selected ships
@@ -98,8 +103,9 @@ is not code-signed, so Windows SmartScreen may display a warning.
 - Interpolates contact movement between telemetry ticks.
 - Opens with a cinematic gold-title and hyperspace transition into the tactical view.
 - Presents a dedicated captain-facing uplink standby display while Mudlet is disconnected.
-- Supports orbit, continuous strategic zoom, one-click sector view, hover
-  details, and contact selection.
+- Supports player-follow, selected-contact, and free RTS cameras, continuous
+  strategic zoom, one-click sector view, hover details, and contact selection.
+  The RTS camera pans with WASD and changes elevation with Q/E.
 - Replays the latest snapshot to newly connected local clients.
 - Packages the Mudlet integration and native relay inside the Windows installer.
 

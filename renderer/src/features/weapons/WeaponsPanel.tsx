@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CombatEvent, Observer, WeaponType } from "../../types/telemetry";
 import styles from "./WeaponsPanel.module.css";
 
-interface WeaponDefinition {
+export interface WeaponDefinition {
   type: Exclude<WeaponType, "best">;
   label: string;
   field: string;
@@ -12,7 +12,7 @@ interface WeaponDefinition {
   description: string;
 }
 
-const WEAPONS: WeaponDefinition[] = [
+export const WEAPONS: WeaponDefinition[] = [
   { type: "autoblaster", label: "AUTOBLASTER", field: "autoblasters", description: "Rapid close-range energy fire" },
   { type: "laser", label: "LASER", field: "laserCannons", description: "Focused general-purpose energy fire" },
   { type: "turbolaser", label: "TURBOLASER", field: "turbolasers", description: "Heavy capital-ship energy fire" },
@@ -23,7 +23,7 @@ const WEAPONS: WeaponDefinition[] = [
   { type: "burst", label: "BURST", field: "maximumPulses", launcher: true, description: "Pulse launcher burst" },
 ];
 
-function WeaponIcon({ type }: { type: WeaponType | "all" }) {
+export function WeaponIcon({ type }: { type: WeaponType | "all" }) {
   const paths = {
     all: <><path d="M5 7h22M5 16h22M5 25h22" /><path d="m21 3 6 4-6 4M21 12l6 4-6 4M21 21l6 4-6 4" /></>,
     best: <><circle cx="16" cy="16" r="10" /><path d="M16 3v8M16 21v8M3 16h8M21 16h8" /><circle cx="16" cy="16" r="2" /></>,
@@ -67,7 +67,9 @@ export function WeaponsPanel({ observer, targetName, events, disabled, onFire }:
         }
         setStatus(`${event.count || 1} ${event.weapon.toUpperCase()} // FIRED`);
       } else if (event.type === "impact") {
-        setStatus(`${event.weapon.toUpperCase()} // ${event.outcome === "hit" ? "TARGET HIT" : "SHOT MISSED"}`);
+        const count = Math.max(1, Number(event.count) || 1);
+        setStatus(`${event.weapon.toUpperCase()} // ${event.outcome === "hit"
+          ? `${count} TARGET HIT${count === 1 ? "" : "S"}` : "SHOT MISSED"}`);
       } else if (event.type === "charged") {
         setCharging((current) => {
           const next = new Set(current);
@@ -101,18 +103,20 @@ export function WeaponsPanel({ observer, targetName, events, disabled, onFire }:
       ? rumbleToken % 2 === 0 ? styles.rumbleEven : styles.rumbleOdd
       : ""}`} aria-label="Weapons control">
       <header>
-        <div><p>WEAPONS CONTROL</p><strong>TARGET // {targetName.toUpperCase()}</strong></div>
+        <strong>WEAPONS // {targetName.toUpperCase()}</strong>
         <span>{status}</span>
       </header>
-      <div className={styles.salvoActions}>
-        <button type="button" disabled={disabled || installed.length === 0} data-tooltip="FIRE ALL // Cycle every installed weapon" onClick={() => void fire("all")}>
-          <WeaponIcon type="all" /><b>FIRE ALL</b>
-        </button>
-        <button type="button" disabled={disabled || installed.length === 0} data-tooltip="BEST WEAPON // Let LotJ select the best available weapon" onClick={() => void fire("best")}>
-          <WeaponIcon type="best" /><b>BEST</b>
-        </button>
-      </div>
       <div className={styles.weaponGrid}>
+        <button type="button" disabled={disabled || installed.length === 0}
+          aria-label="Fire all installed weapons" data-tooltip="FIRE ALL // Cycle every installed weapon"
+          onClick={() => void fire("all")}>
+          <WeaponIcon type="all" />
+        </button>
+        <button type="button" disabled={disabled || installed.length === 0}
+          aria-label="Fire best available weapon" data-tooltip="BEST WEAPON // Let LotJ select the best available weapon"
+          onClick={() => void fire("best")}>
+          <WeaponIcon type="best" />
+        </button>
         {installed.map((weapon) => {
           const count = Number(observer.weapons?.[weapon.field] || 0);
           const recharging = charging.has(weapon.type);

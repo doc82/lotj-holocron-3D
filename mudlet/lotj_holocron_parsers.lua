@@ -297,6 +297,14 @@ local function assignStatus(result, rawKey, rawValue)
     result[field] = parsed
   else
     result[field] = value
+    if field == "autopilotStatus" then
+      local normalized = value:lower()
+      if normalized == "online" or normalized == "active" or normalized == "on" then
+        result.autopilot = true
+      elseif normalized == "offline" or normalized == "inactive" or normalized == "off" then
+        result.autopilot = false
+      end
+    end
   end
   return true
 end
@@ -615,6 +623,134 @@ end
 -- the more readable internal camel-casing above.
 Parsers.parseFleetradar = Parsers.parseFleetRadar
 
+local function percentReading(value)
+  local parsed = number(tostring(value or ""):match("([%d,.]+)%%"))
+  if parsed == nil then return nil end
+  return {current = parsed, maximum = 100}
+end
+
+local function inactiveFormation(kind, line)
+  local lower = tostring(line or ""):lower()
+  if not lower:find(kind, 1, true) then return nil end
+  if lower:find("not ", 1, true) or lower:find("no ", 1, true)
+      or lower:find("aren't", 1, true) or lower:find("isn't", 1, true) then
+    return {
+      source = kind,
+      fleet = {kind = kind, active = false, members = {}},
+      recognizedLines = 1,
+    }
+  end
+  return nil
+end
+
+function Parsers.parseBattlegroup(input)
+  local lines, err = linesFrom(input)
+  if not lines then return nil, err end
+
+  local result = {source = "battlegroup", fleet = {
+    kind = "battlegroup", active = true, members = {},
+  }}
+  local recognized = 0
+  local current = nil
+
+  for _, line in ipairs(lines) do
+    local inactive = inactiveFormation("battlegroup", line)
+    if inactive then return inactive end
+
+    local slot, category, display, position = line:match(
+      "^%[%s*([^%]]-)%s*%]%s*(.-)%s*:%s*(.-)%s+%-<Pos:([^>]*)>%-%s*$")
+    if slot then
+      local normalizedSlot = trim(slot)
+      local leader = normalizedSlot:lower() == "l"
+      local name, class = parseDisplayName(trim(display))
+      current = {
+        id = slug(name),
+        name = name,
+        class = class,
+        shipCategory = trim(category),
+        role = leader and "leader" or "wing",
+        leader = leader,
+        slot = leader and nil or tonumber(normalizedSlot),
+        position = trim(position),
+        presence = "active",
+      }
+      table.insert(result.fleet.members, current)
+      if leader then
+        result.fleet.leaderId = current.id
+      end
+      recognized = recognized + 1
+    elseif current then
+      local energy, hull, shields, crew, system, gx, gy = line:match(
+        "^Energy:%s*([%d,.]+)%%%s*|Hull:%s*([%d,.]+)%%%s*|Shields:%s*([%d,.]+)%%%s*|Crew:%s*([%d,]+)%s*|System:%s*(.-)%s+([+-]?[%d,]+)%s*/%s*([+-]?[%d,]+)%s*$")
+      if energy then
+        current.energy = percentReading(energy .. "%")
+        current.hull = percentReading(hull .. "%")
+        current.shields = percentReading(shields .. "%")
+        current.crew = number(crew)
+        current.system = trim(system)
+        current.galaxy = {x = number(gx), y = number(gy)}
+        recognized = recognized + 1
+      end
+    end
+  end
+
+  result.fleet.memberCount = #result.fleet.members
+  return resultOrError(result, recognized, "battlegroup")
+end
+
+function Parsers.parseSquadronStatus(input)
+  local lines, err = linesFrom(input)
+  if not lines then return nil, err end
+
+  local result = {source = "squadron", fleet = {
+    kind = "squadron", active = true, members = {},
+  }}
+  local recognized = 0
+  local current = nil
+
+  for _, line in ipairs(lines) do
+    local inactive = inactiveFormation("squadron", line)
+    if inactive then return inactive end
+
+    local assist, aim = line:match(
+      "^[Ss]quadron%s+[Ff]ire%s+[Aa]ssist:%s*(%S+)%s+[Ss]ystems%s+[Tt]arget:%s*(.-)%s*$")
+    if assist then
+      result.fleet.assist = trim(assist):lower() == "active"
+      result.fleet.aimSystem = trim(aim)
+      recognized = recognized + 1
+    else
+      local leadDisplay = line:match("^[Ll]ead:%s*(.-)%s*$")
+      local memberDisplay = not leadDisplay and line:match("^(.+%s+'.-')%s*$") or nil
+      if leadDisplay or memberDisplay then
+        local name, class = parseDisplayName(trim(leadDisplay or memberDisplay))
+        local leader = leadDisplay ~= nil
+        current = {
+          id = slug(name), name = name, class = class,
+          role = leader and "lead" or "wing", leader = leader,
+          presence = "active",
+        }
+        table.insert(result.fleet.members, current)
+        if leader then result.fleet.leaderId = current.id end
+        recognized = recognized + 1
+      elseif current then
+        local energy, shields, hull, location = line:match(
+          "^Energy:%s*([%d,.]+)%%%s+Shield:%s*([%d,.]+)%%%s+Hull:%s*([%d,.]+)%%%s+Location:%s*(.-)%s*$")
+        if energy then
+          current.energy = percentReading(energy .. "%")
+          current.shields = percentReading(shields .. "%")
+          current.hull = percentReading(hull .. "%")
+          current.location = trim(location)
+          current.presence = current.location:lower() == "landed" and "landed" or "active"
+          recognized = recognized + 1
+        end
+      end
+    end
+  end
+
+  result.fleet.memberCount = #result.fleet.members
+  return resultOrError(result, recognized, "squadron status")
+end
+
 function Parsers.parse(command, input)
   if type(command) ~= "string" then
     return nil, "command must be a string"
@@ -637,6 +773,9 @@ function Parsers.parse(command, input)
     calculate = Parsers.parseCalculate,
     fleetradar = Parsers.parseFleetRadar,
     ["fleetradar targets"] = Parsers.parseFleetRadar,
+    battlegroup = Parsers.parseBattlegroup,
+    bg = Parsers.parseBattlegroup,
+    ["squadron status"] = Parsers.parseSquadronStatus,
   }
 
   local parser = dispatch[normalized]

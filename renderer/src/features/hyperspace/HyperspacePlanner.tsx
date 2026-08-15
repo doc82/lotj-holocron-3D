@@ -193,6 +193,9 @@ export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy,
   const maxX = Math.max(...systems.map((system) => system.x), currentGalaxy?.x ?? 0, 10);
   const minY = Math.min(...systems.map((system) => system.y), currentGalaxy?.y ?? 0, -10);
   const maxY = Math.max(...systems.map((system) => system.y), currentGalaxy?.y ?? 0, 10);
+  const occupiedSystem = currentGalaxy
+    ? systems.find((system) => system.x === currentGalaxy.x && system.y === currentGalaxy.y)
+    : undefined;
 
   return <section className={styles.planner} aria-label={mode === "local" ? "Local hyperspace planner" : "Galactic route planner"}>
     <header><div><p>NAV COMPUTER // {mode === "local" ? "LOCAL JUMP" : "GALACTIC ROUTE"}</p>
@@ -247,11 +250,16 @@ export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy,
         </> : <>
           <div className={styles.galaxyGlow} />
           {catalogPending && <div className={styles.catalogPending}>ACQUIRING GALAXY CATALOG</div>}
-          {currentGalaxy && <div className={styles.galaxyPosition}
-            style={{ left: `${8 + (currentGalaxy.x - minX) / Math.max(1, maxX - minX) * 84}%`, top: `${92 - (currentGalaxy.y - minY) / Math.max(1, maxY - minY) * 84}%` }}>
-            <span /><b>YOU // {currentGalaxy.x} / {currentGalaxy.y}</b><small>{currentSystem || "UNCHARTED SPACE"}</small>
-          </div>}
-          {systems.map((system) => { const estimate = destinations.find((destination) => destination.system === system.name); return <button key={system.name} type="button"
+          {currentGalaxy && <button type="button" className={styles.galaxyPosition}
+            style={{ left: `${8 + (currentGalaxy.x - minX) / Math.max(1, maxX - minX) * 84}%`, top: `${92 - (currentGalaxy.y - minY) / Math.max(1, maxY - minY) * 84}%` }}
+            aria-label={occupiedSystem ? `Select ${occupiedSystem.name}` : `Current position ${currentGalaxy.x}, ${currentGalaxy.y}`}
+            onClick={() => { if (occupiedSystem) { setSelectedName(occupiedSystem.name); setSelectedPlanetName(""); } }}>
+            <span /><b>{occupiedSystem ? `YOU // ${occupiedSystem.name}` : "YOU"} // {currentGalaxy.x} / {currentGalaxy.y}</b>
+            <small>{occupiedSystem ? "CURRENT SYSTEM" : currentSystem || "UNCHARTED SPACE"}</small>
+          </button>}
+          {systems.map((system) => {
+            if (system === occupiedSystem) return null;
+            const estimate = destinations.find((destination) => destination.system === system.name); return <button key={system.name} type="button"
             className={`${styles.systemPoint} ${system.name === selectedSystem?.name ? styles.selectedSystem : ""} ${system.name === currentSystem ? styles.currentSystem : ""} ${estimate?.reachable === false ? styles.outOfRange : ""}`}
             style={{ left: `${8 + (system.x - minX) / Math.max(1, maxX - minX) * 84}%`, top: `${92 - (system.y - minY) / Math.max(1, maxY - minY) * 84}%` }}
             onClick={() => { setSelectedName(system.name); setSelectedPlanetName(""); }}><span />{system.name}</button>; })}

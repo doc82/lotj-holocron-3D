@@ -5,6 +5,7 @@ import {
   OrbitCamera,
   SceneInterpolator,
   buildScene,
+  easeOutCubic,
   findScenePoint,
   lookAt,
   multiply,
@@ -170,9 +171,17 @@ test("scene interpolation eases contacts between telemetry ticks", () => {
   const gore = halfway.points.find((point) => point.id === "gore");
 
   assert.deepEqual(observer.position3d, [0, 0, 0]);
-  assert.deepEqual(observer.worldPosition, [5, 0, 0]);
-  assert.deepEqual(gore.position3d, [45, 10, 0]);
+  assert.deepEqual(observer.worldPosition, [8.75, 0, 0]);
+  assert.deepEqual(gore.position3d, [78.75, 17.5, 0]);
   assert.deepEqual(interpolator.sample(2_000).points[1].position3d, [90, 20, 0]);
+});
+
+test("telemetry interpolation starts promptly and decelerates into its target", () => {
+  assert.equal(easeOutCubic(0), 0);
+  assert.equal(easeOutCubic(0.5), 0.875);
+  assert.equal(easeOutCubic(1), 1);
+  assert.ok(easeOutCubic(0.25) - easeOutCubic(0)
+    > easeOutCubic(1) - easeOutCubic(0.75));
 });
 
 test("exactly colocated ships and celestial bodies share a stable selectable cluster", () => {

@@ -11,11 +11,9 @@
 
 .playerShipLabel {
   position: absolute;
-  top: calc(50% + 30px);
-  left: 50%;
   z-index: 3;
   padding: 3px 6px;
-  transform: translateX(-50%);
+  transform: translate(-50%, 30px);
   border: 1px solid rgba(128, 241, 255, 0.38);
   color: #dffcff;
   background: rgba(2, 16, 28, 0.7);
