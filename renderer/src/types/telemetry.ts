@@ -156,6 +156,13 @@ export interface HyperspaceState {
   arrivedAt?: number;
 }
 
+export interface ShipJumpEvent {
+  id: number;
+  shipName: string;
+  phase: "departure";
+  observedAt?: number;
+}
+
 export interface SystemSnapshot {
   v?: number;
   type?: "system_snapshot";
@@ -179,6 +186,7 @@ export interface SystemSnapshot {
     shieldRechargeAttempts?: number;
     shieldStatusPending?: boolean;
     hyperspace?: HyperspaceState;
+    shipJumpEvents?: ShipJumpEvent[];
     navigation?: {
       galaxy?: { x?: number; y?: number };
       arrivalRefreshedAt?: number;

@@ -13,7 +13,7 @@ import {
   validateIntent,
 } from "../shared/protocol.mjs";
 import { ensureRelayToken, validateRelayAuth } from "../shared/relay-auth.mjs";
-import { appDataPaths } from "../shared/windows-paths.mjs";
+import { appDataPaths } from "../shared/app-paths.mjs";
 
 const root = app.getAppPath();
 const rendererEntry = path.join(root, "renderer", "dist", "index.html");

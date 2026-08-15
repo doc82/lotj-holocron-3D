@@ -56,7 +56,9 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /refresh_galaxy_catalog/);
   assert.match(scraper, /send, "planets", false/);
   assert.match(scraper, /galaxyCatalogRequestAt/);
-  assert.match(scraper, /preempted by navigation refresh/);
+  assert.match(scraper, /another telemetry refresh is active/);
+  assert.match(scraper, /must be at a nav computer/);
+  assert.match(app, /navigationRefreshBlocked/);
   assert.match(scraper, /capture\.followupRadar/);
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);

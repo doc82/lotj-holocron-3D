@@ -103,6 +103,20 @@ test("tactical renderer uses a toggleable sensor-range bubble instead of a floor
   assert.match(app, /radarBubbleEnabled=\{radarBubbleEnabled\}/);
 });
 
+test("fleet hyperspace departures render as ship-specific tactical effects", async () => {
+  const [engine, canvas, app, telemetry] = await Promise.all([
+    readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/types/telemetry.ts", "utf8"),
+  ]);
+  assert.match(telemetry, /interface ShipJumpEvent/);
+  assert.match(engine, /pushJumpEvent\(event: ShipJumpEvent\)/);
+  assert.match(engine, /jumpEffects/);
+  assert.match(canvas, /pushJumpEvent/);
+  assert.match(app, /jumpEvents=\{telemetry\.snapshot\?\.metadata\?\.shipJumpEvents\}/);
+});
+
 test("tactical renderer provides a toggleable three-plane world-origin grid", async () => {
   const [engine, app] = await Promise.all([
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),

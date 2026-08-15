@@ -3,7 +3,7 @@ import path from "node:path";
 
 import squirrelStartup from "electron-squirrel-startup";
 
-import { appDataPaths } from "../shared/windows-paths.mjs";
+import { appDataPaths } from "../shared/app-paths.mjs";
 
 function installResource(source, destination) {
   if (!fs.existsSync(source)) return;
@@ -19,7 +19,9 @@ function installResource(source, destination) {
 function installStableResources() {
   if (!process.resourcesPath) return;
   const paths = appDataPaths();
-  installResource(path.join(process.resourcesPath, "holocron-relay.exe"), paths.relay);
+  const relayName = process.platform === "win32" ? "holocron-relay.exe" : "holocron-relay";
+  installResource(path.join(process.resourcesPath, relayName), paths.relay);
+  if (process.platform !== "win32" && fs.existsSync(paths.relay)) fs.chmodSync(paths.relay, 0o755);
   installResource(path.join(process.resourcesPath, "Holocron3D.mpackage"), paths.mudletPackage);
 }
 

@@ -1,0 +1,125 @@
+name: Build release artifacts
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  MUDDLER_VERSION: 1.1.0
+  NODE_VERSION: 24.19.0
+  PNPM_VERSION: 11.19.0
+  GO_VERSION: 1.25.3
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Enable pnpm
+        run: corepack prepare pnpm@${PNPM_VERSION} --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check JavaScript and TypeScript
+        run: pnpm check
+      - name: Test renderer and protocol
+        run: pnpm test
+      - name: Test relay
+        run: pnpm relay:test
+      - name: Test Lua parser and scraper
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes lua5.1
+          lua5.1 tests/parsers.test.lua
+          lua5.1 tests/scraper.test.lua
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Enable pnpm
+        shell: pwsh
+        run: corepack prepare pnpm@$env:PNPM_VERSION --activate
+      - name: Install Muddler
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "muddler.zip"
+          $home = Join-Path $env:RUNNER_TEMP "muddler"
+          Invoke-WebRequest -Uri "https://github.com/demonnic/muddler/releases/download/$env:MUDDLER_VERSION/muddle-shadow-$env:MUDDLER_VERSION.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $home
+          "MUDDLER_HOME=$home" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build Windows installer
+        run: pnpm make:win
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-installer
+          path: out/make/squirrel.windows/x64/Holocron3D-Setup.exe
+          if-no-files-found: error
+      - name: Upload Mudlet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mudlet-package
+          path: out/mudlet/Holocron3D.mpackage
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Enable pnpm
+        run: corepack prepare pnpm@${PNPM_VERSION} --activate
+      - name: Install Muddler
+        run: |
+          mkdir -p "$RUNNER_TEMP/muddler"
+          curl --fail --location --silent --show-error \
+            "https://github.com/demonnic/muddler/releases/download/${MUDDLER_VERSION}/muddle-shadow-${MUDDLER_VERSION}.tar" \
+            --output "$RUNNER_TEMP/muddler.tar"
+          tar -xf "$RUNNER_TEMP/muddler.tar" -C "$RUNNER_TEMP/muddler"
+          echo "MUDDLER_HOME=$RUNNER_TEMP/muddler" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build macOS installer
+        run: pnpm make:mac:${{ matrix.arch }}
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-installer
+          path: out/make/dmg/darwin/${{ matrix.arch }}/*.dmg
+          if-no-files-found: error

@@ -653,6 +653,24 @@ assert(not staleResult and staleError:find("outside sensor range", 1, true))
 assert(intentAcks[#intentAcks].id == "scan-range-test-1"
   and intentAcks[#intentAcks].status == "rejected")
 
+local navigationDiagnostics = #diagnostics
+local deletedBeforeNavigationFailure = deletedLines
+local refreshed, refreshError = intentHandlers.refresh_navigation({command = "calc"}, {
+  id = "navigation-computer-test-1",
+})
+assert(refreshed, refreshError)
+assert(sentCommands[#sentCommands].command == "calc")
+scraper.captureLine("You must be at a nav computer to calculate jumps.")
+local refreshResult, navigationComputerError = scraper.finishCapture("test prompt")
+assert(not refreshResult and navigationComputerError:find("navigation computer", 1, true))
+assert(deletedLines == deletedBeforeNavigationFailure + 1,
+  "expected hidden navigation failures to be removed from the Mudlet console")
+assert(#diagnostics == navigationDiagnostics,
+  "expected navigation availability failures not to emit parser diagnostics")
+assert(intentAcks[#intentAcks].id == "navigation-computer-test-1"
+    and intentAcks[#intentAcks].status == "rejected",
+  "expected one authoritative navigation rejection")
+
 assert(type(intentHandlers.navigate_ship) == "function", "navigation intent should be registered")
 local navigated, navigationError = intentHandlers.navigate_ship({
   mode = "relative", vector = {x = 125, y = -20, z = 80},
@@ -746,6 +764,19 @@ assert(type(intentHandlers.set_auto_recharge) == "function",
   "automatic shield recharge toggle should be registered")
 assert(type(intentHandlers.fleet_order) == "function",
   "fleet command orchestration intent should be registered")
+scraper.state.observer.name = "Previous Carrier"
+local launchedSquadron = {
+  kind = "squadron", active = true, members = {
+    {id = "heehee", name = "HeeHee", leader = true, role = "lead"},
+    {id = "hhee2", name = "Hhee2", leader = false, role = "wing"},
+  },
+}
+assert(scraper.applyResult({source = "squadron", fleet = launchedSquadron}, "squadron status"))
+assert(scraper.state.metadata.fleet.role == nil,
+  "a squadron observed before launch status should not guess the local role")
+assert(scraper.applyResult({source = "status", name = "HeeHee"}, "status"))
+assert(scraper.state.metadata.fleet.role == "lead",
+  "observer hydration after launch should enable lead squadron commands")
 scraper.state.metadata.fleetOrder = {
   id = 1, order = "navigate", scope = "wings", status = "transmitted",
   observedAt = os.time(), results = {},
@@ -905,6 +936,28 @@ timers[verificationTimer].callback()
 assert(scraper.polling.hydrationQueue[1] == "status ReeHeeHee",
   "a missed toggle response should queue an authoritative targeted status")
 scraper.polling.hydrationQueue = {}
+
+scraper.state.metadata.hyperspace.phase = "idle"
+scraper.hyperspace.phase = "idle"
+scraper.handleOutgoingCommand("sysDataSendRequest", "battlegroup nav 1 hyp")
+assert(scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+assert(scraper.state.metadata.hyperspace.phase == "idle",
+  "a wing hyperspace response must not engage the player transit view")
+assert(scraper.handleHyperspaceLine(
+  "The stars become streaks of light as you enter hyperspace."))
+local jumpEvents = snapshots[#snapshots].metadata.shipJumpEvents
+assert(jumpEvents and jumpEvents[#jumpEvents].shipName == "ReeHeeHee",
+  "a wing hyperspace response should publish a ship-specific tactical event")
+assert(scraper.state.metadata.hyperspace.phase == "idle",
+  "a wing departure must leave player hyperspace idle")
+
+scraper.handleOutgoingCommand("sysDataSendRequest", "hyper")
+assert(scraper.handleHyperspaceLine(
+  "The stars become streaks of light as you enter hyperspace."))
+assert(scraper.state.metadata.hyperspace.phase == "hyperspace",
+  "a direct local hyper command should engage the player transit view")
+scraper.state.metadata.hyperspace.phase = "idle"
+scraper.hyperspace.phase = "idle"
 scraper.pendingCommandKind = nil
 scraper.state.observer.shields = {current = 40, maximum = 100}
 local recharging, rechargeError = intentHandlers.recharge_shields({}, {id = "recharge-test-1"})

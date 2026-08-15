@@ -1,4 +1,5 @@
 import type { FleetMember, FleetOrderStatus, FleetStatus } from "../../types/telemetry";
+import { canCommandFormation } from "../../domain/fleet";
 import styles from "./FleetRoster.module.css";
 
 function percent(member: FleetMember, field: "hull" | "shields" | "energy"): number | null {
@@ -59,9 +60,7 @@ export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, o
     return value === null ? lowest : lowest === null ? value : Math.min(lowest, value);
   }, null);
   const title = fleet.kind === "battlegroup" ? "BATTLEGROUP" : "SQUADRON";
-  const canCommandFormation = fleet.kind === "battlegroup"
-    ? fleet.role === "commander"
-    : fleet.role === "lead";
+  const formationCommandsEnabled = canCommandFormation(fleet, localName);
 
   return <>
     <p className={styles.eyebrow}>FORMATION // {title}</p>
@@ -78,7 +77,7 @@ export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, o
     <div className={styles.scopes} aria-label="Formation command scope">
       {(fleet.kind === "squadron" ? ["local", "all"] as const : ["local", "all", "wings"] as const)
         .map((value) => <button key={value}
-        type="button" disabled={value !== "local" && !canCommandFormation}
+        type="button" disabled={value !== "local" && !formationCommandsEnabled}
         aria-pressed={scope === value} onClick={() => onScopeChange(value)}>
         {value === "local" ? "LOCAL" : value === "all"
           ? fleet.kind === "squadron" ? "SQUADRON" : "ALL FLEET" : "WINGS"}

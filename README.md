@@ -1,6 +1,6 @@
 # LotJ Holocron 3D
 
-LotJ Holocron 3D is a Windows desktop tactical renderer for space telemetry from
+LotJ Holocron 3D is a Windows and macOS desktop tactical renderer for space telemetry from
 [Legends of the Jedi](https://www.legendsofthejedi.com/). A Mudlet package polls
 the game's read-only ship and contact commands, normalizes their output, and
 streams snapshots through a native local relay to a sandboxed React renderer in
@@ -8,7 +8,7 @@ Electron.
 
 ## Project status
 
-The Windows MVP pipeline is operational and has been validated against live LotJ
+The desktop pipeline is operational and has been validated against live LotJ
 output:
 
 ```text
@@ -22,8 +22,9 @@ LotJ
 End users do not need Node.js, Go, Java, or a repository checkout. Those tools
 are required only when developing or building releases.
 
-macOS and Linux support are post-MVP deliverables. The current Windows installer
-is not code-signed, so Windows SmartScreen may display a warning.
+Windows x64 and macOS Intel/Apple Silicon release builds are supported. The
+current artifacts are unsigned, so Windows SmartScreen or macOS Gatekeeper may
+display a warning. Linux packaging remains a post-MVP deliverable.
 
 ## Current capabilities
 
@@ -107,7 +108,11 @@ is not code-signed, so Windows SmartScreen may display a warning.
   strategic zoom, one-click sector view, hover details, and contact selection.
   The RTS camera pans with WASD and changes elevation with Q/E.
 - Replays the latest snapshot to newly connected local clients.
-- Packages the Mudlet integration and native relay inside the Windows installer.
+- Packages the Mudlet integration and a platform-native relay inside Windows and macOS releases.
+- Keeps normal Mudlet output quiet while retaining warnings and errors. Detailed
+  bridge/parser traffic is opt-in with `h3d debug on`.
+- Distinguishes the player ship from formation hyperspace departures and renders
+  observed wing-ship jumps as tactical-map streak, flare, and fade effects.
 
 ## Windows installation
 
@@ -126,6 +131,21 @@ The Mudlet package starts automatically after installation. Enter a ship cockpit
 where LotJ permits the telemetry commands; the renderer will begin updating as
 polling results arrive.
 
+## macOS installation
+
+1. Choose the `arm64` DMG for Apple Silicon or the `x64` DMG for an Intel Mac.
+2. Open the DMG, drag **LotJ Holocron 3D** to **Applications**, and open it once.
+3. If Gatekeeper blocks this unsigned beta, Control-click the app, choose
+   **Open**, and confirm that you want to run it.
+4. In Mudlet's Package Manager, install:
+
+```text
+~/Library/Application Support/Holocron3D/mudlet/Holocron3D.mpackage
+```
+
+5. Enter `h3d status` in Mudlet. The package launches the installed application
+   from `/Applications/LotJ Holocron 3D.app` when it is not already running.
+
 ### Mudlet commands
 
 | Command | Purpose |
@@ -133,11 +153,13 @@ polling results arrive.
 | `h3d start` | Start or reconnect telemetry and launch the desktop app if needed. |
 | `h3d stop` | Stop polling and close the relay connection. |
 | `h3d status` | Show bridge and polling state. |
+| `h3d confirmations on\|off` | Persistently enable or suppress successful `h3d` command confirmations; warnings and errors remain visible. |
+| `h3d debug on\|off` | Persistently enable or suppress detailed parser, snapshot, and bridge diagnostics. Debug output defaults to off. |
 | `h3d snapshot` | Display the current normalized snapshot inside Mudlet. |
 | `h3d profile start` | Begin collecting low-overhead Mudlet telemetry performance metrics. |
 | `h3d profile report` | Report event rates, command/capture traffic, Lua timings, and active Mudlet object counts without stopping collection. |
 | `h3d profile stop` | Print a final performance report and stop collecting metrics. |
-| `h3d dev on <path>` | Persistently use `Holocron3D.exe` from a repository, unpacked `out` directory, or explicit executable path. |
+| `h3d dev on <path>` | Persistently use a packaged Windows executable or macOS `.app` from a repository, unpacked `out` directory, or explicit executable path. |
 | `h3d dev off` | Return to the installed application on subsequent starts. |
 | `h3d dev status` | Display the configured desktop application mode. |
 | `h3d help` | Show the available package commands. |
@@ -196,7 +218,7 @@ camera scale; use `SECTOR VIEW` only when you explicitly want the entire grid fr
 
 ## Runtime architecture
 
-Mudlet spawns `holocron-relay.exe` and exchanges newline-delimited JSON through
+Mudlet spawns `holocron-relay.exe` on Windows or `holocron-relay` on macOS and exchanges newline-delimited JSON through
 stdin/stdout. The relay authenticates to Electron over loopback TCP before it can
 send telemetry or replace an existing Mudlet connection. Electron forwards
 validated snapshots to the renderer through a narrow preload API and typed IPC.
@@ -237,9 +259,24 @@ The installed application uses `%LOCALAPPDATA%\Holocron3D`:
 If the desktop window is blank or fails to launch, inspect
 `%LOCALAPPDATA%\Holocron3D\logs\holocron3d.log` first.
 
+## Per-user macOS files
+
+The installed application uses `~/Library/Application Support/Holocron3D`:
+
+| Path | Purpose |
+| --- | --- |
+| `bin/holocron-relay` | Native Mudlet-to-Electron relay. |
+| `mudlet/Holocron3D.mpackage` | Importable Mudlet package. |
+| `bridge-token` | Per-user relay credential. |
+| `logs/holocron3d.log` | Structured Electron diagnostics. |
+
+The `h3d confirmations` and `h3d debug` preferences are stored in the Mudlet
+profile, so package reinstalls do not reset them.
+
 ## Development setup
 
-Holocron3D currently supports development and release builds on Windows x64.
+Holocron3D supports development and release builds on Windows x64 and macOS
+Intel/Apple Silicon.
 The clean-build baseline is Node.js 24.19.0, pnpm 11.19.0, Go 1.25.3, and JDK
 17. A second successful setup used JDK 21. The minimum versions imposed by the
 project are Node.js 22.12, Go 1.22, and Java 17.
@@ -354,16 +391,38 @@ to restore the installed application.
 
 ### 5. Build Windows artifacts
 
+For an actual release, follow the complete [release runbook](docs/releasing.md).
+It requires attaching and verifying the Windows installer, both macOS DMGs, and
+the Mudlet package before the GitHub release is published.
+
 Close every running Holocron3D development or packaged window before building;
 Windows will otherwise keep files beneath `out\` locked.
 
 ```powershell
-pnpm package
-pnpm make
+pnpm package:win
+pnpm make:win
 ```
 
-`pnpm package` creates the unpacked application. `pnpm make` creates the Squirrel
+`pnpm package:win` creates the unpacked application. `pnpm make:win` creates the Squirrel
 installer at `out\make\squirrel.windows\x64\Holocron3D-Setup.exe`.
+
+### 6. Build macOS artifacts
+
+Run these commands on macOS with Xcode command-line tools available. Set
+`MUDDLER_HOME` to a distribution containing `bin/muddle` or `bin/muddle.sh`.
+
+```bash
+pnpm package:mac:arm64
+pnpm make:mac:arm64
+pnpm package:mac:x64
+pnpm make:mac:x64
+```
+
+The release wrapper builds the matching Go relay, creates the Muddler package,
+packages Electron, generates the `.icns` icon with `sips`/`iconutil`, and creates
+the DMG with Apple's `hdiutil`. A macOS application or DMG cannot be produced on
+Windows. Signing and notarization can be added later without changing the
+artifact layout.
 
 For a clean dependency reinstall, close Holocron3D and run:
 
@@ -372,7 +431,7 @@ Remove-Item -LiteralPath .\node_modules -Recurse -Force
 pnpm install --frozen-lockfile
 pnpm check
 pnpm test
-pnpm make
+pnpm make:win
 ```
 
 ### Clean-setup troubleshooting
@@ -403,11 +462,16 @@ changing security policy until that environment information has been captured.
 | `pnpm renderer:build` | Build the production renderer in `renderer/dist`. |
 | `pnpm renderer:typecheck` | Type-check the React renderer without emitting files. |
 | `pnpm relay:test` | Run Go relay tests. |
-| `pnpm relay:build` | Build `relay/bin/holocron-relay.exe`. |
+| `pnpm relay:build` | Build the native relay for the current platform and architecture. |
+| `pnpm relay:build:win` | Build the Windows x64 relay. |
+| `pnpm relay:build:mac:arm64` | Cross-build the Apple Silicon relay. |
+| `pnpm relay:build:mac:x64` | Cross-build the Intel macOS relay. |
 | `pnpm mudlet:package` | Build `out/mudlet/Holocron3D.mpackage`. |
 | `pnpm electron:smoke` | Launch Electron with representative telemetry. |
-| `pnpm package` | Build the relay, Mudlet package, and unpacked Electron app. |
-| `pnpm make` | Build the complete Squirrel Windows installer. |
+| `pnpm package` | Build the relay, Mudlet package, and unpacked Electron app for the current host. |
+| `pnpm make:win` | Build the complete Squirrel Windows installer. |
+| `pnpm make:mac:arm64` | Build the Apple Silicon application and DMG on macOS. |
+| `pnpm make:mac:x64` | Build the Intel application and DMG on macOS. |
 
 Lua parser and scraper fixtures can also be run with a Lua 5.1-compatible
 interpreter:
@@ -424,13 +488,16 @@ Generated outputs are ignored by Git:
 - `out/LotJ Holocron 3D-win32-x64/` — unpacked Windows application;
 - `out/make/squirrel.windows/x64/Holocron3D-Setup.exe` — Windows installer;
 - `out/mudlet/Holocron3D.mpackage` — standalone Mudlet package;
-- `relay/bin/holocron-relay.exe` — native relay executable.
+- `relay/bin/windows-x64/holocron-relay.exe` — Windows relay executable;
+- `relay/bin/darwin-arm64/holocron-relay` and `relay/bin/darwin-x64/holocron-relay` — macOS relays;
+- `out/LotJ Holocron 3D-darwin-{arm64,x64}/` — unpacked macOS applications;
+- `out/make/dmg/darwin/{arm64,x64}/` — macOS DMG releases.
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
-| `electron/` | Main process, preload API, authentication, and Windows bootstrap. |
+| `electron/` | Main process, preload API, authentication, and cross-platform bootstrap. |
 | `relay/` | Dependency-free Go relay and tests. |
 | `renderer/` | React features with co-located CSS Modules, typed telemetry domain, and the WebGL tactical engine. |
 | `mudlet/` | Authoritative Lua parser, proxy, scraper, and setup guide. |
@@ -442,8 +509,8 @@ Generated outputs are ignored by Git:
 
 ## Known limitations
 
-- Windows x64 is the only supported MVP target.
-- The installer is currently unsigned.
+- Windows x64 and macOS Intel/Apple Silicon are supported release targets.
+- Windows and macOS release artifacts are currently unsigned.
 - Contact visuals are intentionally simple points rather than ship models.
 - Active enemy scans and detailed weapons, subsystem, crew, and sensor-quality
   metadata are deferred.
@@ -460,8 +527,8 @@ Core pipeline work is complete. Feature and experience work can now focus on:
 - observation freshness, confidence, and sensor uncertainty;
 - active enemy scans for weapons, shields, subsystems, tactical state, and
   detectable pilots or crew;
-- improved visuals, product iconography, and Windows signing;
-- macOS and Linux packaging after the Windows MVP.
+- improved visuals, product iconography, and Windows/macOS signing;
+- Linux packaging after the desktop MVP.
 
 See [the roadmap](docs/roadmap.md), [the relay protocol](docs/protocol.md), and
 [the detailed Mudlet setup guide](mudlet/SETUP.md) for additional context.
