@@ -60,6 +60,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Check JavaScript and TypeScript
@@ -92,6 +93,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -140,6 +142,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
