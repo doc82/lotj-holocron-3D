@@ -2042,8 +2042,10 @@ local function pollOnce()
   local fleetRadarDue = now - (Scraper.polling.lastFleetRadarAt or 0) >= fleetRadarInterval
   local fleetStatusDue = fleetStatusCommandDue(now, combatActive)
   local hydrationCommand = (Scraper.polling.hydrationQueue or {})[1]
+  -- First-contact status/info hydration stays ahead of formation refreshes;
+  -- routine repeat scans still yield to fleet status and radar below.
   local scanCandidate = not hydrationCommand and not combatRadarDue
-    and not radarReconcileDue and not fleetRadarDue and scanCommandDue() or nil
+    and not radarReconcileDue and scanCommandDue() or nil
   local dueScan = scanCandidate and (scanCandidate.discovery
     or Scraper.polling.scansSinceCore < 2) and scanCandidate or nil
   local command

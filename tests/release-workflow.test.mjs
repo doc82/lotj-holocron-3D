@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+test("pull requests run portable tests and Lua syntax checks with explicit pnpm setup", async () => {
+  const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  assert.match(workflow, /pull_request:/);
+  assert.match(workflow, /pnpm\/action-setup@v6/);
+  assert.match(workflow, /pnpm check/);
+  assert.match(workflow, /pnpm test/);
+  assert.match(workflow, /pnpm relay:test/);
+  assert.match(workflow, /luac5\.1 -p/);
+  assert.doesNotMatch(workflow, /lua5\.1 tests\/(?:parsers|scraper)\.test\.lua/);
+  assert.doesNotMatch(workflow, /corepack/);
+});
+
+test("main version bumps gate release publication on tests and all installers", async () => {
+  const workflow = await readFile(".github/workflows/release.yml", "utf8");
+  assert.match(workflow, /branches: \[main\]/);
+  assert.match(workflow, /tools\/release-version\.mjs/);
+  assert.match(workflow, /needs: \[prepare, verify, windows, macos\]/);
+  assert.match(workflow, /Holocron3D-Setup\.exe/);
+  assert.match(workflow, /arm64\.dmg/);
+  assert.match(workflow, /x64\.dmg/);
+  assert.match(workflow, /Holocron3D\.mpackage/);
+  assert.match(workflow, /SHA256SUMS\.txt/);
+  assert.match(workflow, /luac5\.1 -p/);
+  assert.doesNotMatch(workflow, /lua5\.1 tests\/(?:parsers|scraper)\.test\.lua/);
+  assert.match(workflow, /--draft=false/);
+  assert.doesNotMatch(workflow, /corepack/);
+});

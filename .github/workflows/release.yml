@@ -1,0 +1,227 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing package.json version to build or resume
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MUDDLER_VERSION: 1.1.0
+  NODE_VERSION: 24.19.0
+  PNPM_VERSION: 11.19.0
+  GO_VERSION: 1.25.3
+
+jobs:
+  prepare:
+    name: Detect version bump
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: version
+        name: Compare package versions
+        run: node tools/release-version.mjs
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_BEFORE_SHA: ${{ github.event.before }}
+          RELEASE_REQUESTED_VERSION: ${{ inputs.version }}
+
+  verify:
+    name: Full test suite
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check JavaScript and TypeScript
+        run: pnpm check
+      - name: Test renderer and protocol
+        run: pnpm test
+      - name: Test relay
+        run: pnpm relay:test
+      - name: Validate Lua 5.1 syntax
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes lua5.1
+          find mudlet -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+
+  windows:
+    name: Windows x64 installer
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Muddler
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "muddler.zip"
+          $home = Join-Path $env:RUNNER_TEMP "muddler"
+          Invoke-WebRequest -Uri "https://github.com/demonnic/muddler/releases/download/$env:MUDDLER_VERSION/muddle-shadow-$env:MUDDLER_VERSION.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $home
+          "MUDDLER_HOME=$home" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build Windows installer
+        run: pnpm make:win
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64-installer
+          path: out/make/squirrel.windows/x64/Holocron3D-Setup.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mudlet-package
+          path: out/mudlet/Holocron3D.mpackage
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }} installer
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Muddler
+        run: |
+          mkdir -p "$RUNNER_TEMP/muddler"
+          curl --fail --location --silent --show-error \
+            "https://github.com/demonnic/muddler/releases/download/${MUDDLER_VERSION}/muddle-shadow-${MUDDLER_VERSION}.tar" \
+            --output "$RUNNER_TEMP/muddler.tar"
+          tar -xf "$RUNNER_TEMP/muddler.tar" -C "$RUNNER_TEMP/muddler"
+          echo "MUDDLER_HOME=$RUNNER_TEMP/muddler" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build macOS installer
+        run: pnpm make:mac:${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}-installer
+          path: out/make/dmg/darwin/${{ matrix.arch }}/*.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: [prepare, verify, windows, macos]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Verify complete artifact set
+        run: |
+          expected=(
+            "Holocron3D-Setup.exe"
+            "Holocron3D.mpackage"
+            "LotJ-Holocron-3D-${RELEASE_VERSION}-arm64.dmg"
+            "LotJ-Holocron-3D-${RELEASE_VERSION}-x64.dmg"
+          )
+          for asset in "${expected[@]}"; do
+            test -s "release-assets/$asset" || {
+              echo "Missing or empty required release asset: $asset" >&2
+              exit 1
+            }
+          done
+          cd release-assets
+          sha256sum "${expected[@]}" > SHA256SUMS.txt
+      - name: Create or update draft release
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true" || {
+              echo "Release $RELEASE_TAG is already published." >&2
+              exit 1
+            }
+          else
+            gh release create "$RELEASE_TAG" --draft --target "$GITHUB_SHA" \
+              --title "LotJ Holocron 3D v${RELEASE_VERSION}" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+      - name: Verify uploaded release assets
+        run: |
+          expected=(
+            "Holocron3D-Setup.exe"
+            "Holocron3D.mpackage"
+            "LotJ-Holocron-3D-${RELEASE_VERSION}-arm64.dmg"
+            "LotJ-Holocron-3D-${RELEASE_VERSION}-x64.dmg"
+            "SHA256SUMS.txt"
+          )
+          uploaded="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.size > 0) | .name')"
+          for asset in "${expected[@]}"; do
+            grep -Fxq "$asset" <<<"$uploaded" || {
+              echo "GitHub release is missing required asset: $asset" >&2
+              exit 1
+            }
+          done
+      - name: Publish release
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

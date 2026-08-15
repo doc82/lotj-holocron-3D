@@ -7,13 +7,14 @@ import { fileURLToPath } from "node:url";
 
 if (process.platform !== "darwin") throw new Error("DMG artifacts must be built on macOS.");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const { version } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const arch = process.argv[2] || process.arch;
 const appName = "LotJ Holocron 3D.app";
 const application = path.join(root, "out", `LotJ Holocron 3D-darwin-${arch}`, appName);
 if (!fs.existsSync(application)) throw new Error(`Packaged application not found at ${application}`);
 const staging = fs.mkdtempSync(path.join(os.tmpdir(), "holocron3d-dmg-"));
 const outputDirectory = path.join(root, "out", "make", "dmg", "darwin", arch);
-const output = path.join(outputDirectory, `LotJ-Holocron-3D-0.1.4-${arch}.dmg`);
+const output = path.join(outputDirectory, `LotJ-Holocron-3D-${version}-${arch}.dmg`);
 fs.mkdirSync(outputDirectory, { recursive: true });
 try {
   fs.cpSync(application, path.join(staging, appName), { recursive: true });

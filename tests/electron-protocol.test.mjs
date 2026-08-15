@@ -123,9 +123,9 @@ test("Windows paths are stable and overridable", () => {
 
 test("macOS paths use Application Support and an extensionless relay", () => {
   const paths = appDataPaths({}, "darwin", "/Users/Test");
-  assert.equal(paths.base, path.join("/Users/Test", "Library", "Application Support", "Holocron3D"));
-  assert.equal(paths.relay, path.join(paths.base, "bin", "holocron-relay"));
-  assert.equal(paths.mudletPackage, path.join(paths.base, "mudlet", "Holocron3D.mpackage"));
+  assert.equal(paths.base, path.posix.join("/Users/Test", "Library", "Application Support", "Holocron3D"));
+  assert.equal(paths.relay, path.posix.join(paths.base, "bin", "holocron-relay"));
+  assert.equal(paths.mudletPackage, path.posix.join(paths.base, "mudlet", "Holocron3D.mpackage"));
 });
 
 test("release tooling builds native macOS relays and DMG artifacts without extra package policy", async () => {
@@ -139,6 +139,9 @@ test("release tooling builds native macOS relays and DMG artifacts without extra
   assert.match(forge, /holocron-relay/);
   assert.match(release, /build-dmg\.mjs/);
   assert.match(dmg, /hdiutil/);
+  assert.match(dmg, /package\.json/);
+  assert.match(dmg, /\$\{version\}/);
+  assert.doesNotMatch(dmg, /LotJ-Holocron-3D-\d+\.\d+\.\d+/);
   assert.match(manifest, /make:mac:arm64/);
   assert.match(manifest, /make:mac:x64/);
 });

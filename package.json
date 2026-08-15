@@ -8,7 +8,7 @@
   "type": "module",
   "main": "electron/main/bootstrap.mjs",
   "scripts": {
-    "check": "pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check tools/build-relay.mjs && node --check tools/build-mudlet-package.mjs && node --check tools/release-build.mjs && node --check tools/build-macos-icon.mjs && node --check tools/build-dmg.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/app-paths.mjs && node --check electron/preload/preload.cjs && node --check forge.config.cjs",
+    "check": "pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check tools/build-relay.mjs && node --check tools/build-mudlet-package.mjs && node --check tools/release-build.mjs && node --check tools/release-version.mjs && node --check tools/build-macos-icon.mjs && node --check tools/build-dmg.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/app-paths.mjs && node --check electron/preload/preload.cjs && node --check forge.config.cjs",
     "renderer:dev": "vite --config vite.renderer.config.ts",
     "renderer:build": "vite build --config vite.renderer.config.ts",
     "renderer:typecheck": "tsc --noEmit",
