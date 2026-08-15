@@ -86,7 +86,7 @@
 
 .tooltip {
   position: absolute;
-  z-index: 5;
+  z-index: 1000;
   padding: 7px 9px;
   border: 1px solid rgba(82, 220, 244, 0.35);
   color: #e4fbff;

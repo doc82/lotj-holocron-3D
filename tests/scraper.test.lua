@@ -246,6 +246,10 @@ assert(scraper.setInSpace(false, "LotJ reports that the ship has not launched"))
 assert(scraper.active == nil, "landed state should abandon an active capture")
 assert(spaceStates[2].inSpace == false)
 assert(#snapshots[6].entities == 0, "landing should clear stale space entities")
+assert(scraper.getPollingState().enabled == false,
+  "landing should fully disable polling rather than leave it armed")
+assert(scraper.getPollingState().resumeWhenInSpace == true,
+  "landing should remember that polling must resume after launch")
 scraper.handleOutgoingCommand("sysDataSendRequest", "radar")
 assert(scraper.active == nil, "landed state should suppress new captures")
 
@@ -263,6 +267,8 @@ assert(scraper.getPollingState().timerId == nil,
 
 assert(scraper.setInSpace(true, "launch sequence complete"))
 assert(spaceStates[3].inSpace == true)
+assert(scraper.getPollingState().enabled == true,
+  "launch should re-enable polling for the new space session")
 scraper.handleOutgoingCommand("sysDataSendRequest", "radar")
 assert(scraper.active, "launch should re-enable capture")
 scraper.captureLine("Corellian System")
@@ -820,6 +826,52 @@ local selectedWingFired, selectedWingFireError = intentHandlers.fleet_order({
 assert(selectedWingFired, selectedWingFireError)
 assert(sentCommands[#sentCommands].command == "battlegroup nav ReeHeeHee fire ion",
   "a selected battlegroup member must receive its specific weapon order directly")
+
+scraper.state.metadata.fleet = {
+  kind = "squadron", active = true, role = "lead", assist = true,
+  aimSystem = "Laser", members = {
+    {id = "teehee", name = "TeeHee", leader = true, role = "lead"},
+    {id = "wing-one", name = "Wing One", leader = false, role = "wing"},
+  },
+}
+scraper.state.metadata.formations.squadron = scraper.state.metadata.fleet
+
+local squadronFireStart = #sentCommands
+local squadronLocalFired, squadronLocalFireError = intentHandlers.fire_weapon({weapon = "ion"})
+assert(squadronLocalFired, squadronLocalFireError)
+assert(#sentCommands == squadronFireStart + 1
+    and sentCommands[#sentCommands].command == "fire ion",
+  "local-mode squadron fire must use the lead ship's normal fire command exactly once")
+
+local squadronRolled, squadronRollError = intentHandlers.fleet_order({
+  order = "roll", scope = "all",
+})
+assert(squadronRolled, squadronRollError)
+assert(sentCommands[#sentCommands].command == "squadron roll"
+    and sentCommands[#sentCommands - 1].command ~= "roll",
+  "the squadron roll control must issue only the native squadron command")
+
+local squadronChaffed, squadronChaffError = intentHandlers.fleet_order({
+  order = "chaff", scope = "all",
+})
+assert(squadronChaffed, squadronChaffError)
+assert(sentCommands[#sentCommands].command == "squadron chaff"
+    and sentCommands[#sentCommands - 1].command ~= "chaff",
+  "the squadron chaff control must issue only the native squadron command")
+
+local squadronAssisted, squadronAssistError = intentHandlers.fleet_order({
+  order = "assist", scope = "all",
+})
+assert(squadronAssisted, squadronAssistError)
+assert(sentCommands[#sentCommands].command == "squadron assist")
+
+local squadronAimCleared, squadronAimClearError = intentHandlers.fleet_order({
+  order = "aim", scope = "all", system = "none",
+})
+assert(squadronAimCleared, squadronAimClearError)
+assert(sentCommands[#sentCommands].command == "squadron aim none")
+
+scraper.state.metadata.fleet = scraper.state.metadata.formations.battlegroup
 
 local toggledFleet, toggleFleetError = intentHandlers.fleet_order({
   order = "autopilot", scope = "all",

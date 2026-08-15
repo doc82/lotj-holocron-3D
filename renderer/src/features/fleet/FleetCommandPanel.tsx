@@ -4,7 +4,7 @@ import type { FleetScope } from "./FleetRoster";
 import styles from "./FleetCommandPanel.module.css";
 
 type FleetOrder = "target" | "fire" | "recharge" | "shields_on" | "chaff"
-  | "autopilot" | "roll" | "assist" | "aim" | "speed";
+  | "autopilot" | "speed";
 
 function Glyph({ kind }: { kind: string }) {
   const paths: Record<string, string> = {
@@ -16,9 +16,6 @@ function Glyph({ kind }: { kind: string }) {
     shield: "M16 4 27 9v7c0 7-5 10-11 12C10 26 5 23 5 16V9Z",
     recharge: "M16 4 27 9v7c0 7-5 10-11 12C10 26 5 23 5 16V9Zm2 5-7 9h6l-3 7 8-11h-6Z",
     chaff: "M16 16 5 7m11 9 11-9M16 16 7 27m9-11 9 11M16 5v22",
-    roll: "M7 11a11 11 0 0 1 18 1m0 0V6m0 6h-6M25 21a11 11 0 0 1-18-1m0 0v6m0-6h6",
-    assist: "M6 16h20M16 6v20m-7-7 7 7 7-7",
-    aim: "M16 5a11 11 0 1 0 0 22 11 11 0 0 0 0-22Zm0 6a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z",
     speed: "M5 22a12 12 0 0 1 22 0M16 22l7-9",
     auto: "M6 23V9l10-5 10 5v14M11 23V13h10v10",
   };
@@ -63,8 +60,6 @@ export function FleetCommandPanel({ fleet, fleetOrder, localAutopilot, scope, ta
   onCourseTarget(mode: "target" | "away"): void;
   onOrder(order: FleetOrder, payload?: Record<string, unknown>): void;
 }) {
-  const squadron = fleet.kind === "squadron";
-  const wingsOnlySquadron = squadron && scope === "wings";
   const scopeLabel = scope === "all" ? "ENTIRE FLEET"
     : scope === "selected" ? selectedMember?.name.toUpperCase() || "SELECTED CRAFT"
       : scope.toUpperCase();
@@ -89,28 +84,19 @@ export function FleetCommandPanel({ fleet, fleetOrder, localAutopilot, scope, ta
     <div className={styles.group}>
       <span>MOVEMENT</span>
       <div>
-        <OrderButton label="MOVE VECTOR" glyph="move" disabled={disabled || wingsOnlySquadron} onClick={onBeginMove} />
+        <OrderButton label="MOVE VECTOR" glyph="move" disabled={disabled} onClick={onBeginMove} />
         <OrderButton label="COURSE TO SELECTED CONTACT" glyph="to"
-          disabled={disabled || wingsOnlySquadron || !targetName} onClick={() => onCourseTarget("target")} />
+          disabled={disabled || !targetName} onClick={() => onCourseTarget("target")} />
         <OrderButton label="COURSE AWAY FROM SELECTED CONTACT" glyph="away"
-          disabled={disabled || wingsOnlySquadron || !targetName} onClick={() => onCourseTarget("away")} />
+          disabled={disabled || !targetName} onClick={() => onCourseTarget("away")} />
         {[0, 1, 40].map((speed) => <OrderButton key={speed} label={`SPEED ${speed}`} glyph="speed"
-          disabled={disabled || wingsOnlySquadron} onClick={() => onOrder("speed", { speed })} />)}
+          disabled={disabled} onClick={() => onOrder("speed", { speed })} />)}
       </div>
     </div>
     <div className={styles.group}>
       <span>DEFENSE</span>
       <div>
-        {squadron ? <>
-          <OrderButton label="ROLL" glyph="roll" disabled={disabled} onClick={() => onOrder("roll")} />
-          <OrderButton label="DEPLOY CHAFF" glyph="chaff" disabled={disabled} onClick={() => onOrder("chaff")} />
-          <OrderButton label="TOGGLE FIRE ASSIST" glyph="assist" disabled={disabled}
-            onClick={() => onOrder("assist")} />
-          <OrderButton label="AIM ION SYSTEMS" glyph="aim" disabled={disabled}
-            onClick={() => onOrder("aim", { system: "ion" })} />
-          <OrderButton label="AIM LASER SYSTEMS" glyph="aim" disabled={disabled}
-            onClick={() => onOrder("aim", { system: "laser" })} />
-        </> : <>
+        <>
           <OrderButton label="RECHARGE SHIELDS" glyph="recharge" disabled={disabled}
             onClick={() => onOrder("recharge")} />
           <OrderButton label="SHIELDS ON" glyph="shield" disabled={disabled}
@@ -119,19 +105,19 @@ export function FleetCommandPanel({ fleet, fleetOrder, localAutopilot, scope, ta
             onClick={() => onOrder("chaff")} />
           <OrderButton label={autopilotLabel} glyph="auto" state={autopilotState} disabled={disabled}
             onClick={() => onOrder("autopilot")} />
-        </>}
+        </>
       </div>
     </div>
     <div className={`${styles.group} ${styles.weaponGroup}`}>
       <span>WEAPONS</span>
       <div>
         <OrderButton label="SYNCHRONIZE TARGET" glyph="target"
-          disabled={disabled || wingsOnlySquadron || !canTarget} onClick={() => onOrder("target")} />
+          disabled={disabled || !canTarget} onClick={() => onOrder("target")} />
         <WeaponOrderButton label="FIRE ALL AVAILABLE" weapon="all"
-          disabled={disabled || wingsOnlySquadron} onClick={() => onOrder("fire", { weapon: "all" })} />
+          disabled={disabled} onClick={() => onOrder("fire", { weapon: "all" })} />
         {WEAPONS.map((weapon) => <WeaponOrderButton key={weapon.type}
-          label={`FIRE ${weapon.label}${squadron && scope === "selected" ? " // SQUADRON MIRRORS LEAD THROUGH FIRE ASSIST" : ""}`}
-          weapon={weapon.type} disabled={disabled || wingsOnlySquadron}
+          label={`FIRE ${weapon.label}`}
+          weapon={weapon.type} disabled={disabled}
           onClick={() => onOrder("fire", { weapon: weapon.type })} />)}
       </div>
     </div>

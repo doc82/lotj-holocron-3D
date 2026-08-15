@@ -15,6 +15,7 @@ import {
 } from "../../domain/scene";
 import type { Color3, CombatEvent, SystemSnapshot, Vector3, WeaponType } from "../../types/telemetry";
 import { shipModelFor } from "../../domain/shipModels";
+import { elevationFromPointer, elevationFromWheel } from "../../domain/coursePlot";
 
 const VERTEX_SOURCE = `
   attribute vec3 a_position;
@@ -79,6 +80,7 @@ const FRAGMENT_SOURCE = `
 `;
 
 const ACTIVE_FRAME_INTERVAL_MS = 1000 / 30;
+const HEIGHT_GUIDE_FADE_MS = 240;
 const MINIMUM_ORIGIN_GRID_EXTENT = 3_000;
 const MINIMUM_ORIGIN_GRID_STEP = 500;
 const STRATEGIC_DOT_PPU = 0.95;
@@ -135,6 +137,7 @@ export interface TacticalEngineCallbacks {
 }
 
 interface DragState { x: number; y: number; moved: boolean; button: number }
+interface ElevationDragState { pointerY: number; elevation: number }
 interface SavedCameraState {
   mode: TacticalCameraMode;
   targetId: string | null;
@@ -175,6 +178,7 @@ export class TacticalEngine {
   private readonly landmarkBuffer: WebGLBuffer;
   private readonly shipMeshBuffer: WebGLBuffer;
   private readonly courseBuffer: WebGLBuffer;
+  private readonly heightGuideBuffer: WebGLBuffer;
   private readonly radarSurfaceBuffer: WebGLBuffer;
   private readonly radarWireBuffer: WebGLBuffer;
   private readonly originGridBuffer: WebGLBuffer;
@@ -200,6 +204,7 @@ export class TacticalEngine {
   private landmarkCount = 0;
   private shipMeshCount = 0;
   private courseCount = 0;
+  private heightGuideCount = 0;
   private radarSurfaceCount = 0;
   private radarWireCount = 0;
   private originGridCount = 0;
@@ -228,6 +233,10 @@ export class TacticalEngine {
   private movementInteractive = false;
   private movementVector: Vector3 = [100, 0, 0];
   private movementOrigins: Vector3[] = [[0, 0, 0]];
+  private lastPointerPosition: { x: number; y: number } | null = null;
+  private elevationDrag: ElevationDragState | null = null;
+  private heightGuideShown = false;
+  private heightGuideFadeStartedAt: number | null = null;
   private cameraMode: TacticalCameraMode = "player";
   private cameraTargetId: string | null = null;
   private cameraFocus: Vector3 = [0, 0, 0];
@@ -259,6 +268,7 @@ export class TacticalEngine {
     this.landmarkBuffer = requireBuffer(gl);
     this.shipMeshBuffer = requireBuffer(gl);
     this.courseBuffer = requireBuffer(gl);
+    this.heightGuideBuffer = requireBuffer(gl);
     this.radarSurfaceBuffer = requireBuffer(gl);
     this.radarWireBuffer = requireBuffer(gl);
     this.originGridBuffer = requireBuffer(gl);
@@ -386,6 +396,7 @@ export class TacticalEngine {
     this.movementActive = true;
     this.movementInteractive = interactive;
     this.movementVector = [...vector];
+    this.hideHeightGuide();
     const center = this.movementCenter();
     this.cameraMode = "rts";
     this.cameraTargetId = null;
@@ -398,6 +409,7 @@ export class TacticalEngine {
   finishMovementPlanning(): void {
     this.movementActive = false;
     this.movementInteractive = false;
+    this.hideHeightGuide();
     this.callbacks.onCourseLabel(null);
     const saved = this.savedCameraState;
     this.savedCameraState = null;
@@ -422,12 +434,14 @@ export class TacticalEngine {
     this.movementActive = active;
     this.movementInteractive = active && interactive;
     this.movementVector = [...vector];
+    if (!this.movementInteractive) this.hideHeightGuide();
     this.rebuildCourseBuffer();
     this.requestRender();
   }
 
   freezeMovement(): void {
     this.movementInteractive = false;
+    this.endElevationAdjustment();
   }
 
   pushCombatEvent(event: CombatEvent): void {
@@ -497,6 +511,7 @@ export class TacticalEngine {
     this.gl.deleteBuffer(this.landmarkBuffer);
     this.gl.deleteBuffer(this.shipMeshBuffer);
     this.gl.deleteBuffer(this.courseBuffer);
+    this.gl.deleteBuffer(this.heightGuideBuffer);
     this.gl.deleteBuffer(this.radarSurfaceBuffer);
     this.gl.deleteBuffer(this.radarWireBuffer);
     this.gl.deleteBuffer(this.originGridBuffer);
@@ -656,23 +671,67 @@ export class TacticalEngine {
         pushLine(origin, end);
         pushLine(end, left);
         pushLine(end, right);
-        if (originIndex === 0 && Math.abs(this.movementVector[1]) > 0.5) {
-          const ground: Vector3 = [end[0], origin[1], end[2]];
-          pushLine(ground, end, [0.32, 0.88, 1]);
-          const ringSize = Math.max(6, headWidth * 0.55);
-          for (let index = 0; index < 20; index += 1) {
-            const a = index / 20 * Math.PI * 2;
-            const b = (index + 1) / 20 * Math.PI * 2;
-            pushLine(
-              [ground[0] + Math.cos(a) * ringSize, ground[1], ground[2] + Math.sin(a) * ringSize],
-              [ground[0] + Math.cos(b) * ringSize, ground[1], ground[2] + Math.sin(b) * ringSize],
-            );
-          }
-        }
+        void originIndex;
       }
     }
     this.courseCount = vertices.length / 11;
     this.upload(this.courseBuffer, vertices, this.gl.DYNAMIC_DRAW);
+  }
+
+  private rebuildHeightGuideBuffer(): void {
+    const vertices: number[] = [];
+    if (this.movementActive && this.heightGuideShown) {
+      const origin = this.movementCenter();
+      const endpoint: Vector3 = origin.map(
+        (value, index) => value + this.movementVector[index],
+      ) as Vector3;
+      const guideColor: Color3 = [0.32, 0.88, 1];
+      const markerColor: Color3 = [0.62, 0.94, 1];
+      const margin = Math.max(12, this.camera.distance * 0.08);
+      const lowerY = Math.min(origin[1], endpoint[1], this.cameraFocus[1] - this.camera.distance) - margin;
+      const upperY = Math.max(origin[1], endpoint[1], this.cameraFocus[1] + this.camera.distance) + margin;
+      const guideStart: Vector3 = [endpoint[0], lowerY, endpoint[2]];
+      const guideEnd: Vector3 = [endpoint[0], upperY, endpoint[2]];
+      vertices.push(
+        ...this.interleavedVertex(guideStart, guideColor),
+        ...this.interleavedVertex(guideEnd, guideColor),
+      );
+
+      // Camera-right stays horizontal on screen, keeping the current-Y marker
+      // easy to read even while the tactical camera is orbited.
+      const markerHalfWidth = Math.max(7, this.camera.distance * 0.035);
+      const cameraRight: Vector3 = [Math.cos(this.camera.yaw), 0, -Math.sin(this.camera.yaw)];
+      const markerLeft = endpoint.map(
+        (value, index) => value - cameraRight[index] * markerHalfWidth,
+      ) as Vector3;
+      const markerRight = endpoint.map(
+        (value, index) => value + cameraRight[index] * markerHalfWidth,
+      ) as Vector3;
+      vertices.push(
+        ...this.interleavedVertex(markerLeft, markerColor),
+        ...this.interleavedVertex(markerRight, markerColor),
+      );
+
+      // Retain the existing ground ring as the base of the relocated guide.
+      const ground: Vector3 = [endpoint[0], origin[1], endpoint[2]];
+      const ringSize = Math.max(6, markerHalfWidth * 0.55);
+      for (let index = 0; index < 20; index += 1) {
+        const a = index / 20 * Math.PI * 2;
+        const b = (index + 1) / 20 * Math.PI * 2;
+        vertices.push(
+          ...this.interleavedVertex(
+            [ground[0] + Math.cos(a) * ringSize, ground[1], ground[2] + Math.sin(a) * ringSize],
+            guideColor,
+          ),
+          ...this.interleavedVertex(
+            [ground[0] + Math.cos(b) * ringSize, ground[1], ground[2] + Math.sin(b) * ringSize],
+            guideColor,
+          ),
+        );
+      }
+    }
+    this.heightGuideCount = vertices.length / 11;
+    this.upload(this.heightGuideBuffer, vertices, this.gl.DYNAMIC_DRAW);
   }
 
   private spherePoint(radius: number, latitude: number, longitude: number): Vector3 {
@@ -1102,6 +1161,18 @@ export class TacticalEngine {
     this.rebuildPointBuffers();
     this.rebuildShipMeshBuffer();
     this.rebuildCombatBuffers(now);
+    let heightGuideAlpha = 0;
+    if (this.heightGuideShown) {
+      const fadeProgress = this.heightGuideFadeStartedAt === null
+        ? 0
+        : Math.max(0, Math.min(1, (now - this.heightGuideFadeStartedAt) / HEIGHT_GUIDE_FADE_MS));
+      if (fadeProgress >= 1) {
+        this.hideHeightGuide();
+      } else {
+        heightGuideAlpha = 0.9 * (1 - fadeProgress);
+        this.rebuildHeightGuideBuffer();
+      }
+    }
     const pixelRatio = this.resize();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0.008, 0.016, 0.031, 1);
@@ -1176,6 +1247,9 @@ export class TacticalEngine {
       gl.disable(gl.DEPTH_TEST);
       gl.depthMask(false);
       this.drawBuffer(this.courseBuffer, this.courseCount, gl.LINES, false, 0.95);
+      if (heightGuideAlpha > 0) {
+        this.drawBuffer(this.heightGuideBuffer, this.heightGuideCount, gl.LINES, false, heightGuideAlpha);
+      }
       gl.depthMask(true);
       gl.enable(gl.DEPTH_TEST);
     }
@@ -1192,7 +1266,8 @@ export class TacticalEngine {
     this.publishCourseLabel();
     this.publishPlayerShipLabel();
     const focusMoving = this.cameraFocus.some((value, index) => Math.abs(cameraTarget[index] - value) > 0.05);
-    if (this.interpolator.isAnimating(now) || this.camera.isMoving() || focusMoving || this.combatEffects.length > 0) {
+    if (this.interpolator.isAnimating(now) || this.camera.isMoving() || focusMoving
+        || this.combatEffects.length > 0 || this.heightGuideFadeStartedAt !== null) {
       this.scheduleActiveFrame();
     }
   };
@@ -1274,6 +1349,43 @@ export class TacticalEngine {
     return closest;
   }
 
+  private beginElevationAdjustment(pointerY?: number): void {
+    if (!this.movementInteractive) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const anchorY = pointerY ?? this.lastPointerPosition?.y ?? rect.top + rect.height / 2;
+    if (!this.elevationDrag) {
+      this.elevationDrag = { pointerY: anchorY, elevation: this.movementVector[1] };
+    }
+    this.heightGuideShown = true;
+    this.heightGuideFadeStartedAt = null;
+    this.rebuildHeightGuideBuffer();
+    this.requestRender();
+  }
+
+  private endElevationAdjustment(): void {
+    this.elevationDrag = null;
+    if (!this.heightGuideShown || this.heightGuideFadeStartedAt !== null) return;
+    this.heightGuideFadeStartedAt = performance.now();
+    this.requestRender();
+  }
+
+  private hideHeightGuide(): void {
+    this.elevationDrag = null;
+    this.heightGuideShown = false;
+    this.heightGuideFadeStartedAt = null;
+    this.rebuildHeightGuideBuffer();
+  }
+
+  private publishMovementVector(): void {
+    this.movementVector = this.movementVector.map((value) => Math.round(value)) as Vector3;
+    if (Math.hypot(...this.movementVector) < 1) this.movementVector = [1, 0, 0];
+    this.rebuildCourseBuffer();
+    this.rebuildHeightGuideBuffer();
+    this.callbacks.onMovementVector([...this.movementVector]);
+    this.callbacks.onTooltip(null);
+    this.requestRender();
+  }
+
   private onPointerDown = (event: PointerEvent): void => {
     // Course plotting keeps normal pointer movement, but middle-drag temporarily
     // hands the pointer to the camera without cancelling the pending vector.
@@ -1284,6 +1396,7 @@ export class TacticalEngine {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    this.lastPointerPosition = { x: event.clientX, y: event.clientY };
     if (this.drag) {
       const deltaX = event.clientX - this.drag.x;
       const deltaY = event.clientY - this.drag.y;
@@ -1302,9 +1415,16 @@ export class TacticalEngine {
       const deltaY = event.clientY - (rect.top + rect.height / 2);
       const origin = this.movementCenter();
       if (event.shiftKey) {
-        const targetY = this.cameraFocus[1] - deltaY * unitsPerPixel;
-        this.movementVector = [this.movementVector[0], targetY - origin[1], this.movementVector[2]];
+        this.beginElevationAdjustment(event.clientY);
+        const anchor = this.elevationDrag;
+        if (anchor) {
+          const elevation = elevationFromPointer(
+            anchor.elevation, anchor.pointerY, event.clientY, unitsPerPixel,
+          );
+          this.movementVector = [this.movementVector[0], elevation, this.movementVector[2]];
+        }
       } else {
+        this.endElevationAdjustment();
         const planarVector = pointerToXZVector(
           deltaX, deltaY, unitsPerPixel, this.camera.yaw, this.camera.pitch,
         );
@@ -1312,12 +1432,7 @@ export class TacticalEngine {
         const targetZ = this.cameraFocus[2] + planarVector[2];
         this.movementVector = [targetX - origin[0], this.movementVector[1], targetZ - origin[2]];
       }
-      this.movementVector = this.movementVector.map((value) => Math.round(value)) as Vector3;
-      if (Math.hypot(...this.movementVector) < 1) this.movementVector = [1, 0, 0];
-      this.rebuildCourseBuffer();
-      this.callbacks.onMovementVector([...this.movementVector]);
-      this.callbacks.onTooltip(null);
-      this.requestRender();
+      this.publishMovementVector();
       return;
     }
     const point = this.pointAt(event.clientX, event.clientY, 18);
@@ -1359,6 +1474,19 @@ export class TacticalEngine {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    if (this.movementInteractive && event.shiftKey) {
+      const rect = this.canvas.getBoundingClientRect();
+      const unitsPerPixel = this.camera.distance * 2 / Math.max(1, rect.height);
+      this.beginElevationAdjustment();
+      const elevation = elevationFromWheel(this.movementVector[1], event.deltaY, unitsPerPixel);
+      this.movementVector = [this.movementVector[0], elevation, this.movementVector[2]];
+      this.publishMovementVector();
+      if (this.elevationDrag) {
+        this.elevationDrag.elevation = this.movementVector[1];
+        this.elevationDrag.pointerY = this.lastPointerPosition?.y ?? this.elevationDrag.pointerY;
+      }
+      return;
+    }
     this.camera.zoom(event.deltaY);
     this.requestRender();
   };
@@ -1372,6 +1500,11 @@ export class TacticalEngine {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
         || event.target instanceof HTMLSelectElement) return;
     const key = event.key.toLowerCase();
+    if (key === "shift" && this.movementInteractive) {
+      this.beginElevationAdjustment();
+      event.preventDefault();
+      return;
+    }
     if (key === "f") this.sectorView();
     if (key === "r") this.resetOrientation();
     if (this.cameraMode === "rts" && ["w", "a", "s", "d", "q", "e"].includes(key)) {
@@ -1400,6 +1533,14 @@ export class TacticalEngine {
     this.requestRender();
   };
 
+  private onKeyUp = (event: KeyboardEvent): void => {
+    if (event.key.toLowerCase() === "shift") this.endElevationAdjustment();
+  };
+
+  private onWindowBlur = (): void => {
+    this.endElevationAdjustment();
+  };
+
   private onVisibilityChange = (): void => {
     if (document.hidden) {
       if (this.animationFrame !== null) cancelAnimationFrame(this.animationFrame);
@@ -1420,6 +1561,8 @@ export class TacticalEngine {
     this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
     this.canvas.addEventListener("contextmenu", this.onContextMenu);
     window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+    window.addEventListener("blur", this.onWindowBlur);
     document.addEventListener("visibilitychange", this.onVisibilityChange);
   }
 
@@ -1431,6 +1574,8 @@ export class TacticalEngine {
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onWindowBlur);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
   }
 }

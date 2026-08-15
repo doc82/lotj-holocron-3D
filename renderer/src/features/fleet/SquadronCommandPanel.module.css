@@ -1,0 +1,24 @@
+.panel > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.panel > header p { margin: 0 0 3px; color: #7be8ff; font: 700 11px ui-monospace, monospace; letter-spacing: .12em; }
+.panel > header strong, .panel > header > span { color: #708f97; font: 700 8px ui-monospace, monospace; letter-spacing: .07em; }
+.panel > header > span { text-align: right; }
+.flow { margin: 5px 0 0; color: #5f8993; font: 700 8px ui-monospace, monospace; letter-spacing: .06em; }
+.tacticalGrid { display: grid; grid-template-columns: repeat(5, minmax(45px, 1fr)); gap: 5px; margin-top: 8px; }
+.tacticalGrid button { position: relative; min-height: 48px; border: 1px solid rgba(82,220,244,.25); padding: 4px; color: #8edff0; background: rgba(7,29,39,.78); cursor: pointer; }
+.tacticalGrid button:hover:not(:disabled), .tacticalGrid button:focus-visible:not(:disabled) { outline: none; border-color: #7be8ff; color: #e0faff; background: rgba(17,65,82,.8); }
+.tacticalGrid button:disabled { opacity: .4; cursor: not-allowed; }
+.tacticalGrid button[data-state="on"], .tacticalGrid button[data-active="true"] { border-color: #55df9b; color: #62efab; background: rgba(15,74,49,.72); }
+.tacticalGrid button[data-state="off"] { border-color: #d45c6d; color: #ff7a8d; background: rgba(74,18,29,.68); }
+.tacticalGrid svg { display: block; width: 19px; height: 19px; margin: 0 auto 2px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.tacticalGrid span, .tacticalGrid small { display: block; font: 700 7px ui-monospace, monospace; letter-spacing: .06em; }
+.tacticalGrid small { margin-top: 2px; color: #71959d; }
+.aimControl { position: relative; display: grid; grid-template-columns: 1fr auto; }
+.aimControl > button:first-child { width: 100%; }
+.aimControl > .clearAim { width: 24px; min-height: 48px; border-left: 0; padding: 2px; color: #ff8b98; }
+.aimControl > .clearAim svg { width: 13px; margin: auto; }
+.aimMenu { position: absolute; bottom: calc(100% + 5px); left: 0; z-index: 80; display: grid; width: 116px; border: 1px solid rgba(82,220,244,.5); padding: 3px; background: rgba(2,13,22,.98); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.aimMenu button { min-height: 25px; border: 0; text-align: left; font: 700 8px ui-monospace, monospace; }
+.aimMenu button[aria-checked="true"] { color: #62efab; }
+.standby { margin: 7px 0 0; border: 1px solid rgba(255,99,113,.3); padding: 7px; color: #98747b; background: rgba(50,13,22,.42); font: 700 8px ui-monospace, monospace; letter-spacing: .06em; }
+.tacticalGrid button::after { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 1000; width: max-content; padding: 5px 7px; border: 1px solid rgba(103,218,242,.45); color: #dffaff; content: attr(data-tooltip); pointer-events: none; opacity: 0; background: rgba(2,13,22,.97); transform: translateY(3px); font: 700 8px ui-monospace, monospace; }
+.tacticalGrid button:hover::after, .tacticalGrid button:focus-visible::after { opacity: 1; transform: translateY(0); }

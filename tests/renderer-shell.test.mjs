@@ -3,13 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("renderer includes the cinematic startup and disconnected uplink states", async () => {
-  const [html, app, startup, hyperspaceField, telemetry, uplink, globalStyles, startupStyles, uplinkStyles] = await Promise.all([
+  const [html, app, startup, hyperspaceField, telemetry, uplink, canvas, globalStyles, startupStyles, uplinkStyles] = await Promise.all([
     readFile("renderer/index.html", "utf8"),
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/startup/StartupSequence.tsx", "utf8"),
     readFile("renderer/src/features/hyperspace/HyperspaceField.tsx", "utf8"),
     readFile("renderer/src/features/telemetry/useTelemetry.ts", "utf8"),
     readFile("renderer/src/features/connection/UplinkNotice.tsx", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
     readFile("renderer/styles.css", "utf8"),
     readFile("renderer/src/features/startup/StartupSequence.module.css", "utf8"),
     readFile("renderer/src/features/connection/UplinkNotice.module.css", "utf8"),
@@ -28,6 +29,17 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.match(startup, /styles\.threeD/);
   assert.match(startup, /event\.key !== "Escape"/);
   assert.match(startup, /HyperspaceField/);
+  assert.match(uplink, /paused \? "SPACE TELEMETRY PAUSED" : "STANDBY"/);
+  assert.match(uplink, /Launch your ship to resume tactical rendering/);
+  assert.match(app, /const spaceTelemetryActive = telemetry\.connected && reportedInSpace === true\s*&& telemetry\.snapshot\?\.metadata\?\.inSpace === true/);
+  assert.match(app, /if \(!spaceTelemetryActive\) return \(/);
+  const standbyReturn = app.indexOf("if (!spaceTelemetryActive) return (");
+  assert.ok(standbyReturn < app.indexOf("<TacticalCanvas", standbyReturn),
+    "paused space telemetry must return the standby page before mounting WebGL");
+  assert.match(canvas, /engine\.dispose\(\)/);
+  assert.match(telemetry, /function receiveSpaceState[\s\S]*snapshot: null/);
+  assert.match(telemetry, /spaceState\?\.inSpace === false[\s\S]*snapshot: null/);
+  assert.match(telemetry, /!connected \? \{ snapshot: null, spaceState: null \}/);
   assert.match(hyperspaceField, /edgeActivation/);
   assert.doesNotMatch(startup, /dissolving/);
   assert.match(startup, /styles\.hyperspace/);
@@ -183,12 +195,13 @@ test("strategic zoom cross-fades glowing contacts into procedural class hulls", 
 });
 
 test("Homeworld-style shell separates commands, selected vessel, and fleet telemetry", async () => {
-  const [app, css, speedControl, fleetRoster, fleetCommands] = await Promise.all([
+  const [app, css, speedControl, fleetRoster, fleetCommands, squadronCommands] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
     readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
     readFile("renderer/src/features/fleet/FleetRoster.tsx", "utf8"),
     readFile("renderer/src/features/fleet/FleetCommandPanel.tsx", "utf8"),
+    readFile("renderer/src/features/fleet/SquadronCommandPanel.tsx", "utf8"),
   ]);
   assert.match(app, /styles\.commandBank/);
   assert.match(app, /styles\.commandDeckFrame/);
@@ -209,7 +222,7 @@ test("Homeworld-style shell separates commands, selected vessel, and fleet telem
   assert.match(app, /<FleetRoster fleet=\{fleet\}/);
   assert.match(fleetRoster, /fleet\.members\.map/);
   assert.match(fleetRoster, /LOW S/);
-  assert.match(fleetRoster, /ASSIST \{fleet\.assist \? "ACTIVE" : "OFF"\}/);
+  assert.match(fleetRoster, /fleet\.assist === undefined \? "UNKNOWN" : fleet\.assist \? "ACTIVE" : "OFF"/);
   assert.match(fleetRoster, /"local", "all", "wings"/);
   assert.match(fleetRoster, /orderResult\.status\.toUpperCase/);
   assert.match(fleetRoster, /fleetOrder\?\.order !== "autopilot"/);
@@ -221,12 +234,11 @@ test("Homeworld-style shell separates commands, selected vessel, and fleet telem
   assert.match(app, /sendIntent\("fleet_order"/);
   assert.match(fleetCommands, /SYNCHRONIZE TARGET/);
   assert.match(fleetCommands, /RECHARGE SHIELDS/);
-  assert.match(fleetCommands, /TOGGLE FIRE ASSIST/);
+  assert.doesNotMatch(fleetCommands, /TOGGLE FIRE ASSIST|AIM ION|SQUADRON MIRRORS/);
   assert.match(fleetCommands, /WEAPONS\.map/);
   assert.match(fleetCommands, /WeaponOrderButton/);
   assert.match(fleetCommands, /weapon="all"/);
   assert.match(fleetCommands, /className=\{styles\.weaponButton\}/);
-  assert.match(fleetCommands, /SQUADRON MIRRORS LEAD THROUGH FIRE ASSIST/);
   assert.ok(fleetCommands.indexOf("<span>DEFENSE</span>") < fleetCommands.indexOf("<span>WEAPONS</span>"),
     "formation weapons should be the bottom command group, matching the player ship layout");
   assert.match(fleetRoster, /scope === "selected"/);
@@ -237,6 +249,15 @@ test("Homeworld-style shell separates commands, selected vessel, and fleet telem
   assert.ok(commandBank < playerSpeedControl && playerSpeedControl < fleetBank,
     "speed controls should belong to the player command bank, not the formation roster");
   assert.doesNotMatch(app.slice(fleetBank), /ShipSpeedControl|styles\.deckStats/);
+  assert.match(app, /fleet\.kind === "squadron" \? <SquadronCommandPanel/);
+  assert.match(fleetRoster, /fleet\.kind === "squadron" \? "SQUADRON" : "ALL FLEET"/);
+  assert.match(squadronCommands, /FIRE ASSIST/);
+  assert.match(squadronCommands, /AIM_SYSTEMS = \["laser", "ion", "launcher", "tractor", "turret"\]/);
+  assert.match(squadronCommands, /chooseAim\("none"\)/);
+  assert.match(squadronCommands, /onOrder\("roll"\)/);
+  assert.match(squadronCommands, /onOrder\("chaff"\)/);
+  assert.match(squadronCommands, /<WeaponsPanel/);
+  assert.match(squadronCommands, /1 SELECT AND TARGET \/\/ 2 FIRE FROM THE LEAD \/\/ ASSIST MIRRORS THE VOLLEY/);
   assert.match(app, /<ViewIcon type="radar"/);
   assert.match(app, /<ViewIcon type="grid"/);
   assert.match(app, /<ViewIcon type="sector"/);
@@ -290,6 +311,15 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(app, /observerStopped=\{observerSpeed === 0\}/);
   assert.match(engine, /rebuildCourseBuffer/);
   assert.match(engine, /event\.shiftKey/);
+  assert.match(engine, /elevationFromPointer\(/);
+  assert.match(engine, /const guideStart: Vector3 = \[endpoint\[0\], lowerY, endpoint\[2\]\]/);
+  assert.match(engine, /const guideEnd: Vector3 = \[endpoint\[0\], upperY, endpoint\[2\]\]/);
+  assert.match(engine, /const markerLeft = endpoint\.map/);
+  assert.match(engine, /const markerRight = endpoint\.map/);
+  assert.match(engine, /this\.drawBuffer\(this\.heightGuideBuffer/);
+  assert.match(engine, /event\.key\.toLowerCase\(\) === "shift"\) this\.endElevationAdjustment\(\)/);
+  assert.match(engine, /HEIGHT_GUIDE_FADE_MS/);
+  assert.match(engine, /elevationFromWheel\(this\.movementVector\[1\], event\.deltaY, unitsPerPixel\)/);
   assert.match(engine, /this\.movementInteractive && event\.button !== 1/);
   assert.ok(engine.indexOf("if (this.drag) {") < engine.indexOf("if (this.movementInteractive) {", engine.indexOf("private onPointerMove")),
     "middle-mouse camera orbit should take priority over course-vector updates");
@@ -384,11 +414,18 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(app, /combatTargetName \? \(\s*<WeaponsPanel/);
   assert.match(app, /sendIntent\("fire_weapon"/);
   assert.match(panel, /FIRE ALL/);
+  assert.match(panel, /\{WEAPONS\.map\(\(weapon\) =>/);
+  assert.match(panel, /INSTALLATION UNCONFIRMED \/\/ LOTJ WILL VALIDATE/);
+  assert.match(panel, /<button type="button" disabled=\{disabled\}/);
+  assert.doesNotMatch(panel, /disabled=\{disabled \|\| installed\.length === 0\}/);
+  assert.doesNotMatch(panel, /disabled=\{disabled \|\| !available \|\| recharging \|\| depleted\}/);
+  assert.match(app, /disabled=\{landed\}\s+onFire=\{fireWeapon\}/);
   for (const weapon of ["autoblaster", "laser", "turbolaser", "ion", "missile", "torpedo", "rocket", "burst"]) {
     assert.match(panel, new RegExp(`type: "${weapon}"`));
   }
   assert.match(panelCss, /weapons-enter/);
   assert.match(panelCss, /grid-template-columns: repeat\(auto-fit, minmax\(21px, 1fr\)\)/);
+  assert.match(panelCss, /\.panel button::after \{[^}]*left: 0;[^}]*z-index: 1000;/s);
   assert.doesNotMatch(panelCss.match(/\.panel \{[^}]*\}/s)?.[0] || "", /position: absolute|bottom:|left:|min-width:/);
   assert.match(panel, /setRumbleToken/);
   assert.match(panel, /styles\.rumbleOdd/);

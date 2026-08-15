@@ -107,18 +107,19 @@ export function WeaponsPanel({ observer, targetName, events, disabled, onFire }:
         <span>{status}</span>
       </header>
       <div className={styles.weaponGrid}>
-        <button type="button" disabled={disabled || installed.length === 0}
+        <button type="button" disabled={disabled}
           aria-label="Fire all installed weapons" data-tooltip="FIRE ALL // Cycle every installed weapon"
           onClick={() => void fire("all")}>
           <WeaponIcon type="all" />
         </button>
-        <button type="button" disabled={disabled || installed.length === 0}
+        <button type="button" disabled={disabled}
           aria-label="Fire best available weapon" data-tooltip="BEST WEAPON // Let LotJ select the best available weapon"
           onClick={() => void fire("best")}>
           <WeaponIcon type="best" />
         </button>
-        {installed.map((weapon) => {
+        {WEAPONS.map((weapon) => {
           const count = Number(observer.weapons?.[weapon.field] || 0);
+          const available = installed.some((candidate) => candidate.type === weapon.type);
           const recharging = charging.has(weapon.type);
           const ammunition = weapon.ammoField && typeof observer[weapon.ammoField] === "object"
             ? Number((observer[weapon.ammoField] as { current?: number }).current)
@@ -127,9 +128,9 @@ export function WeaponsPanel({ observer, targetName, events, disabled, onFire }:
           return <button
             key={weapon.type}
             type="button"
-            disabled={disabled || recharging || depleted}
+            disabled={disabled}
             className={recharging ? styles.charging : ""}
-            data-tooltip={`${weapon.label} // ${depleted ? "AMMUNITION DEPLETED" : weapon.description} // Installed: ${count}`}
+            data-tooltip={`${weapon.label} // ${!available ? "INSTALLATION UNCONFIRMED // LOTJ WILL VALIDATE" : depleted ? "AMMUNITION REPORTED DEPLETED // LOTJ WILL VALIDATE" : recharging ? "RECHARGE REPORTED IN PROGRESS // LOTJ WILL VALIDATE" : weapon.description} // Installed: ${count}`}
             aria-label={`Fire ${weapon.label.toLowerCase()}`}
             onClick={() => void fire(weapon.type)}
           >

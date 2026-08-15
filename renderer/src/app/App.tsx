@@ -8,6 +8,7 @@ import { UplinkNotice } from "../features/connection/UplinkNotice";
 import { FleetCommandPanel } from "../features/fleet/FleetCommandPanel";
 import { FleetRoster } from "../features/fleet/FleetRoster";
 import type { FleetScope } from "../features/fleet/FleetRoster";
+import { SquadronCommandPanel } from "../features/fleet/SquadronCommandPanel";
 import { HyperspacePlanner, type EscapePlanDraft } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
@@ -322,7 +323,11 @@ export function App() {
   } as ScenePoint : null;
   const displayedSelection = selected ?? fleetSelection ?? observer;
   const hasSelectedContact = selected !== null || fleetSelection !== null;
-  const landed = telemetry.spaceState?.inSpace === false;
+  const reportedInSpace = telemetry.spaceState?.inSpace
+    ?? telemetry.snapshot?.metadata?.inSpace;
+  const landed = reportedInSpace === false;
+  const spaceTelemetryActive = telemetry.connected && reportedInSpace === true
+    && telemetry.snapshot?.metadata?.inSpace === true;
   const fleetCommandMode = fleet?.active === true && fleetScope !== "local";
   useEffect(() => {
     if (fleet?.active !== true) setFleetScope("local");
@@ -399,7 +404,7 @@ export function App() {
     const matchingContact = sceneRef.current.points.find((point) => point.kind === "ship"
       && point.name?.trim().toLowerCase() === member.name.trim().toLowerCase());
     setFleetScope(member.name.trim().toLowerCase() === observer.name.trim().toLowerCase()
-      ? "local" : "selected");
+      ? "local" : fleet?.kind === "squadron" ? "all" : "selected");
     setSelectedFleetMemberId(member.id);
     setExpandedClusterId(null);
     setHoveredMemberId(null);
@@ -408,7 +413,7 @@ export function App() {
       return;
     }
     setSelectedId(null);
-  }, [observer.name]);
+  }, [fleet?.kind, observer.name]);
 
   const plotHyperspace = useCallback(async (route: HyperspaceRoutePayload, escape?: EscapePlanDraft) => {
     setActiveRoute(route);
@@ -757,10 +762,10 @@ export function App() {
   }, [autotrackDesired, autotrackPending, landed, telemetry.connected]);
 
   const fireWeapon = useCallback(async (weapon: WeaponType | "all") => {
-    if (!telemetry.connected || landed || commandLocked) return "weapons controls unavailable";
+    if (!telemetry.connected || landed) return "weapons controls unavailable";
     const result = await window.holocron?.sendIntent("fire_weapon", { weapon });
     return result?.accepted === false ? result.reason || "fire order rejected" : null;
-  }, [commandLocked, landed, telemetry.connected]);
+  }, [landed, telemetry.connected]);
 
   const sendFleetOrder = useCallback(async (order: string, extra: Record<string, unknown> = {}) => {
     if (!fleet?.active || fleetScope === "local" || !telemetry.connected || landed || commandLocked) return;
@@ -781,17 +786,18 @@ export function App() {
       }
       payload.targetId = selectedShip.id;
     }
-    setCommandAlert(`TRANSMITTING ${order.replaceAll("_", " ").toUpperCase()} // ${fleetScope.toUpperCase()}`);
+    const formationLabel = fleet.kind === "squadron" ? "SQUADRON" : "FLEET";
+    setCommandAlert(`TRANSMITTING ${order.replaceAll("_", " ").toUpperCase()} // ${formationLabel}`);
     const result = await window.holocron?.sendIntent("fleet_order", payload);
     if (result?.accepted === false) {
-      setCommandAlert(`FLEET ORDER REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+      setCommandAlert(`${formationLabel} ORDER REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
       return;
     }
     if (result?.id) {
       pendingIntentIdsRef.current.add(result.id);
       setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 15_000);
     }
-    setCommandAlert(`${order.replaceAll("_", " ").toUpperCase()} TRANSMITTED // ${fleetScope.toUpperCase()}`);
+    setCommandAlert(`${order.replaceAll("_", " ").toUpperCase()} TRANSMITTED // ${formationLabel}`);
   }, [commandLocked, fleet, fleetScope, landed, selectedFleetMember, selectedShip, telemetry.connected]);
 
   const rechargeShields = useCallback(async () => {
@@ -990,6 +996,17 @@ export function App() {
     }
   }, [dispositions, telemetry.connected, telemetry.snapshot]);
 
+  if (!spaceTelemetryActive) return (
+    <>
+      {starting && <StartupSequence onComplete={finishStartup} />}
+      <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
+        <div className={styles.scanlines} aria-hidden="true" />
+        <UplinkNotice paused={telemetry.connected && landed}
+          reason={telemetry.spaceState?.reason} />
+      </main>
+    </>
+  );
+
   return (
     <>
       {starting && <StartupSequence onComplete={finishStartup} />}
@@ -1076,15 +1093,6 @@ export function App() {
           </div>
         </header>
 
-        {landed && (
-          <section className={styles.landed} role="status">
-            <span>SPACE TELEMETRY PAUSED</span>
-            <small>{telemetry.spaceState?.reason || "Ship is landed"}</small>
-          </section>
-        )}
-
-        {!telemetry.connected && <UplinkNotice />}
-
         {hyperspacePlanner && <HyperspacePlanner mode={hyperspacePlanner} catalog={telemetry.galaxyCatalog}
           currentSystem={scene.system} currentGalaxy={currentGalaxyPosition} observer={telemetry.snapshot?.observer || {}}
           destinations={navigationDestinations}
@@ -1135,7 +1143,18 @@ export function App() {
                   </div>
                 </>
               ) : fleetCommandMode && fleet ? (
-                <FleetCommandPanel fleet={fleet} fleetOrder={fleetOrder}
+                fleet.kind === "squadron" ? <SquadronCommandPanel
+                  fleet={fleet}
+                  observer={telemetry.snapshot?.observer || observer}
+                  targetName={combatTargetName || undefined}
+                  events={combatEvents}
+                  canTarget={selectedShip !== null}
+                  disabled={landed || commandLocked || fleet.role !== "lead"}
+                  weaponsDisabled={landed}
+                  onTarget={() => void targetSelectedShip()}
+                  onFire={fireWeapon}
+                  onOrder={(order, payload) => void sendFleetOrder(order, payload)} />
+                  : <FleetCommandPanel fleet={fleet} fleetOrder={fleetOrder}
                   localAutopilot={telemetry.snapshot?.observer?.autopilot} scope={fleetScope}
                   selectedMember={selectedFleetMember}
                   targetName={navigableTarget?.name}
@@ -1201,7 +1220,7 @@ export function App() {
                       observer={telemetry.snapshot?.observer || observer}
                       targetName={combatTargetName}
                       events={combatEvents}
-                      disabled={landed || commandLocked}
+                      disabled={landed}
                       onFire={fireWeapon}
                     />
                   ) : selectedShip ? (

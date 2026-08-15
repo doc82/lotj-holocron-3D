@@ -34,7 +34,7 @@ Sent when Mudlet starts the child process.
   "v": 1,
   "type": "hello",
   "source": "mudlet",
-  "proxyVersion": "0.1.2"
+  "proxyVersion": "0.1.3"
 }
 ```
 
