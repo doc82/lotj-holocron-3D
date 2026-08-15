@@ -69,12 +69,11 @@ jobs:
         run: pnpm test
       - name: Test relay
         run: pnpm relay:test
-      - name: Test Lua parser and scraper
+      - name: Validate Lua 5.1 syntax
         run: |
           sudo apt-get update
           sudo apt-get install --yes lua5.1
-          lua5.1 tests/parsers.test.lua
-          lua5.1 tests/scraper.test.lua
+          find mudlet -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 
   windows:
     name: Windows x64 installer

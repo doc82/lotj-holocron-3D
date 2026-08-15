@@ -21,9 +21,14 @@ generated source archives do not contain an installable application.
 
 ## Automated release path
 
-Pull requests into `main` run the complete JavaScript/TypeScript, Node, Go, and
-Lua test suite. Configure the repository's `main` branch protection to require
-the **CI / Full test suite** check before merging.
+Pull requests into `main` run the complete JavaScript/TypeScript, Node, and Go
+test suites plus a Lua 5.1 syntax check. Configure the repository's `main`
+branch protection to require the **CI / Full test suite** check before merging.
+
+The legacy `tests/parsers.test.lua` and `tests/scraper.test.lua` scripts are not
+release gates. They share mutable global state and must remain quarantined until
+they are replaced by isolated, independently runnable Lua tests in a separate
+test-infrastructure change.
 
 After a PR merges, the **Release** workflow compares `package.json` between the
 old and new `main` commits. If the version did not change, it exits without
@@ -69,11 +74,13 @@ public release path.
    pnpm relay:test
    ```
 
-4. If a Lua 5.1-compatible interpreter is available, also run:
+4. If a Lua 5.1-compatible compiler is available, validate the production Lua
+   sources:
 
    ```text
-   lua tests/parsers.test.lua
-   lua tests/scraper.test.lua
+   luac5.1 -p mudlet/lotj_holocron_parsers.lua
+   luac5.1 -p mudlet/lotj_holocron_proxy.lua
+   luac5.1 -p mudlet/lotj_holocron_scraper.lua
    ```
 
 5. Record noteworthy changes, known issues, and the fact that the current

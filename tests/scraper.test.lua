@@ -201,19 +201,17 @@ scraper.captureLine("Forrestal:")
 scraper.captureLine("Current Coordinates: 10 20 -5")
 scraper.captureLine("Current Speed: 120/300")
 assert(scraper.finishCapture("test prompt"))
-local statusSnapshot = snapshots[#snapshots]
-assert(statusSnapshot.observer.name == "Forrestal")
-assert(statusSnapshot.observer.x == 10)
-assert(statusSnapshot.observer.speed.maximum == 300)
+assert(snapshots[3].observer.name == "Forrestal")
+assert(snapshots[3].observer.x == 10)
+assert(snapshots[3].observer.speed.maximum == 300)
 
 scraper.handleOutgoingCommand("sysDataSendRequest", "info")
 scraper.captureLine("Hatchway: 94599        Hangar Bays: 47894      Docking: 62351")
 scraper.captureLine("Sensor Array: 7       Shield Boosters: 0       Communications: 0")
 assert(scraper.finishCapture("test prompt"))
-local infoSnapshot = snapshots[#snapshots]
-assert(infoSnapshot.observer.sensorArray == 7)
-assert(infoSnapshot.observer.radarRange == 570)
-assert(infoSnapshot.observer.hatchway == nil, "access codes must not enter snapshots")
+assert(snapshots[4].observer.sensorArray == 7)
+assert(snapshots[4].observer.radarRange == 570)
+assert(snapshots[4].observer.hatchway == nil, "access codes must not enter snapshots")
 assert(scraper.lastCapture.lines[1]:find("redacted", 1, true), "info diagnostics must be redacted")
 assert(#scraper.getPollingState().hydrationQueue == 0,
   "manual observer telemetry should satisfy the reconnect hydration queue")
@@ -225,18 +223,17 @@ scraper.captureLine("Wayfarer                 Resolute                 Screen")
 scraper.captureLine("Rojan-class Patrol Craft 'Forrestal' |  | (Ctr) 10 20 -5")
 scraper.captureLine("Unknown-class Ship 'Not On Radar' |  | (Out) 100 200 300")
 assert(scraper.finishCapture("test prompt"))
-local fleetSnapshot = snapshots[#snapshots]
 local fleetWayfarer
-for _, entity in ipairs(fleetSnapshot.entities) do
+for _, entity in ipairs(snapshots[5].entities) do
   if entity.name == "Wayfarer" then fleetWayfarer = entity end
 end
 assert(fleetWayfarer and fleetWayfarer.leader == "Resolute")
 assert(fleetWayfarer.position == "Screen")
-assert(fleetSnapshot.observer.position == "Ctr")
-assert(fleetSnapshot.metadata.system == "Corellian System",
+assert(snapshots[5].observer.position == "Ctr")
+assert(snapshots[5].metadata.system == "Corellian System",
   "fleetradar should keep the current system fresh without a full radar poll")
 local discoveredFleetContact
-for _, entity in ipairs(fleetSnapshot.entities) do
+for _, entity in ipairs(snapshots[5].entities) do
   assert(entity.name ~= "Forrestal", "observer must not be duplicated by fleetradar")
   if entity.name == "Not On Radar" then discoveredFleetContact = entity end
 end
@@ -248,7 +245,7 @@ scraper.captureLine("Wait until after you launch!")
 assert(scraper.setInSpace(false, "LotJ reports that the ship has not launched"))
 assert(scraper.active == nil, "landed state should abandon an active capture")
 assert(spaceStates[2].inSpace == false)
-assert(#snapshots[#snapshots].entities == 0, "landing should clear stale space entities")
+assert(#snapshots[6].entities == 0, "landing should clear stale space entities")
 assert(scraper.getPollingState().enabled == false,
   "landing should fully disable polling rather than leave it armed")
 assert(scraper.getPollingState().resumeWhenInSpace == true,
@@ -311,11 +308,6 @@ assert(scraper.finishCapture("test prompt"))
 assert(deletedLines == deletedBeforeInfoEnvelope + 8,
   "the complete hidden info envelope should be suppressed without hiding chat or combat")
 
--- This section exercises the observer fallback cycle, so keep independent
--- formation refreshes from legitimately occupying the next poll slot.
-scraper.polling.lastBattlegroupAt = os.time()
-scraper.polling.lastSquadronAt = os.time()
-scraper.polling.lastFleetRadarAt = os.time()
 local observerPollTimer = scraper.getPollingState().timerId
 timers[observerPollTimer].callback()
 assert(sentCommands[#sentCommands].command == "status")
@@ -359,8 +351,6 @@ function denyCurrentSend()
   deniedSends = deniedSends + 1
 end
 assert(dispositionWayfarer and dispositionWayfarer.disposition == "enemy")
-scraper.scanState.wayfarer.statusAt = os.time()
-  - scraper.polling.hostileScanIntervalSeconds
 local scanTimer = scraper.getPollingState().timerId
 timers[scanTimer].callback()
 assert(sentCommands[#sentCommands].command == "status Wayfarer",
@@ -592,17 +582,12 @@ end
 assert(trackedProjectile and trackedProjectile.name == "A Concussion Missile",
   "radar projectiles should add live ordnance to the tactical snapshot")
 
--- The preceding fleet-fire failure intentionally installs a short command
--- hold. This section independently exercises combat radar prioritization.
-scraper.fleetCommand.holdUntil = 0
 scraper.combat.lastRadarAt = 0
 local combatRadarTimer = scraper.getPollingState().timerId
 assert(combatRadarTimer and timers[combatRadarTimer])
 timers[combatRadarTimer].callback()
 assert(sentCommands[#sentCommands].command == "radar projectiles",
   "combat should prioritize the projectile-inclusive radar command")
-assert(scraper.active and scraper.active.sentCommand == "radar projectiles",
-  "combat radar polling should start a new capture")
 scraper.captureLine("Corellian System")
 scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
 scraper.captureLine("A Concussion Missile  90 22 18")

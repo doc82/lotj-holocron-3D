@@ -473,12 +473,13 @@ changing security policy until that environment information has been captured.
 | `pnpm make:mac:arm64` | Build the Apple Silicon application and DMG on macOS. |
 | `pnpm make:mac:x64` | Build the Intel application and DMG on macOS. |
 
-Lua parser and scraper fixtures can also be run with a Lua 5.1-compatible
-interpreter:
+Production Lua sources can be syntax-checked with a Lua 5.1-compatible
+compiler:
 
 ```text
-lua tests/parsers.test.lua
-lua tests/scraper.test.lua
+luac5.1 -p mudlet/lotj_holocron_parsers.lua
+luac5.1 -p mudlet/lotj_holocron_proxy.lua
+luac5.1 -p mudlet/lotj_holocron_scraper.lua
 ```
 
 ### Build artifacts
