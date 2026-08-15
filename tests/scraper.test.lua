@@ -592,12 +592,17 @@ end
 assert(trackedProjectile and trackedProjectile.name == "A Concussion Missile",
   "radar projectiles should add live ordnance to the tactical snapshot")
 
+-- The preceding fleet-fire failure intentionally installs a short command
+-- hold. This section independently exercises combat radar prioritization.
+scraper.fleetCommand.holdUntil = 0
 scraper.combat.lastRadarAt = 0
 local combatRadarTimer = scraper.getPollingState().timerId
 assert(combatRadarTimer and timers[combatRadarTimer])
 timers[combatRadarTimer].callback()
 assert(sentCommands[#sentCommands].command == "radar projectiles",
   "combat should prioritize the projectile-inclusive radar command")
+assert(scraper.active and scraper.active.sentCommand == "radar projectiles",
+  "combat radar polling should start a new capture")
 scraper.captureLine("Corellian System")
 scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
 scraper.captureLine("A Concussion Missile  90 22 18")
