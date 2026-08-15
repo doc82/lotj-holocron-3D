@@ -2,15 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("pull requests run portable tests and Lua syntax checks with explicit pnpm setup", async () => {
+test("pull requests run isolated Lua behavior tests with explicit pnpm setup", async () => {
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
   assert.match(workflow, /pull_request:/);
   assert.match(workflow, /pnpm\/action-setup@v6/);
   assert.match(workflow, /pnpm check/);
   assert.match(workflow, /pnpm test/);
   assert.match(workflow, /pnpm relay:test/);
-  assert.match(workflow, /luac5\.1 -p/);
-  assert.doesNotMatch(workflow, /lua5\.1 tests\/(?:parsers|scraper)\.test\.lua/);
+  assert.match(workflow, /pnpm test:lua/);
   assert.doesNotMatch(workflow, /corepack/);
 });
 
@@ -24,8 +23,7 @@ test("main version bumps gate release publication on tests and all installers", 
   assert.match(workflow, /x64\.dmg/);
   assert.match(workflow, /Holocron3D\.mpackage/);
   assert.match(workflow, /SHA256SUMS\.txt/);
-  assert.match(workflow, /luac5\.1 -p/);
-  assert.doesNotMatch(workflow, /lua5\.1 tests\/(?:parsers|scraper)\.test\.lua/);
+  assert.match(workflow, /pnpm test:lua/);
   assert.match(workflow, /muddle-shadow-\$env:MUDDLER_VERSION/);
   assert.match(workflow, /--strip-components=1/);
   assert.doesNotMatch(workflow, /\$home\s*=/i);
