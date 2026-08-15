@@ -311,6 +311,11 @@ assert(scraper.finishCapture("test prompt"))
 assert(deletedLines == deletedBeforeInfoEnvelope + 8,
   "the complete hidden info envelope should be suppressed without hiding chat or combat")
 
+-- This section exercises the observer fallback cycle, so keep independent
+-- formation refreshes from legitimately occupying the next poll slot.
+scraper.polling.lastBattlegroupAt = os.time()
+scraper.polling.lastSquadronAt = os.time()
+scraper.polling.lastFleetRadarAt = os.time()
 local observerPollTimer = scraper.getPollingState().timerId
 timers[observerPollTimer].callback()
 assert(sentCommands[#sentCommands].command == "status")
