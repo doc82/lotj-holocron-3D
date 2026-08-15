@@ -9,6 +9,7 @@ export interface CombatEvent {
   type: "launch" | "impact" | "charged" | "failure";
   weapon: WeaponType;
   targetName?: string;
+  sourceName?: string;
   count?: number;
   outcome?: "hit" | "miss";
   reason?: string;
@@ -42,6 +43,7 @@ export interface Observer extends TelemetryEntity {
   sensorArray?: number;
   radarRange?: number;
   autotrack?: boolean;
+  autopilot?: boolean;
   hasWeapons?: boolean;
   weapons?: Record<string, number>;
 }
@@ -49,6 +51,62 @@ export interface Observer extends TelemetryEntity {
 export interface PollingState {
   enabled?: boolean;
   command?: string;
+}
+
+export interface FleetMember {
+  id: string;
+  name: string;
+  class?: string;
+  shipCategory?: string;
+  role?: "leader" | "lead" | "wing";
+  leader?: boolean;
+  slot?: number;
+  position?: string;
+  hull?: SpeedReading;
+  shields?: SpeedReading;
+  energy?: SpeedReading;
+  crew?: number;
+  system?: string;
+  location?: string;
+  galaxy?: { x?: number; y?: number };
+  presence?: "active" | "landed" | "missing";
+  autopilot?: boolean;
+  autopilotStatus?: string;
+}
+
+export interface FleetStatus {
+  kind: "battlegroup" | "squadron";
+  active: boolean;
+  role?: "commander" | "member" | "lead" | "wing";
+  leaderId?: string;
+  memberCount?: number;
+  assist?: boolean;
+  aimSystem?: string;
+  observedAt?: number;
+  members: FleetMember[];
+}
+
+export interface FleetOrderMemberResult {
+  name: string;
+  status: "awaiting" | "accepted" | "rejected";
+  reason?: string;
+  observedAt?: number;
+  autopilot?: boolean;
+}
+
+export interface FleetOrderStatus {
+  id?: number;
+  order?: string;
+  weapon?: WeaponType | "all";
+  scope?: string;
+  status?: "transmitted" | "awaiting" | "accepted" | "partial" | "rejected";
+  reason?: string;
+  commandCount?: number;
+  acceptedCount?: number;
+  rejectedCount?: number;
+  pendingCount?: number;
+  results?: Record<string, FleetOrderMemberResult>;
+  observedAt?: number;
 }
 
 export interface GalaxyPlanet {
@@ -136,6 +194,12 @@ export interface SystemSnapshot {
         travelTimeSeconds?: number;
         fuelPercent?: number;
       }>;
+    };
+    fleet?: FleetStatus;
+    fleetOrder?: FleetOrderStatus;
+    formations?: {
+      battlegroup?: FleetStatus;
+      squadron?: FleetStatus;
     };
     [key: string]: unknown;
   };

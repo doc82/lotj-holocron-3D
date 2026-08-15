@@ -142,6 +142,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const colocatedContacts = new Map<string, ScenePoint[]>();
   for (const contact of contacts) {
+    if (contact.kind === "projectile") continue;
     const key = contact.worldPosition.join(":");
     const members = colocatedContacts.get(key) ?? [];
     members.push(contact);
@@ -215,6 +216,11 @@ function lerpVector(from: Vector3, to: Vector3, amount: number): Vector3 {
   return from.map((value, index) => value + (to[index] - value) * amount) as Vector3;
 }
 
+export function easeOutCubic(progress: number): number {
+  const clamped = clamp(progress, 0, 1);
+  return 1 - (1 - clamped) ** 3;
+}
+
 export function scenesHaveMotion(previous: TacticalScene | null, next: TacticalScene): boolean {
   if (!previous || previous.points.length !== next.points.length) return true;
   const previousById = new Map(previous.points.map((point) => [point.id, point]));
@@ -248,7 +254,7 @@ export class SceneInterpolator {
 
   sample(now: number): TacticalScene {
     const linear = this.duration === 0 ? 1 : clamp((now - this.startedAt) / this.duration, 0, 1);
-    const amount = linear * linear * (3 - 2 * linear);
+    const amount = easeOutCubic(linear);
     return {
       ...this.target,
       radius: this.startRadius + (this.target.radius - this.startRadius) * amount,

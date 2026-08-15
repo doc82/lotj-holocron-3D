@@ -31,7 +31,8 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(planner, /ACQUIRING RANGE DATA/);
   assert.match(planner, /ACQUIRING GALAXY CATALOG/);
   assert.match(planner, /catalogPending/);
-  assert.match(planner, /YOU \/\/ \{currentGalaxy\.x\} \/ \{currentGalaxy\.y\}/);
+  assert.match(planner, /occupiedSystem \? `YOU \/\/ \$\{occupiedSystem\.name\}` : "YOU"/);
+  assert.match(planner, /system === occupiedSystem/);
   assert.match(planner, /styles\.galaxyPosition/);
   assert.match(planner, /normalized|Math\.cos/);
   assert.match(planner, /event\.shiftKey/);

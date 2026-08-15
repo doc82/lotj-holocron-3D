@@ -180,10 +180,13 @@ Lifeforms detected: Need 50 sensors to scan for lifeforms.
 Hull: 4200/4200  Ship Condition: Running
 Shields: 4000/4200  Energy(fuel): 37500/37500
 Primary Target: none
+Autopilot Status: Offline
 ]]))
 equal(remoteStatus.lifeformScan.available, false)
 equal(remoteStatus.lifeformScan.requiredSensors, 50)
 equal(remoteStatus.target, "none")
+equal(remoteStatus.autopilot, false)
+equal(remoteStatus.autopilotStatus, "Offline")
 
 local fleet = assert(parsers.parseFleetRadar([[
 Ship                     Squadron Leader          Position
@@ -225,6 +228,57 @@ equal(groupedFleet.entities[2].leader, "Verdandi")
 equal(groupedFleet.entities[2].position, "Ctr")
 equal(groupedFleet.entities[3].position, "Mid")
 equal(groupedFleet.observer.x, 0)
+
+local battlegroup = assert(parsers.parse("battlegroup", [[
+[ L ] Battleship   :MC-90 Star Cruiser 'Azure Vanguard' -<Pos:Central>-
+ Energy: 100%|Hull: 91%|Shields: 73%|Crew: 001|System: Corellian System 2/19
+[001] Cruiser      :Thranta-Class Light Cruiser 'Cerulean Spear' -<Pos:Outer>-
+ Energy: 88%|Hull: 76%|Shields: 54%|Crew: 000|System: Corellian System 2/19
+[002] Cruiser      :Thranta-Class Light Cruiser 'Sapphire Bastion' -<Pos:Midguard>-
+ Energy: 100%|Hull: 100%|Shields: 100%|Crew: 000|System: Corellian System 2/19
+]]))
+equal(battlegroup.fleet.kind, "battlegroup")
+equal(battlegroup.fleet.memberCount, 3)
+equal(battlegroup.fleet.members[1].leader, true)
+equal(battlegroup.fleet.members[1].class, "MC-90 Star Cruiser")
+equal(battlegroup.fleet.members[1].shipCategory, "Battleship")
+equal(battlegroup.fleet.members[1].hull.current, 91)
+equal(battlegroup.fleet.members[2].slot, 1)
+equal(battlegroup.fleet.members[2].position, "Outer")
+equal(battlegroup.fleet.members[2].crew, 0)
+equal(battlegroup.fleet.members[2].galaxy.x, 2)
+
+local emptyPositionBattlegroup = assert(parsers.parse("battlegroup", [[
+[ L ] Battleship   :Imperial-II Class Star Destroyer 'TeeHee' -<Pos:Central>-
+ Energy: 100%|Hull: 100%|Shields: 100%|Crew: 001|System: Esstran Sector 92/12
+[001] Cruiser      :Victory-II Class Star Destroyer 'ReeHeeHee' -<Pos:>-
+ Energy: 100%|Hull: 100%|Shields: 100%|Crew: 000|System: Esstran Sector 92/12
+]]))
+equal(emptyPositionBattlegroup.fleet.memberCount, 2)
+equal(emptyPositionBattlegroup.fleet.members[2].name, "ReeHeeHee")
+equal(emptyPositionBattlegroup.fleet.members[2].position, "")
+equal(emptyPositionBattlegroup.fleet.members[2].hull.current, 100)
+
+local squadron = assert(parsers.parse("squadron status", [[
+Lead: TIE/S Striker 'Wrecker01'
+      Energy: 97%   Shield: 100%   Hull: 100%   Location: Kanz Sector
+TIE/S Striker 'Wrecker10'
+      Energy: 67%   Shield: 67%   Hull: 100%   Location: Kanz Sector
+Squadron Fire Assist: Active        Systems Target: Laser
+]]))
+equal(squadron.fleet.kind, "squadron")
+equal(squadron.fleet.memberCount, 2)
+equal(squadron.fleet.members[1].role, "lead")
+equal(squadron.fleet.members[2].role, "wing")
+equal(squadron.fleet.members[2].energy.current, 67)
+equal(squadron.fleet.members[2].location, "Kanz Sector")
+equal(squadron.fleet.assist, true)
+equal(squadron.fleet.aimSystem, "Laser")
+
+local noSquadron = assert(parsers.parse("squadron status",
+  "You are not currently part of a squadron."))
+equal(noSquadron.fleet.active, false)
+equal(#noSquadron.fleet.members, 0)
 
 local dispatched = assert(parsers.parse("proximity speed", "Wayfarer  75"))
 equal(dispatched.source, "prox_velocity")

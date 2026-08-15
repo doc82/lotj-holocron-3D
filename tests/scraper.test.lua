@@ -111,7 +111,7 @@ assert(scraper.setup(proxy))
 assert(scraper.startProfiler(), "profiler should start on demand")
 assert(#scraper.eventHandlerIds == 5,
   "expected outgoing-command, ship, galaxy, and GMCP protocol listeners")
-assert(#scraper.stateTriggerIds == 17,
+assert(#scraper.stateTriggerIds == 18,
   "expected space, piloting, maneuver, targeting, autotrack, and hyperspace triggers")
 assert(gmcpRequests[1].command == "Core.Supports.Add"
     and gmcpRequests[1].payload == '["Ship 1"]',
@@ -495,10 +495,70 @@ assert(snapshots[#snapshots].metadata.combatEvent.type == "launch")
 assert(snapshots[#snapshots].metadata.combatEvent.targetName == "Wayfarer")
 assert(snapshots[#snapshots].metadata.combatEvent.id == immediateMissileEventId,
   "the detailed missile line must not duplicate the immediate launch animation")
+scraper.combat.lastLaunchAt = 0
+scraper.fleetCommand.currentMemberName = "TeeHee"
+assert(scraper.handleCombatLine("Rocket launched."))
+local teeHeeLaunch = snapshots[#snapshots].metadata.combatEvent
+assert(teeHeeLaunch.sourceName == "TeeHee")
+scraper.fleetCommand.currentMemberName = "ReeHeeHee"
+assert(scraper.handleCombatLine("Rocket launched."))
+local reeHeeLaunch = snapshots[#snapshots].metadata.combatEvent
+assert(reeHeeLaunch.id > teeHeeLaunch.id and reeHeeLaunch.sourceName == "ReeHeeHee",
+  "identical fleet weapons launched by different ships need distinct source flashes")
+scraper.state.metadata.fleetOrder = {
+  id = 99, order = "fire", weapon = "torpedo", status = "awaiting",
+  observedAt = os.time(), pendingCount = 1, results = {
+    ReeHeeHee = {name = "ReeHeeHee", status = "awaiting"},
+  },
+}
+scraper.fleetCommand.currentMemberName = "ReeHeeHee"
+assert(scraper.handleCombatLine("You fail to lock on to your target!"))
+local failedFleetShot = snapshots[#snapshots].metadata.combatEvent
+assert(failedFleetShot.type == "failure" and failedFleetShot.weapon == "torpedo"
+    and failedFleetShot.sourceName == "ReeHeeHee",
+  "failed fleet launcher locks must retain their ship and projectile type")
+assert(scraper.state.metadata.fleetOrder.results.ReeHeeHee.status == "rejected"
+    and scraper.state.metadata.fleetOrder.rejectedCount == 1,
+  "a failed lock must reject only that ship's fire order")
 assert(scraper.handleCombatLine(
-  "Your ship's missile hits Mark-I Assault Frigate 'Wayfarer' dead on!"))
+  "Your ship's missile hits Mark-I Assault Frigate 'Wayfarer' dead on! [x2]"))
 assert(snapshots[#snapshots].metadata.combatEvent.outcome == "hit")
+assert(snapshots[#snapshots].metadata.combatEvent.count == 2,
+  "Mudlet repeat counts must produce one confirmed impact pulse per hit")
+local missileImpactId = snapshots[#snapshots].metadata.combatEvent.id
+assert(scraper.handleCombatLine(
+  "You see a large explosion as Mark-I Assault Frigate 'Wayfarer' is hit by a missile."))
+assert(snapshots[#snapshots].metadata.combatEvent.id == missileImpactId,
+  "the descriptive explosion line must not duplicate the projectile impact")
+assert(scraper.handleCombatLine(
+  "An ion blast from Victory-II Class Star Destroyer 'ReeHeeHee' hits Mark-I Assault Frigate 'Wayfarer'. [x5]"))
+local wingImpact = snapshots[#snapshots].metadata.combatEvent
+assert(wingImpact.type == "impact" and wingImpact.weapon == "ion"
+    and wingImpact.sourceName == "ReeHeeHee" and wingImpact.targetName == "Wayfarer"
+    and wingImpact.count == 5 and wingImpact.outcome == "hit",
+  "explicit wing-ship hit confirmations must retain source and repeated hit count")
+assert(scraper.handleCombatLine(
+  "An ion blast from Victory-II Class Star Destroyer 'ReeHeeHee' barely misses Mark-I Assault Frigate 'Wayfarer'."))
+assert(snapshots[#snapshots].metadata.combatEvent.outcome == "miss",
+  "explicit wing-ship misses must not be rendered as hits")
+local reconcileTimer = scraper.combat.projectileReconcileTimerId
+assert(reconcileTimer and timers[reconcileTimer],
+  "projectile impacts should schedule an immediate radar reconciliation")
+local commandsBeforeImpactRadar = #sentCommands
+timers[reconcileTimer].callback()
+assert(#sentCommands == commandsBeforeImpactRadar + 1
+    and sentCommands[#sentCommands].command == "radar projectiles",
+  "impact reconciliation should immediately request radar projectiles")
+scraper.captureLine("Corellian System")
+scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
+scraper.captureLine("Your Coordinates:  20 30 40")
+assert(scraper.finishCapture("impact projectile reconciliation"))
+for _, entity in ipairs(snapshots[#snapshots].entities) do
+  assert(entity.kind ~= "projectile",
+    "projectiles missing after an impact reconciliation must leave the snapshot")
+end
 
+scraper.combat.projectileRadarRequestedAt = 0
 local commandsBeforeProjectileRadar = #sentCommands
 assert(scraper.handleProjectileSummary("1 projectiles, 0 incoming (See radar projectiles)"))
 assert(#sentCommands == commandsBeforeProjectileRadar + 1)
@@ -527,6 +587,43 @@ scraper.captureLine("YT-1300 'Wayfarer'  200 30 40")
 scraper.captureLine("A Concussion Missile  90 22 18")
 scraper.captureLine("Your Coordinates:  20 30 40")
 assert(scraper.finishCapture("test prompt"))
+
+local function projectileIdsByX()
+  local ids = {}
+  for _, entity in pairs(scraper.state.entities) do
+    if entity.kind == "projectile" then ids[entity.x] = entity.id end
+  end
+  return ids
+end
+
+assert(scraper.applyResult(assert(parsers.parse("radar projectiles", [[
+Corellian System
+A Heavy Rocket  100 0 0
+A Heavy Rocket  200 0 0
+Your Coordinates: 0 0 0
+]])), "radar projectiles"))
+local initialRocketIds = projectileIdsByX()
+assert(initialRocketIds[100] and initialRocketIds[200]
+    and initialRocketIds[100] ~= initialRocketIds[200],
+  "identical projectiles must receive distinct tracking identities")
+assert(scraper.applyResult(assert(parsers.parse("radar projectiles", [[
+Corellian System
+A Heavy Rocket  80 0 0
+A Heavy Rocket  180 0 0
+Your Coordinates: 0 0 0
+]])), "radar projectiles"))
+local movingRocketIds = projectileIdsByX()
+assert(movingRocketIds[80] == initialRocketIds[100]
+    and movingRocketIds[180] == initialRocketIds[200],
+  "projectile identities must follow their motion rather than radar row order")
+assert(scraper.applyResult(assert(parsers.parse("radar projectiles", [[
+Corellian System
+A Heavy Rocket  160 0 0
+Your Coordinates: 0 0 0
+]])), "radar projectiles"))
+local survivingRocketIds = projectileIdsByX()
+assert(survivingRocketIds[160] == initialRocketIds[200],
+  "a surviving projectile must not inherit an exploded projectile's identity")
 
 assert(type(intentHandlers.scan_ship) == "function", "manual ship scan intent should be registered")
 local inspected, inspectError = intentHandlers.scan_ship({
@@ -641,6 +738,121 @@ assert(type(intentHandlers.recharge_shields) == "function",
   "manual shield recharge intent should be registered")
 assert(type(intentHandlers.set_auto_recharge) == "function",
   "automatic shield recharge toggle should be registered")
+assert(type(intentHandlers.fleet_order) == "function",
+  "fleet command orchestration intent should be registered")
+scraper.state.metadata.fleetOrder = {
+  id = 1, order = "navigate", scope = "wings", status = "transmitted",
+  observedAt = os.time(), results = {},
+}
+assert(scraper.handleFleetCommandLine(
+  "Sending command to Imperial-II Class Star Destroyer 'TeeHee'..."))
+assert(scraper.handleFleetCommandLine("New course set, approaching 0 0 0."))
+assert(scraper.state.metadata.fleetOrder.results.TeeHee.status == "accepted")
+assert(scraper.handleFleetCommandLine(
+  "Sending command to Victory-II Class Star Destroyer 'ReeHeeHee'..."))
+assert(scraper.handleFleetCommandLine(
+  "You'll have to disengage the ship's autopilot first."))
+assert(scraper.state.metadata.fleetOrder.results.ReeHeeHee.status == "rejected")
+assert(scraper.state.metadata.fleetOrder.status == "partial"
+    and scraper.state.metadata.fleetOrder.acceptedCount == 1
+    and scraper.state.metadata.fleetOrder.rejectedCount == 1,
+  "fleet movement should expose per-ship partial failures")
+scraper.state.observer.name = "TeeHee"
+scraper.state.metadata.fleet = {
+  kind = "battlegroup", active = true, role = "commander", members = {
+    {id = "teehee", name = "TeeHee", leader = true, role = "leader"},
+    {id = "reeheehee", name = "ReeHeeHee", leader = false, role = "wing", slot = 1},
+  },
+}
+scraper.state.metadata.formations.battlegroup = scraper.state.metadata.fleet
+scraper.state.observer.hasWeapons = true
+scraper.state.observer.weapons = {turbolasers = 7, ionCannons = 2}
+local fleetTargeted, fleetTargetError = intentHandlers.fleet_order({
+  order = "target", scope = "all", targetId = "wayfarer",
+})
+assert(fleetTargeted, fleetTargetError)
+assert(sentCommands[#sentCommands].command == "battlegroup target all Wayfarer",
+  "all-fleet targeting must use only the battlegroup target channel")
+assert(scraper.state.metadata.combatTarget == "Wayfarer")
+
+local fireStart = #sentCommands
+local fleetFired, fleetFireError = intentHandlers.fleet_order({
+  order = "fire", scope = "all", weapon = "all",
+})
+assert(fleetFired, fleetFireError)
+local sawFleetTurbolaser, sawFleetIon = false, false
+for index = fireStart + 1, #sentCommands do
+  local command = sentCommands[index].command
+  assert(command:find("battlegroup nav all ", 1, true) == 1,
+    "fire-all must never fall through to a direct cockpit fire command")
+  if command == "battlegroup nav all fire turbolaser" then sawFleetTurbolaser = true end
+  if command == "battlegroup nav all fire ion" then sawFleetIon = true end
+end
+assert(sawFleetTurbolaser and sawFleetIon,
+  "fire-all should preserve every known installed flagship weapon")
+
+scraper.state.metadata.fleetOrder = {
+  id = 90, order = "fire", weapon = "ion", scope = "all", status = "transmitted",
+  observedAt = os.time(), results = {},
+}
+assert(scraper.handleFleetCommandLine(
+  "Sending command to Imperial-II Class Star Destroyer 'TeeHee'..."))
+assert(scraper.handleCombatLine("2 ion cannons fired..."))
+assert(scraper.handleFleetCommandLine(
+  "Sending command to Victory-II Class Star Destroyer 'ReeHeeHee'..."))
+assert(scraper.handleCombatLine("2 ion cannons fired..."))
+local fleetIonEvents = scraper.state.metadata.combatEvents
+assert(fleetIonEvents[#fleetIonEvents - 1].sourceName == "TeeHee"
+    and fleetIonEvents[#fleetIonEvents].sourceName == "ReeHeeHee",
+  "each battlegroup energy volley must retain its own firing ship")
+
+local localFired, localFireError = intentHandlers.fleet_order({
+  order = "fire", scope = "local", weapon = "best",
+})
+assert(localFired, localFireError)
+assert(sentCommands[#sentCommands].command == "battlegroup nav TeeHee fire",
+  "local flagship fire should still travel through battlegroup nav")
+
+local selectedWingFired, selectedWingFireError = intentHandlers.fleet_order({
+  order = "fire", scope = "selected", weapon = "ion",
+  memberId = "reeheehee", memberName = "ReeHeeHee",
+})
+assert(selectedWingFired, selectedWingFireError)
+assert(sentCommands[#sentCommands].command == "battlegroup nav ReeHeeHee fire ion",
+  "a selected battlegroup member must receive its specific weapon order directly")
+
+local toggledFleet, toggleFleetError = intentHandlers.fleet_order({
+  order = "autopilot", scope = "all",
+})
+assert(toggledFleet, toggleFleetError)
+assert(sentCommands[#sentCommands].command == "battlegroup nav all autopilot",
+  "all-fleet autopilot must not also toggle the local flagship a second time")
+assert(sentCommands[#sentCommands - 1].command ~= "autopilot",
+  "all-fleet orders already include the flagship")
+assert(scraper.handleFleetCommandLine(
+  "Sending command to Imperial-II Class Star Destroyer 'TeeHee'..."))
+assert(scraper.handleFleetCommandLine("Autopilot ON."))
+assert(scraper.handleFleetCommandLine(
+  "Sending command to Victory-II Class Star Destroyer 'ReeHeeHee'..."))
+assert(scraper.handleFleetCommandLine("Autopilot OFF."))
+assert(scraper.state.metadata.fleet.members[1].autopilot == true)
+assert(scraper.state.metadata.fleet.members[2].autopilot == false)
+assert(scraper.state.metadata.fleetOrder.status == "accepted"
+    and scraper.state.metadata.fleetOrder.pendingCount == 0,
+  "explicit ON/OFF responses should complete every fleet tile")
+
+local toggledWing, toggleWingError = intentHandlers.fleet_order({
+  order = "autopilot", scope = "wings",
+})
+assert(toggledWing, toggleWingError)
+assert(sentCommands[#sentCommands].command == "battlegroup nav 1 autopilot",
+  "wing-only toggles must not include the flagship")
+local verificationTimer = scraper.fleetCommand.verificationTimerId
+assert(verificationTimer and timers[verificationTimer])
+timers[verificationTimer].callback()
+assert(scraper.polling.hydrationQueue[1] == "status ReeHeeHee",
+  "a missed toggle response should queue an authoritative targeted status")
+scraper.polling.hydrationQueue = {}
 scraper.pendingCommandKind = nil
 scraper.state.observer.shields = {current = 40, maximum = 100}
 local recharging, rechargeError = intentHandlers.recharge_shields({}, {id = "recharge-test-1"})

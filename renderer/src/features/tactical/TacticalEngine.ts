@@ -85,6 +85,7 @@ const STRATEGIC_DOT_PPU = 0.95;
 const MODEL_DETAIL_PPU = 2.25;
 
 export type TacticalFidelity = "strategic" | "transition" | "model";
+export type TacticalCameraMode = "player" | "rts" | "selection";
 
 export interface TacticalTooltip {
   name: string;
@@ -115,21 +116,40 @@ export interface CourseLabel {
   y: number;
 }
 
+export interface PlayerShipLabel {
+  x: number;
+  y: number;
+}
+
 export interface TacticalEngineCallbacks {
   onSelect(id: string | null): void;
   onTooltip(tooltip: TacticalTooltip | null): void;
   onClusterLabels(labels: ClusterLabel[]): void;
   onCourseLabel(label: CourseLabel | null): void;
+  onPlayerShipLabel(label: PlayerShipLabel | null): void;
   onFidelityChange(mode: TacticalFidelity): void;
+  onCameraModeChange(mode: TacticalCameraMode): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
   onMovementCancel(): void;
 }
 
 interface DragState { x: number; y: number; moved: boolean; button: number }
+interface SavedCameraState {
+  mode: TacticalCameraMode;
+  targetId: string | null;
+  focus: Vector3;
+  freeFocusWorld: Vector3;
+  yaw: number;
+  pitch: number;
+  distance: number;
+  targetYaw: number;
+  targetPitch: number;
+  targetDistance: number;
+}
 interface CombatEffect {
   id: number;
-  type: "projectile" | "impact";
+  type: "projectile" | "launch" | "impact";
   weapon: WeaponType;
   targetName: string;
   start: number;
@@ -200,12 +220,19 @@ export class TacticalEngine {
   private disposed = false;
   private clusterLabelSignature = "";
   private courseLabelSignature = "";
+  private playerShipLabelSignature = "";
   private markerScale = 1;
   private markerReferencePixelsPerUnit = 1;
   private fidelity: TacticalFidelity = "strategic";
   private movementActive = false;
   private movementInteractive = false;
   private movementVector: Vector3 = [100, 0, 0];
+  private movementOrigins: Vector3[] = [[0, 0, 0]];
+  private cameraMode: TacticalCameraMode = "player";
+  private cameraTargetId: string | null = null;
+  private cameraFocus: Vector3 = [0, 0, 0];
+  private freeFocusWorld: Vector3 = [0, 0, 0];
+  private savedCameraState: SavedCameraState | null = null;
   private combatEffects: CombatEffect[] = [];
   private lastCombatEventId = 0;
 
@@ -327,6 +354,70 @@ export class TacticalEngine {
     this.requestRender();
   }
 
+  setCameraMode(mode: TacticalCameraMode, targetId?: string): void {
+    if (mode === "selection" && !this.findPointById(targetId)) return;
+    if (mode === "rts" && this.cameraMode !== "rts") {
+      this.freeFocusWorld = this.cameraFocus.map(
+        (value, index) => value - this.originOffset[index],
+      ) as Vector3;
+    }
+    this.cameraMode = mode;
+    this.cameraTargetId = mode === "selection" ? targetId || null : null;
+    this.callbacks.onCameraModeChange(mode);
+    this.requestRender();
+  }
+
+  beginMovementPlanning(vector: Vector3, interactive: boolean, origins: Vector3[] = [[0, 0, 0]]): void {
+    if (!this.savedCameraState) {
+      this.savedCameraState = {
+        mode: this.cameraMode,
+        targetId: this.cameraTargetId,
+        focus: [...this.cameraFocus],
+        freeFocusWorld: [...this.freeFocusWorld],
+        yaw: this.camera.yaw,
+        pitch: this.camera.pitch,
+        distance: this.camera.distance,
+        targetYaw: this.camera.targetYaw,
+        targetPitch: this.camera.targetPitch,
+        targetDistance: this.camera.targetDistance,
+      };
+    }
+    this.movementOrigins = this.uniqueOrigins(origins);
+    this.movementActive = true;
+    this.movementInteractive = interactive;
+    this.movementVector = [...vector];
+    const center = this.movementCenter();
+    this.cameraMode = "rts";
+    this.cameraTargetId = null;
+    this.freeFocusWorld = center.map((value, index) => value - this.originOffset[index]) as Vector3;
+    this.callbacks.onCameraModeChange("rts");
+    this.rebuildCourseBuffer();
+    this.requestRender();
+  }
+
+  finishMovementPlanning(): void {
+    this.movementActive = false;
+    this.movementInteractive = false;
+    this.callbacks.onCourseLabel(null);
+    const saved = this.savedCameraState;
+    this.savedCameraState = null;
+    if (saved) {
+      this.cameraMode = saved.mode;
+      this.cameraTargetId = saved.targetId;
+      this.cameraFocus = [...saved.focus];
+      this.freeFocusWorld = [...saved.freeFocusWorld];
+      this.camera.yaw = saved.yaw;
+      this.camera.pitch = saved.pitch;
+      this.camera.distance = saved.distance;
+      this.camera.targetYaw = saved.targetYaw;
+      this.camera.targetPitch = saved.targetPitch;
+      this.camera.targetDistance = saved.targetDistance;
+      this.callbacks.onCameraModeChange(saved.mode);
+    }
+    this.rebuildCourseBuffer();
+    this.requestRender();
+  }
+
   setMovementActive(active: boolean, vector: Vector3 = this.movementVector, interactive = true): void {
     this.movementActive = active;
     this.movementInteractive = active && interactive;
@@ -344,35 +435,54 @@ export class TacticalEngine {
         || event.type === "charged" || event.type === "failure") return;
     this.lastCombatEventId = event.id;
     const target = this.findPointByName(event.targetName);
-    if (!target) return;
     const now = performance.now();
     if (event.type === "launch") {
       const projectile = ["missile", "torpedo", "rocket", "burst"].includes(event.weapon);
-      const targetDistance = Math.hypot(...target.position3d);
-      const projectileDuration = Math.min(4_200, 1_400 + targetDistance * 2.4)
-        * (event.weapon === "torpedo" ? 1.15 : event.weapon === "rocket" ? 0.78 : 1);
+      const observer = this.scene.points.find((point) => point.kind === "observer") ?? null;
+      const namedSource = this.findPointByName(event.sourceName);
+      const sourceIsObserver = event.sourceName && observer
+        && event.sourceName.trim().toLowerCase() === observer.name.trim().toLowerCase();
+      const source = namedSource ?? (!event.sourceName || sourceIsObserver ? observer : null);
+      if (!source) return;
+      if (!projectile && !target) return;
+      const sourcePosition: Vector3 = [...(source?.position3d ?? [0, 0, 0])];
+      const heading = source?.heading;
+      const headingVector: Vector3 = [
+        Number(heading?.x) || 0,
+        Number(heading?.y) || 0,
+        Number(heading?.z) || 0,
+      ];
+      if (Math.hypot(...headingVector) < 0.001) headingVector[2] = 1;
+      const launchDirectionTarget: Vector3 = target
+        ? [...target.position3d]
+        : sourcePosition.map((coordinate, index) => coordinate + headingVector[index] * 100) as Vector3;
       this.combatEffects.push({
         id: event.id,
-        type: "projectile",
+        type: projectile ? "launch" : "projectile",
         weapon: event.weapon,
-        targetName: target.name,
+        targetName: target?.name || event.targetName || "",
         start: now,
-        duration: projectile ? projectileDuration : 620,
-        from: [0, 0, 0],
-        to: [...target.position3d],
+        duration: projectile ? 460 : 1_100,
+        from: sourcePosition,
+        to: projectile ? launchDirectionTarget
+          : [...(target?.position3d ?? [0, 0, 0])],
       });
     } else if (event.type === "impact") {
-      this.combatEffects.push({
-        id: event.id,
-        type: "impact",
-        weapon: event.weapon,
-        targetName: target.name,
-        start: now,
-        duration: 780,
-        from: [0, 0, 0],
-        to: [...target.position3d],
-        outcome: event.outcome,
-      });
+      if (!target) return;
+      const confirmedHits = Math.max(1, Math.min(12, Number(event.count) || 1));
+      for (let index = 0; index < confirmedHits; index += 1) {
+        this.combatEffects.push({
+          id: event.id * 100 + index,
+          type: "impact",
+          weapon: event.weapon,
+          targetName: target.name,
+          start: now + index * 85,
+          duration: 780,
+          from: [0, 0, 0],
+          to: [...target.position3d],
+          outcome: event.outcome,
+        });
+      }
     }
     this.requestRender();
   }
@@ -445,21 +555,20 @@ export class TacticalEngine {
   }
 
   private rebuildPointBuffers(): void {
-    const strategic = this.scene.points.flatMap((point) => {
+    const tacticalPoints = this.scene.points.filter((point) => point.kind !== "projectile");
+    const strategic = tacticalPoints.flatMap((point) => {
       const size = point.kind === "cluster" ? Math.min(18, point.pointSize)
-        : point.kind === "observer" ? 8 : point.kind === "projectile" ? point.pointSize : 5;
+        : point.kind === "observer" ? 8 : 5;
       return this.interleavedVertex(
-        point.position3d, point.color, size,
-        point.kind === "projectile" ? point.markerShape : 0, this.headingFor(point),
+        point.position3d, point.color, size, 0, this.headingFor(point),
       );
     });
     const landmarks = this.scene.points
-      .filter((point) => !["ship", "observer"].includes(point.kind))
+      .filter((point) => !["ship", "observer", "projectile"].includes(point.kind))
       .flatMap((point) => this.interleavedVertex(
-        point.position3d, point.color, point.pointSize,
-        point.kind === "projectile" ? point.markerShape : 0, this.headingFor(point),
+        point.position3d, point.color, point.pointSize, 0, this.headingFor(point),
       ));
-    this.pointCount = this.scene.points.length;
+    this.pointCount = tacticalPoints.length;
     this.landmarkCount = landmarks.length / 11;
     this.upload(this.pointBuffer, strategic, this.gl.DYNAMIC_DRAW);
     this.upload(this.landmarkBuffer, landmarks, this.gl.DYNAMIC_DRAW);
@@ -524,9 +633,8 @@ export class TacticalEngine {
     const vertices: number[] = [];
     if (this.movementActive) {
       const color: Color3 = [0.2, 0.72, 1];
-      const end = this.movementVector;
-      const length = Math.max(1, Math.hypot(...end));
-      const direction = end.map((value) => value / length) as Vector3;
+      const length = Math.max(1, Math.hypot(...this.movementVector));
+      const direction = this.movementVector.map((value) => value / length) as Vector3;
       const reference: Vector3 = Math.abs(direction[1]) > 0.85 ? [1, 0, 0] : [0, 1, 0];
       const side: Vector3 = [
         direction[1] * reference[2] - direction[2] * reference[1],
@@ -537,26 +645,29 @@ export class TacticalEngine {
       side.forEach((value, index) => { side[index] = value / sideLength; });
       const headLength = Math.min(length * 0.24, Math.max(12, this.camera.distance * 0.055));
       const headWidth = headLength * 0.5;
-      const base = end.map((value, index) => value - direction[index] * headLength) as Vector3;
-      const left = base.map((value, index) => value + side[index] * headWidth) as Vector3;
-      const right = base.map((value, index) => value - side[index] * headWidth) as Vector3;
-      const ground: Vector3 = [end[0], 0, end[2]];
       const pushLine = (from: Vector3, to: Vector3, lineColor: Color3 = color): void => {
         vertices.push(...this.interleavedVertex(from, lineColor), ...this.interleavedVertex(to, lineColor));
       };
-      pushLine([0, 0, 0], end);
-      pushLine(end, left);
-      pushLine(end, right);
-      if (Math.abs(end[1]) > 0.5) {
-        pushLine(ground, end, [0.32, 0.88, 1]);
-        const ringSize = Math.max(6, headWidth * 0.55);
-        for (let index = 0; index < 20; index += 1) {
-          const a = index / 20 * Math.PI * 2;
-          const b = (index + 1) / 20 * Math.PI * 2;
-          pushLine(
-            [ground[0] + Math.cos(a) * ringSize, 0, ground[2] + Math.sin(a) * ringSize],
-            [ground[0] + Math.cos(b) * ringSize, 0, ground[2] + Math.sin(b) * ringSize],
-          );
+      for (const [originIndex, origin] of this.movementOrigins.entries()) {
+        const end = origin.map((value, index) => value + this.movementVector[index]) as Vector3;
+        const base = end.map((value, index) => value - direction[index] * headLength) as Vector3;
+        const left = base.map((value, index) => value + side[index] * headWidth) as Vector3;
+        const right = base.map((value, index) => value - side[index] * headWidth) as Vector3;
+        pushLine(origin, end);
+        pushLine(end, left);
+        pushLine(end, right);
+        if (originIndex === 0 && Math.abs(this.movementVector[1]) > 0.5) {
+          const ground: Vector3 = [end[0], origin[1], end[2]];
+          pushLine(ground, end, [0.32, 0.88, 1]);
+          const ringSize = Math.max(6, headWidth * 0.55);
+          for (let index = 0; index < 20; index += 1) {
+            const a = index / 20 * Math.PI * 2;
+            const b = (index + 1) / 20 * Math.PI * 2;
+            pushLine(
+              [ground[0] + Math.cos(a) * ringSize, ground[1], ground[2] + Math.sin(a) * ringSize],
+              [ground[0] + Math.cos(b) * ringSize, ground[1], ground[2] + Math.sin(b) * ringSize],
+            );
+          }
         }
       }
     }
@@ -705,12 +816,68 @@ export class TacticalEngine {
     return null;
   }
 
+  private findPointById(id?: string): ScenePoint | null {
+    if (!id) return null;
+    for (const point of this.scene.points) {
+      if (point.id === id) return point;
+      const member = point.members?.find((candidate) => candidate.id === id);
+      if (member) return member;
+    }
+    return null;
+  }
+
+  private uniqueOrigins(origins: Vector3[]): Vector3[] {
+    const unique = new Map<string, Vector3>();
+    for (const origin of origins.length > 0 ? origins : [[0, 0, 0] as Vector3]) {
+      const safe = origin.map((value) => Number.isFinite(value) ? value : 0) as Vector3;
+      unique.set(safe.join(":"), safe);
+    }
+    return [...unique.values()];
+  }
+
+  private movementCenter(): Vector3 {
+    const origins = this.movementOrigins.length > 0 ? this.movementOrigins : [[0, 0, 0] as Vector3];
+    const minimum: Vector3 = [...origins[0]];
+    const maximum: Vector3 = [...origins[0]];
+    for (const origin of origins.slice(1)) {
+      origin.forEach((value, index) => {
+        minimum[index] = Math.min(minimum[index], value);
+        maximum[index] = Math.max(maximum[index], value);
+      });
+    }
+    return minimum.map((value, index) => (value + maximum[index]) / 2) as Vector3;
+  }
+
+  private cameraTarget(): Vector3 {
+    if (this.cameraMode === "selection") {
+      const selected = this.findPointById(this.cameraTargetId || undefined);
+      if (selected) return [...selected.position3d];
+      this.cameraMode = "player";
+      this.cameraTargetId = null;
+      this.callbacks.onCameraModeChange("player");
+    }
+    if (this.cameraMode === "rts") {
+      return this.freeFocusWorld.map((value, index) => value + this.originOffset[index]) as Vector3;
+    }
+    return [0, 0, 0];
+  }
+
   private weaponColor(weapon: WeaponType): Color3 {
     if (weapon === "ion") return [0.3, 0.72, 1];
-    if (["missile", "torpedo", "rocket"].includes(weapon)) return [1, 0.58, 0.18];
-    if (weapon === "burst") return [0.72, 0.38, 1];
+    if (weapon === "missile") return [1, 0.62, 0.12];
+    if (weapon === "torpedo") return [0.72, 0.3, 1];
+    if (weapon === "rocket") return [1, 0.14, 0.06];
+    if (weapon === "burst") return [1, 0.25, 0.74];
     if (weapon === "turbolaser") return [0.3, 1, 0.42];
     return [1, 0.18, 0.2];
+  }
+
+  private projectileWeapon(point: ScenePoint): WeaponType {
+    const identity = `${point.class || ""} ${point.name || ""}`.toLowerCase();
+    if (identity.includes("torpedo")) return "torpedo";
+    if (identity.includes("rocket")) return "rocket";
+    if (identity.includes("pulse") || identity.includes("burst")) return "burst";
+    return "missile";
   }
 
   private rebuildCombatBuffers(now: number): void {
@@ -723,6 +890,7 @@ export class TacticalEngine {
     ];
     this.combatEffects = this.combatEffects.filter((effect) => now - effect.start < effect.duration);
     for (const effect of this.combatEffects) {
+      if (now < effect.start) continue;
       const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
       const color = effect.outcome === "miss" ? [0.52, 0.72, 0.82] as Color3 : this.weaponColor(effect.weapon);
       const liveTarget = this.findPointByName(effect.targetName);
@@ -735,7 +903,49 @@ export class TacticalEngine {
         targetPosition[1] + missOffset * 0.35,
         targetPosition[2],
       ];
-      if (effect.type === "projectile") {
+      if (effect.type === "launch") {
+        const delta: Vector3 = endpoint.map((value, index) => value - effect.from[index]) as Vector3;
+        const targetDistance = Math.hypot(...delta);
+        const direction: Vector3 = targetDistance > 0.001
+          ? delta.map((value) => value / targetDistance) as Vector3
+          : [0, 0, 1];
+        const reference: Vector3 = Math.abs(direction[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        const rightRaw: Vector3 = [
+          direction[1] * reference[2] - direction[2] * reference[1],
+          direction[2] * reference[0] - direction[0] * reference[2],
+          direction[0] * reference[1] - direction[1] * reference[0],
+        ];
+        const rightLength = Math.hypot(...rightRaw) || 1;
+        const right = rightRaw.map((value) => value / rightLength) as Vector3;
+        const up: Vector3 = [
+          right[1] * direction[2] - right[2] * direction[1],
+          right[2] * direction[0] - right[0] * direction[2],
+          right[0] * direction[1] - right[1] * direction[0],
+        ];
+        const burstLength = Math.max(14, Math.min(60, targetDistance * 0.08));
+        const eased = 1 - (1 - progress) ** 3;
+        const headDistance = burstLength * eased;
+        const tailProgress = Math.max(0, (progress - 0.24) / 0.76);
+        const tailDistance = burstLength * tailProgress * tailProgress;
+        const tail = effect.from.map((value, index) =>
+          value + direction[index] * tailDistance) as Vector3;
+        const head = effect.from.map((value, index) =>
+          value + direction[index] * headDistance) as Vector3;
+        const spread = Math.sin(progress * Math.PI) * Math.min(7, burstLength * 0.16);
+        const rays = 5;
+        for (let index = 0; index < rays; index += 1) {
+          const angle = index / rays * Math.PI * 2;
+          const rayScale = index === 0 ? 0 : 0.55 + (index % 2) * 0.35;
+          const rayHead: Vector3 = head.map((value, axis) => value
+            + right[axis] * Math.cos(angle) * spread * rayScale
+            + up[axis] * Math.sin(angle) * spread * rayScale) as Vector3;
+          lines.push(...this.interleavedVertex(tail, color),
+            ...this.interleavedVertex(rayHead, color));
+        }
+        const glow = color.map((channel) => channel * 0.3) as Color3;
+        points.push(...this.interleavedVertex(head, glow, 26));
+        points.push(...this.interleavedVertex(head, color, 11));
+      } else if (effect.type === "projectile") {
         const eased = 1 - (1 - progress) ** 2;
         const head = lerp(effect.from, endpoint, Math.min(0.96, eased));
         const tail = lerp(effect.from, endpoint, Math.max(0, eased - 0.13));
@@ -750,7 +960,9 @@ export class TacticalEngine {
         }
         points.push(...this.interleavedVertex(head, color, coreSize));
       } else {
-        const radius = Math.sin(progress * Math.PI) * (effect.outcome === "hit" ? 24 : 14);
+        const explosive = ["missile", "torpedo", "rocket", "burst"].includes(effect.weapon);
+        const radius = Math.sin(progress * Math.PI)
+          * (effect.outcome === "hit" ? explosive ? 38 : 24 : 14);
         const segments = 16;
         for (let index = 0; index < segments; index += 1) {
           const a = index / segments * Math.PI * 2;
@@ -759,8 +971,29 @@ export class TacticalEngine {
           const end: Vector3 = [endpoint[0] + Math.cos(b) * radius, endpoint[1] + Math.sin(b) * radius, endpoint[2]];
           lines.push(...this.interleavedVertex(start, color), ...this.interleavedVertex(end, color));
         }
-        points.push(...this.interleavedVertex(endpoint, color, effect.outcome === "hit" ? 18 : 8));
+        points.push(...this.interleavedVertex(endpoint, color,
+          effect.outcome === "hit" ? explosive ? 26 : 18 : 8));
       }
+    }
+    for (const point of this.scene.points) {
+      if (point.kind !== "projectile") continue;
+      const weapon = this.projectileWeapon(point);
+      const color = this.weaponColor(weapon);
+      const distance = Math.hypot(...point.position3d);
+      const trailLength = Math.max(5, Math.min(55, distance * 0.045));
+      const direction: Vector3 = distance > 0.0001
+        ? point.position3d.map((value) => value / distance) as Vector3
+        : [0, 0, 1];
+      const tail: Vector3 = [
+        point.position3d[0] - direction[0] * trailLength,
+        point.position3d[1] - direction[1] * trailLength,
+        point.position3d[2] - direction[2] * trailLength,
+      ];
+      const glow = color.map((channel) => channel * 0.28) as Color3;
+      lines.push(...this.interleavedVertex(tail, color),
+        ...this.interleavedVertex(point.position3d, color));
+      points.push(...this.interleavedVertex(point.position3d, glow, 30));
+      points.push(...this.interleavedVertex(point.position3d, color, 13));
     }
     this.combatLineCount = lines.length / 11;
     this.combatPointCount = points.length / 11;
@@ -861,6 +1094,11 @@ export class TacticalEngine {
     this.previousFrame = now;
     this.camera.update(delta);
     this.scene = this.interpolator.sample(now);
+    const cameraTarget = this.cameraTarget();
+    const focusBlend = 1 - Math.exp(-9 * Math.min(0.1, Math.max(0, delta)));
+    this.cameraFocus = this.cameraFocus.map(
+      (value, index) => value + (cameraTarget[index] - value) * focusBlend,
+    ) as Vector3;
     this.rebuildPointBuffers();
     this.rebuildShipMeshBuffer();
     this.rebuildCombatBuffers(now);
@@ -872,7 +1110,19 @@ export class TacticalEngine {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     const aspect = this.canvas.width / this.canvas.height;
-    const contentRadius = Math.max(this.scene.radius, this.radarRange, this.originGridEnabled ? this.originGridExtent * 2 : 0, 10);
+    const movementReach = this.movementActive
+      ? Math.max(...this.movementOrigins.flatMap((origin) => [
+        Math.hypot(...origin),
+        Math.hypot(...origin.map((value, index) => value + this.movementVector[index]) as Vector3),
+      ]))
+      : 0;
+    const contentRadius = Math.max(
+      this.scene.radius + Math.hypot(...this.cameraFocus),
+      this.radarRange,
+      this.originGridEnabled ? this.originGridExtent * 2 : 0,
+      movementReach,
+      10,
+    );
     const eyeDistance = Math.max(contentRadius * 2.5, this.camera.distance * 2.5);
     const near = 0.05;
     const far = eyeDistance + contentRadius * 2.5;
@@ -890,9 +1140,11 @@ export class TacticalEngine {
       this.callbacks.onFidelityChange(nextFidelity);
     }
     this.markerScale = Math.min(12, Math.max(1, pixelsPerUnit / this.markerReferencePixelsPerUnit));
+    const eyeOffset = this.camera.eye(eyeDistance);
+    const cameraEye = this.cameraFocus.map((value, index) => value + eyeOffset[index]) as Vector3;
     this.viewProjection = multiply(
       orthographic(-halfWidth, halfWidth, -halfHeight, halfHeight, near, far),
-      lookAt(this.camera.eye(eyeDistance)),
+      lookAt(cameraEye, this.cameraFocus),
     );
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.locations.matrix, false, this.viewProjection);
@@ -938,7 +1190,9 @@ export class TacticalEngine {
     }
     this.publishClusterLabels();
     this.publishCourseLabel();
-    if (this.interpolator.isAnimating(now) || this.camera.isMoving() || this.combatEffects.length > 0) {
+    this.publishPlayerShipLabel();
+    const focusMoving = this.cameraFocus.some((value, index) => Math.abs(cameraTarget[index] - value) > 0.05);
+    if (this.interpolator.isAnimating(now) || this.camera.isMoving() || focusMoving || this.combatEffects.length > 0) {
       this.scheduleActiveFrame();
     }
   };
@@ -971,11 +1225,14 @@ export class TacticalEngine {
 
   private publishCourseLabel(): void {
     const rect = this.canvas.getBoundingClientRect();
+    const endpoint = this.movementCenter().map(
+      (value, index) => value + this.movementVector[index],
+    ) as Vector3;
     const screen = this.movementActive
-      ? project(this.movementVector, this.viewProjection, rect.width, rect.height)
+      ? project(endpoint, this.viewProjection, rect.width, rect.height)
       : null;
     const label: CourseLabel | null = screen ? {
-      worldPosition: this.movementVector.map((value, index) => value - this.originOffset[index]) as Vector3,
+      worldPosition: endpoint.map((value, index) => value - this.originOffset[index]) as Vector3,
       x: screen.x,
       y: screen.y,
     } : null;
@@ -985,6 +1242,16 @@ export class TacticalEngine {
     if (signature === this.courseLabelSignature) return;
     this.courseLabelSignature = signature;
     this.callbacks.onCourseLabel(label);
+  }
+
+  private publishPlayerShipLabel(): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const screen = project([0, 0, 0], this.viewProjection, rect.width, rect.height);
+    const label = screen ? { x: screen.x, y: screen.y } : null;
+    const signature = label ? `${label.x.toFixed(1)}:${label.y.toFixed(1)}` : "hidden";
+    if (signature === this.playerShipLabelSignature) return;
+    this.playerShipLabelSignature = signature;
+    this.callbacks.onPlayerShipLabel(label);
   }
 
   private pointAt(clientX: number, clientY: number, threshold: number): ScenePoint | null {
@@ -1033,13 +1300,17 @@ export class TacticalEngine {
       const unitsPerPixel = this.camera.distance * 2 / Math.max(1, rect.height);
       const deltaX = event.clientX - (rect.left + rect.width / 2);
       const deltaY = event.clientY - (rect.top + rect.height / 2);
+      const origin = this.movementCenter();
       if (event.shiftKey) {
-        this.movementVector = [this.movementVector[0], -deltaY * unitsPerPixel, this.movementVector[2]];
+        const targetY = this.cameraFocus[1] - deltaY * unitsPerPixel;
+        this.movementVector = [this.movementVector[0], targetY - origin[1], this.movementVector[2]];
       } else {
         const planarVector = pointerToXZVector(
           deltaX, deltaY, unitsPerPixel, this.camera.yaw, this.camera.pitch,
         );
-        this.movementVector = [planarVector[0], this.movementVector[1], planarVector[2]];
+        const targetX = this.cameraFocus[0] + planarVector[0];
+        const targetZ = this.cameraFocus[2] + planarVector[2];
+        this.movementVector = [targetX - origin[0], this.movementVector[1], targetZ - origin[2]];
       }
       this.movementVector = this.movementVector.map((value) => Math.round(value)) as Vector3;
       if (Math.hypot(...this.movementVector) < 1) this.movementVector = [1, 0, 0];
@@ -1098,15 +1369,34 @@ export class TacticalEngine {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+        || event.target instanceof HTMLSelectElement) return;
     const key = event.key.toLowerCase();
     if (key === "f") this.sectorView();
     if (key === "r") this.resetOrientation();
-    if (event.key === "ArrowLeft" || key === "a") this.camera.orbit(18, 0);
-    if (event.key === "ArrowRight" || key === "d") this.camera.orbit(-18, 0);
-    if (event.key === "ArrowUp" || key === "w") this.camera.orbit(0, 18);
-    if (event.key === "ArrowDown" || key === "s") this.camera.orbit(0, -18);
-    if (key === "q") this.camera.zoom(-120);
-    if (key === "e") this.camera.zoom(120);
+    if (this.cameraMode === "rts" && ["w", "a", "s", "d", "q", "e"].includes(key)) {
+      const step = Math.max(10, this.camera.distance * 0.14);
+      if (key === "q" || key === "e") {
+        this.freeFocusWorld[1] += key === "e" ? step : -step;
+      } else {
+        const pointer = pointerToXZVector(
+          key === "a" ? -1 : key === "d" ? 1 : 0,
+          key === "w" ? -1 : key === "s" ? 1 : 0,
+          1, this.camera.yaw, this.camera.pitch,
+        );
+        const length = Math.max(0.0001, Math.hypot(pointer[0], pointer[2]));
+        this.freeFocusWorld[0] += pointer[0] / length * step;
+        this.freeFocusWorld[2] += pointer[2] / length * step;
+      }
+      event.preventDefault();
+    } else {
+      if (event.key === "ArrowLeft" || key === "a") this.camera.orbit(18, 0);
+      if (event.key === "ArrowRight" || key === "d") this.camera.orbit(-18, 0);
+      if (event.key === "ArrowUp" || key === "w") this.camera.orbit(0, 18);
+      if (event.key === "ArrowDown" || key === "s") this.camera.orbit(0, -18);
+      if (key === "q") this.camera.zoom(-120);
+      if (key === "e") this.camera.zoom(120);
+    }
     this.requestRender();
   };
 

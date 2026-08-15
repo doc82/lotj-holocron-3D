@@ -3,13 +3,16 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { formatCoordinate } from "../../domain/scene";
 import { RangeMeter } from "../telemetry/RangeMeter";
 import type { CombatEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
-import { TacticalEngine, type ClusterLabel, type CourseLabel, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
+import { TacticalEngine, type ClusterLabel, type CourseLabel, type PlayerShipLabel, type TacticalCameraMode, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
 
 export interface TacticalCanvasHandle {
   fitSystem(): void;
   sectorView(): void;
   resetOrientation(): void;
+  setCameraMode(mode: TacticalCameraMode, targetId?: string): void;
+  beginMovementPlanning(vector: Vector3, interactive: boolean, origins?: Vector3[]): void;
+  finishMovementPlanning(): void;
   setMovementActive(active: boolean, vector?: Vector3, interactive?: boolean): void;
   freezeMovement(): void;
 }
@@ -23,15 +26,17 @@ interface TacticalCanvasProps {
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
   onMovementCancel(): void;
+  onCameraModeChange(mode: TacticalCameraMode): void;
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel }, ref) {
+  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel, onCameraModeChange }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
     const [clusterLabels, setClusterLabels] = useState<ClusterLabel[]>([]);
     const [courseLabel, setCourseLabel] = useState<CourseLabel | null>(null);
+    const [playerShipLabel, setPlayerShipLabel] = useState<PlayerShipLabel | null>(null);
     const [fidelity, setFidelity] = useState<TacticalFidelity>("strategic");
 
     useEffect(() => {
@@ -41,7 +46,9 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
         onTooltip: setTooltip,
         onClusterLabels: setClusterLabels,
         onCourseLabel: setCourseLabel,
+        onPlayerShipLabel: setPlayerShipLabel,
         onFidelityChange: setFidelity,
+        onCameraModeChange,
         onMovementVector,
         onMovementCommit,
         onMovementCancel,
@@ -51,7 +58,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
         engine.dispose();
         engineRef.current = null;
       };
-    }, [onMovementCancel, onMovementCommit, onMovementVector, onSelect]);
+    }, [onCameraModeChange, onMovementCancel, onMovementCommit, onMovementVector, onSelect]);
 
     useEffect(() => {
       if (snapshot) engineRef.current?.setSnapshot(snapshot);
@@ -73,6 +80,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
       fitSystem: () => engineRef.current?.fitSystem(),
       sectorView: () => engineRef.current?.sectorView(),
       resetOrientation: () => engineRef.current?.resetOrientation(),
+      setCameraMode: (mode, targetId) => engineRef.current?.setCameraMode(mode, targetId),
+      beginMovementPlanning: (vector, interactive, origins) =>
+        engineRef.current?.beginMovementPlanning(vector, interactive, origins),
+      finishMovementPlanning: () => engineRef.current?.finishMovementPlanning(),
       setMovementActive: (active, vector, interactive) => engineRef.current?.setMovementActive(active, vector, interactive),
       freezeMovement: () => engineRef.current?.freezeMovement(),
     }), []);
@@ -80,8 +91,9 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     return (
       <>
         <canvas ref={canvasRef} className={styles.space} aria-label="3D system map" />
-        {snapshot && (
-          <div className={styles.playerShipLabel} aria-hidden="true">
+        {snapshot && playerShipLabel && (
+          <div className={styles.playerShipLabel}
+            style={{ left: playerShipLabel.x, top: playerShipLabel.y }} aria-hidden="true">
             YOUR SHIP <span>// {snapshot.observer?.name || "PLAYER SHIP"}</span>
           </div>
         )}

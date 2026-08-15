@@ -1,23 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { buildScene, findScenePoint, formatCoordinate, sensorRangeFor, type ScenePoint } from "../domain/scene";
+import { buildScene, findScenePoint, formatCoordinate, type ScenePoint } from "../domain/scene";
 import { hyperspaceClearance } from "../domain/hyperspace";
 import { NavigationDrawer } from "../features/commands/NavigationDrawer";
 import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
 import { UplinkNotice } from "../features/connection/UplinkNotice";
+import { FleetCommandPanel } from "../features/fleet/FleetCommandPanel";
+import { FleetRoster } from "../features/fleet/FleetRoster";
+import type { FleetScope } from "../features/fleet/FleetRoster";
 import { HyperspacePlanner, type EscapePlanDraft } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
+import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
 import { RangeMeter, type RangeReading } from "../features/telemetry/RangeMeter";
 import { useTelemetry } from "../features/telemetry/useTelemetry";
 import { WeaponsPanel } from "../features/weapons/WeaponsPanel";
 import styles from "./App.module.css";
-import type { HyperspaceRoutePayload, ShipDisposition, Vector3, WeaponType } from "../types/telemetry";
+import type { FleetMember, HyperspaceRoutePayload, ShipDisposition, Vector3, WeaponType } from "../types/telemetry";
 
 const DISPOSITION_STORAGE_KEY = "holocron3d.ship-dispositions.v1";
 const dispositionKey = (name: string) => name.trim().toLowerCase();
+
+interface CommandToast {
+  id: number;
+  message: string;
+  tone: "info" | "success" | "warning" | "error";
+}
+
+function commandToastTone(message: string): CommandToast["tone"] {
+  if (/REJECT|BLOCK|FAIL|TIMED OUT|LOST|REQUIRES|SELECT A|CANNOT/.test(message)) return "error";
+  if (/WAIT|AWAIT|TRANSMITTING|TARGETING|TRACKING/.test(message)) return "warning";
+  if (/ACCEPT|COMPLETE|TRANSMITTED|UPDATED|\bON\b|\bOFF\b/.test(message)) return "success";
+  return "info";
+}
 
 function loadDispositions(): Record<string, ShipDisposition> {
   try { return JSON.parse(localStorage.getItem(DISPOSITION_STORAGE_KEY) || "{}"); } catch { return {}; }
@@ -61,6 +78,21 @@ function detailRows(point: ScenePoint): Array<[string, string]> {
   return rows;
 }
 
+function pointsIncludingClusters(points: ScenePoint[]): ScenePoint[] {
+  return points.flatMap((point) => point.members ? [point, ...point.members] : [point]);
+}
+
+function centerOfPositions(positions: Vector3[]): Vector3 {
+  if (positions.length === 0) return [0, 0, 0];
+  const minimum: Vector3 = [...positions[0]];
+  const maximum: Vector3 = [...positions[0]];
+  for (const position of positions.slice(1)) position.forEach((value, index) => {
+    minimum[index] = Math.min(minimum[index], value);
+    maximum[index] = Math.max(maximum[index], value);
+  });
+  return minimum.map((value, index) => (value + maximum[index]) / 2) as Vector3;
+}
+
 function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
   if (type === "radar") return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -79,6 +111,18 @@ function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
       <circle cx="11" cy="17" r="2" /><circle cx="17" cy="12" r="1.5" /><circle cx="22" cy="19" r="2.5" />
     </svg>
   );
+}
+
+function CameraIcon({ type }: { type: TacticalCameraMode }) {
+  if (type === "player") return <svg viewBox="0 0 32 32" aria-hidden="true">
+    <path d="M6 24 16 6l10 18-10-4Z" /><circle cx="16" cy="16" r="12" />
+  </svg>;
+  if (type === "rts") return <svg viewBox="0 0 32 32" aria-hidden="true">
+    <path d="m5 11 11-6 11 6-11 6Zm0 0v11l11 6 11-6V11M16 17v11" />
+  </svg>;
+  return <svg viewBox="0 0 32 32" aria-hidden="true">
+    <circle cx="16" cy="16" r="8" /><path d="M16 3v6M16 23v6M3 16h6M23 16h6" />
+  </svg>;
 }
 
 function MoveIcon() {
@@ -119,10 +163,14 @@ export function App() {
   const telemetry = useTelemetry();
   const [starting, setStarting] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedFleetMemberId, setSelectedFleetMemberId] = useState<string | null>(null);
+  const [fleetScope, setFleetScope] = useState<FleetScope>("local");
+  const [navigationFleetScope, setNavigationFleetScope] = useState<FleetScope | null>(null);
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
   const [hoveredMemberId, setHoveredMemberId] = useState<string | null>(null);
   const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
+  const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
   const [navigationMode, setNavigationMode] = useState<NavigationMode>("idle");
   const [pendingNavigationMode, setPendingNavigationMode] = useState<"relative" | "target" | "away">("relative");
   const [navigationTargetId, setNavigationTargetId] = useState<string | null>(null);
@@ -130,7 +178,8 @@ export function App() {
   const [requestedSpeed, setRequestedSpeed] = useState(0);
   const [knownMaximumSpeed, setKnownMaximumSpeed] = useState(0);
   const [navigationStatus, setNavigationStatus] = useState("");
-  const [commandAlert, setCommandAlert] = useState("");
+  const [commandAlert, setCommandAlertValue] = useState("");
+  const [commandToasts, setCommandToasts] = useState<CommandToast[]>([]);
   const [commandLocked, setCommandLocked] = useState(false);
   const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
   const [manualScanStatus, setManualScanStatus] = useState("");
@@ -159,6 +208,18 @@ export function App() {
   const spaceProbeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const escapeTriggeredRef = useRef(false);
   const arrivalRefreshAtRef = useRef<number | null>(null);
+  const commandToastIdRef = useRef(0);
+  const lastFleetToastKeyRef = useRef("");
+  const pushCommandToast = useCallback((message: string, tone = commandToastTone(message)) => {
+    if (!message) return;
+    const id = ++commandToastIdRef.current;
+    setCommandToasts((current) => [...current, { id, message, tone }].slice(-4));
+    setTimeout(() => setCommandToasts((current) => current.filter((toast) => toast.id !== id)), 5_000);
+  }, []);
+  const setCommandAlert = useCallback((message: string) => {
+    setCommandAlertValue(message);
+    if (message) pushCommandToast(message);
+  }, [pushCommandToast]);
   const classifiedSnapshot = useMemo(() => telemetry.snapshot ? {
     ...telemetry.snapshot,
     entities: telemetry.snapshot.entities?.map((entity) => ({
@@ -173,7 +234,23 @@ export function App() {
   const scene = useMemo(() => buildScene(classifiedSnapshot), [classifiedSnapshot]);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
+  const fleet = telemetry.snapshot?.metadata?.fleet;
+  const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const finishStartup = useCallback(() => setStarting(false), []);
+
+  useEffect(() => {
+    if (!fleetOrder || !["accepted", "partial", "rejected"].includes(fleetOrder.status || "")) return;
+    const reason = fleetOrder.reason
+      || Object.values(fleetOrder.results || {}).find((result) => result.reason)?.reason;
+    const key = [fleetOrder.id, fleetOrder.order, fleetOrder.status, fleetOrder.acceptedCount,
+      fleetOrder.rejectedCount, reason].join(":");
+    if (lastFleetToastKeyRef.current === key) return;
+    lastFleetToastKeyRef.current = key;
+    const message = `${(fleetOrder.order || "ORDER").toUpperCase()} // ${(fleetOrder.status || "TRANSMITTED").toUpperCase()}`
+      + ` // ${fleetOrder.acceptedCount || 0} ACCEPTED // ${fleetOrder.rejectedCount || 0} REJECTED`
+      + (reason ? ` // ${reason.toUpperCase()}` : "");
+    pushCommandToast(message, fleetOrder.status === "accepted" ? "success" : "error");
+  }, [fleetOrder, pushCommandToast]);
 
   const scheduleSpaceProbeRetry = useCallback(() => {
     if (spaceProbeRetryTimerRef.current) clearTimeout(spaceProbeRetryTimerRef.current);
@@ -209,6 +286,8 @@ export function App() {
 
   const selectContact = useCallback((id: string | null) => {
     if (!id || id === "player-ship") {
+      setSelectedFleetMemberId(null);
+      setFleetScope("local");
       setExpandedClusterId(null);
       setHoveredMemberId(null);
       setSelectedId(null);
@@ -228,9 +307,26 @@ export function App() {
   const observer = scene.points[0];
   const expandedCluster = findScenePoint(scene, expandedClusterId);
   const selected = findScenePoint(scene, hoveredMemberId) ?? findScenePoint(scene, selectedId);
-  const displayedSelection = selected ?? observer;
+  const selectedFleetMember = fleet?.members.find((member) => member.id === selectedFleetMemberId);
+  const flattenedScenePoints = useMemo(() => pointsIncludingClusters(scene.points), [scene.points]);
+  const selectedFleetScenePoint = selectedFleetMember
+    ? flattenedScenePoints.find((point) => point.name.trim().toLowerCase()
+      === selectedFleetMember.name.trim().toLowerCase()) ?? null
+    : null;
+  const cameraFocusPoint = selected?.kind === "ship" || selected?.kind === "observer"
+    ? selected : selectedFleetScenePoint;
+  const fleetSelection = selectedFleetMember ? {
+    ...selectedFleetMember,
+    kind: "ship",
+    worldPosition: [0, 0, 0] as Vector3,
+  } as ScenePoint : null;
+  const displayedSelection = selected ?? fleetSelection ?? observer;
+  const hasSelectedContact = selected !== null || fleetSelection !== null;
   const landed = telemetry.spaceState?.inSpace === false;
-  const sensorRange = telemetry.snapshot ? sensorRangeFor(telemetry.snapshot.observer) : null;
+  const fleetCommandMode = fleet?.active === true && fleetScope !== "local";
+  useEffect(() => {
+    if (fleet?.active !== true) setFleetScope("local");
+  }, [fleet?.active]);
   const observerSpeed = typeof observer.speed === "object" && observer.speed ? Number(observer.speed.current) || 0 : Number(observer.speed) || 0;
   const observedMaximumSpeed = typeof observer.speed === "object" && observer.speed
     ? Number(observer.speed.maximum) || 0
@@ -239,6 +335,30 @@ export function App() {
   const navigableTarget = selected && ["ship", "planet", "celestial", "star"].includes(selected.kind) ? selected : null;
   const navigationTarget = findScenePoint(scene, navigationTargetId);
   const selectedShip = selected?.kind === "ship" ? selected : null;
+
+  const movementOriginsForScope = useCallback((scope: FleetScope | null): Vector3[] => {
+    if (!scope || scope === "local" || !fleet) return [[0, 0, 0]];
+    const members = scope === "selected"
+      ? selectedFleetMember ? [selectedFleetMember] : []
+      : scope === "wings" ? fleet.members.filter((member) => !member.leader)
+        : fleet.members;
+    const origins = members.flatMap((member) => {
+      if (member.name.trim().toLowerCase() === observer.name.trim().toLowerCase()) {
+        return [[0, 0, 0] as Vector3];
+      }
+      const point = flattenedScenePoints.find((candidate) => candidate.name.trim().toLowerCase()
+        === member.name.trim().toLowerCase());
+      return point ? [[...point.position3d] as Vector3] : [];
+    });
+    const unique = new Map(origins.map((origin) => [origin.join(":"), origin]));
+    return unique.size > 0 ? [...unique.values()] : [[0, 0, 0]];
+  }, [fleet, flattenedScenePoints, observer.name, selectedFleetMember]);
+
+  const chooseCameraMode = useCallback((mode: TacticalCameraMode) => {
+    if (navigationMode !== "idle") return;
+    if (mode === "selection" && !cameraFocusPoint) return;
+    tacticalRef.current?.setCameraMode(mode, cameraFocusPoint?.id);
+  }, [cameraFocusPoint, navigationMode]);
   const autotrackObserved = typeof observer.autotrack === "boolean" ? observer.autotrack : null;
   const observerHasNoWeapons = observer.hasWeapons === false;
   const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired !== false;
@@ -274,6 +394,21 @@ export function App() {
     : undefined;
   const galaxyCatalogSize = Object.keys(telemetry.galaxyCatalog?.systems || {}).length
     + Object.keys(telemetry.galaxyCatalog?.customSystems || {}).length;
+
+  const selectFleetMember = useCallback((member: FleetMember) => {
+    const matchingContact = sceneRef.current.points.find((point) => point.kind === "ship"
+      && point.name?.trim().toLowerCase() === member.name.trim().toLowerCase());
+    setFleetScope(member.name.trim().toLowerCase() === observer.name.trim().toLowerCase()
+      ? "local" : "selected");
+    setSelectedFleetMemberId(member.id);
+    setExpandedClusterId(null);
+    setHoveredMemberId(null);
+    if (matchingContact) {
+      setSelectedId(matchingContact.id);
+      return;
+    }
+    setSelectedId(null);
+  }, [observer.name]);
 
   const plotHyperspace = useCallback(async (route: HyperspaceRoutePayload, escape?: EscapePlanDraft) => {
     setActiveRoute(route);
@@ -404,12 +539,13 @@ export function App() {
     setPendingNavigationMode("relative");
     setNavigationTargetId(null);
     setNavigationStatus("");
+    setNavigationFleetScope(null);
     setCommandAlert("");
     setRequestedSpeed(Math.max(0, Math.min(
       lastMaximumSpeedRef.current ?? 0,
       lastObservedSpeedRef.current ?? 0,
     )));
-    tacticalRef.current?.setMovementActive(false);
+    tacticalRef.current?.finishMovementPlanning();
   }, []);
 
   const beginVectorCourse = useCallback(() => {
@@ -417,24 +553,35 @@ export function App() {
     setExpandedClusterId(null);
     setHoveredMemberId(null);
     setPendingNavigationMode("relative");
+    setNavigationFleetScope(fleetCommandMode ? fleetScope : null);
     setNavigationTargetId(null);
     setNavigationMode("vector");
-    setNavigationStatus("MOVE CURSOR // SHIFT ELEVATION // MMB ORBIT");
-    tacticalRef.current?.setMovementActive(true, courseVector, true);
-  }, [commandLocked, courseVector, landed, telemetry.connected]);
+    setNavigationStatus("MOVE CURSOR // SHIFT ELEVATION // MMB ORBIT // WASD PAN // Q/E CAMERA ELEVATION");
+    const commandScope = fleetCommandMode ? fleetScope : null;
+    tacticalRef.current?.beginMovementPlanning(
+      courseVector, true, movementOriginsForScope(commandScope));
+  }, [commandLocked, courseVector, fleetCommandMode, fleetScope, landed,
+    movementOriginsForScope, telemetry.connected]);
 
   const armTargetCourse = useCallback((mode: "target" | "away") => {
     if (!navigableTarget) return;
     setExpandedClusterId(null);
     setHoveredMemberId(null);
+    const commandScope = fleetCommandMode ? fleetScope : null;
+    const origins = movementOriginsForScope(commandScope);
+    const center = centerOfPositions(origins);
+    const preview = mode === "away"
+      ? center.map((value, index) => value - navigableTarget.position3d[index]) as Vector3
+      : navigableTarget.position3d.map((value, index) => value - center[index]) as Vector3;
     const multiplier = mode === "away" ? -1 : 1;
-    const preview = navigableTarget.position3d.map((value) => value * multiplier) as Vector3;
     setPendingNavigationMode(mode);
+    setNavigationFleetScope(fleetCommandMode ? fleetScope : null);
     setNavigationTargetId(navigableTarget.id);
     setNavigationMode(mode);
     setNavigationStatus(mode === "away" ? "CONFIRM REVERSE COURSE" : "CONFIRM INTERCEPT COURSE");
-    tacticalRef.current?.setMovementActive(true, Math.hypot(...preview) > 0 ? preview : [100 * multiplier, 0, 0], false);
-  }, [navigableTarget]);
+    tacticalRef.current?.beginMovementPlanning(
+      Math.hypot(...preview) > 0 ? preview : [100 * multiplier, 0, 0], false, origins);
+  }, [fleetCommandMode, fleetScope, movementOriginsForScope, navigableTarget]);
 
   const stageNavigation = useCallback(() => {
     setNavigationMode("confirm");
@@ -461,7 +608,12 @@ export function App() {
     }
     if (observerSpeed === 0) payload.departureSpeed = requestedSpeed;
     setNavigationStatus("TRANSMITTING COURSE...");
-    const result = await window.holocron?.sendIntent("navigate_ship", payload);
+    if (navigationFleetScope) {
+      payload.scope = navigationFleetScope;
+      payload.order = "navigate";
+    }
+    const result = await window.holocron?.sendIntent(
+      navigationFleetScope ? "fleet_order" : "navigate_ship", payload);
     if (result?.accepted === false) {
       setNavigationStatus(`ORDER REJECTED // ${result.reason || "UNKNOWN"}`);
       return;
@@ -469,6 +621,14 @@ export function App() {
     if (result?.id) {
       pendingIntentIdsRef.current.add(result.id);
       setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 60_000);
+    }
+    if (navigationFleetScope) {
+      setNavigationStatus("FLEET COURSE TRANSMITTED");
+      setCommandAlert("FLEET COURSE TRANSMITTED // MONITOR FORMATION ROSTER");
+      setNavigationMode("idle");
+      setNavigationFleetScope(null);
+      tacticalRef.current?.finishMovementPlanning();
+      return;
     }
     const lockToken = navigationLockTokenRef.current + 1;
     navigationLockTokenRef.current = lockToken;
@@ -482,8 +642,9 @@ export function App() {
     }, 50_000);
     setNavigationStatus("MANEUVER IN PROGRESS");
     setNavigationMode("idle");
-    tacticalRef.current?.setMovementActive(false);
-  }, [commandLocked, courseVector, navigationTarget, observerSpeed, pendingNavigationMode, requestedSpeed]);
+    tacticalRef.current?.finishMovementPlanning();
+  }, [commandLocked, courseVector, navigationFleetScope, navigationTarget, observerSpeed,
+    pendingNavigationMode, requestedSpeed]);
 
   const commitSpeed = useCallback(async (speed: number) => {
     const nextSpeed = Math.max(0, Math.min(maximumSpeed, Math.round(speed)));
@@ -600,6 +761,38 @@ export function App() {
     const result = await window.holocron?.sendIntent("fire_weapon", { weapon });
     return result?.accepted === false ? result.reason || "fire order rejected" : null;
   }, [commandLocked, landed, telemetry.connected]);
+
+  const sendFleetOrder = useCallback(async (order: string, extra: Record<string, unknown> = {}) => {
+    if (!fleet?.active || fleetScope === "local" || !telemetry.connected || landed || commandLocked) return;
+    const payload: Record<string, unknown> = { order, scope: fleetScope, ...extra };
+    if (fleetScope === "selected") {
+      if (!selectedFleetMember) {
+        setCommandAlert("FLEET ORDER REQUIRES A SELECTED FORMATION MEMBER");
+        return;
+      }
+      payload.memberId = selectedFleetMember.id;
+      payload.memberName = selectedFleetMember.name;
+      payload.memberSlot = selectedFleetMember.slot;
+    }
+    if (order === "target") {
+      if (!selectedShip) {
+        setCommandAlert("FLEET TARGET ORDER REQUIRES A SELECTED SHIP");
+        return;
+      }
+      payload.targetId = selectedShip.id;
+    }
+    setCommandAlert(`TRANSMITTING ${order.replaceAll("_", " ").toUpperCase()} // ${fleetScope.toUpperCase()}`);
+    const result = await window.holocron?.sendIntent("fleet_order", payload);
+    if (result?.accepted === false) {
+      setCommandAlert(`FLEET ORDER REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+      return;
+    }
+    if (result?.id) {
+      pendingIntentIdsRef.current.add(result.id);
+      setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 15_000);
+    }
+    setCommandAlert(`${order.replaceAll("_", " ").toUpperCase()} TRANSMITTED // ${fleetScope.toUpperCase()}`);
+  }, [commandLocked, fleet, fleetScope, landed, selectedFleetMember, selectedShip, telemetry.connected]);
 
   const rechargeShields = useCallback(async () => {
     if (!telemetry.connected || landed || commandLocked || shieldRecharging || shieldsFull) return;
@@ -814,6 +1007,7 @@ export function App() {
           onMovementVector={setCourseVector}
           onMovementCommit={stageNavigation}
           onMovementCancel={cancelNavigation}
+          onCameraModeChange={setCameraMode}
         />
         <div className={styles.scanlines} aria-hidden="true" />
 
@@ -823,6 +1017,7 @@ export function App() {
             <h1 id="system-name">{telemetry.snapshot ? scene.system : "Awaiting telemetry"}</h1>
           </div>
           {telemetry.connected && (
+            <div className={styles.controlStack}>
             <nav className={styles.viewControls} aria-label="Tactical view controls">
               <button
                 type="button"
@@ -854,6 +1049,26 @@ export function App() {
                 aria-label="Plot a galactic hyperspace route" data-tooltip="PLOT HYPERSPACE ROUTE"
                 onClick={() => setHyperspacePlanner("galactic")}><HyperspaceIcon galactic /></button>
             </nav>
+            <nav className={`${styles.viewControls} ${styles.cameraControls}`} aria-label="Camera controls">
+              <button type="button" disabled={navigationMode !== "idle"}
+                className={`${styles.iconButton} ${cameraMode === "player" ? styles.activeViewControl : ""}`}
+                aria-label="Follow player ship" aria-pressed={cameraMode === "player"}
+                data-tooltip="CAMERA // FOLLOW YOUR SHIP" onClick={() => chooseCameraMode("player")}>
+                <CameraIcon type="player" />
+              </button>
+              <button type="button" disabled={navigationMode !== "idle"}
+                className={`${styles.iconButton} ${cameraMode === "rts" ? styles.activeViewControl : ""}`}
+                aria-label="Enable free RTS camera" aria-pressed={cameraMode === "rts"}
+                data-tooltip="RTS CAMERA // WASD PAN // Q/E ELEVATION" onClick={() => chooseCameraMode("rts")}>
+                <CameraIcon type="rts" />
+              </button>
+              <button type="button" disabled={navigationMode !== "idle" || !cameraFocusPoint}
+                className={`${styles.iconButton} ${cameraMode === "selection" ? styles.activeViewControl : ""}`}
+                aria-label="Focus camera on selected ship" aria-pressed={cameraMode === "selection"}
+                data-tooltip={cameraFocusPoint ? `CAMERA // FOLLOW ${cameraFocusPoint.name.toUpperCase()}` : "SELECT A SHIP TO FOCUS"}
+                onClick={() => chooseCameraMode("selection")}><CameraIcon type="selection" /></button>
+            </nav>
+            </div>
           )}
           <div className={styles.connection}>
             <span className={`${styles.light} ${telemetry.connected ? styles.live : ""}`} />
@@ -899,20 +1114,14 @@ export function App() {
           />
         )}
 
-        {telemetry.connected && combatTargetName && navigationMode === "idle" && (
-          <WeaponsPanel
-            observer={telemetry.snapshot?.observer || observer}
-            targetName={combatTargetName}
-            events={combatEvents}
-            disabled={landed || commandLocked}
-            onFire={fireWeapon}
-          />
-        )}
-
         {telemetry.connected && (
-          <footer className={`${styles.commandDeck} ${styles.panel}`}>
+          <div className={styles.commandDeckFrame}>
+            {commandToasts.length > 0 && <div className={styles.commandToasts} role="log" aria-live="polite">
+              {commandToasts.map((toast) => <div key={toast.id} className={styles.commandToast}
+                data-tone={toast.tone}>{toast.message}</div>)}
+            </div>}
+            <footer className={`${styles.commandDeck} ${styles.panel}`}>
             <section className={styles.commandBank} aria-label="Selected contact commands">
-              {commandAlert && <div className={styles.commandAlert} role="alert">{commandAlert}</div>}
               {navigationMode !== "idle" ? (
                 <>
                   <p className={styles.eyebrow}>COMMAND // NAVIGATION</p>
@@ -925,6 +1134,16 @@ export function App() {
                     <button type="button" onClick={cancelNavigation}><CommandIcon type="cancel" /><span>CANCEL COMMAND</span></button>
                   </div>
                 </>
+              ) : fleetCommandMode && fleet ? (
+                <FleetCommandPanel fleet={fleet} fleetOrder={fleetOrder}
+                  localAutopilot={telemetry.snapshot?.observer?.autopilot} scope={fleetScope}
+                  selectedMember={selectedFleetMember}
+                  targetName={navigableTarget?.name}
+                  canTarget={selectedShip !== null}
+                  disabled={landed || commandLocked}
+                  onBeginMove={beginVectorCourse}
+                  onCourseTarget={armTargetCourse}
+                  onOrder={(order, payload) => void sendFleetOrder(order, payload)} />
               ) : (
                 <>
                   <p className={styles.eyebrow}>COMMAND // {(navigableTarget?.name || observer.name).toUpperCase()}</p>
@@ -977,7 +1196,15 @@ export function App() {
                     onChange={setRequestedSpeed}
                     onCommit={chooseSpeed}
                   />
-                  {selectedShip ? (
+                  {combatTargetName ? (
+                    <WeaponsPanel
+                      observer={telemetry.snapshot?.observer || observer}
+                      targetName={combatTargetName}
+                      events={combatEvents}
+                      disabled={landed || commandLocked}
+                      onFire={fireWeapon}
+                    />
+                  ) : selectedShip ? (
                     <>
                       <div className={styles.dispositions} aria-label="Ship disposition">
                         {(["neutral", "ally", "enemy"] as ShipDisposition[]).map((disposition) => (
@@ -998,18 +1225,18 @@ export function App() {
                     </>
                   ) : navigableTarget ? (
                     <div className={styles.commandStandby}>SELECT TO OR AWAY // {navigableTarget.name.toUpperCase()}</div>
-                  ) : <div className={styles.commandStandby}>M // SET COURSE VECTOR</div>}
+                  ) : null}
                 </>
               )}
             </section>
 
-            <section className={`${styles.selectedVessel} ${selected ? "" : styles.playerVessel}`} aria-label="Selected vessel telemetry">
-              {selected && <p className={styles.eyebrow}>SELECTED CONTACT</p>}
+            <section className={`${styles.selectedVessel} ${hasSelectedContact ? "" : styles.playerVessel}`} aria-label="Selected vessel telemetry">
+              {hasSelectedContact && <p className={styles.eyebrow}>SELECTED CONTACT</p>}
               <div className={styles.vesselHeading}>
                 <div><h2>{displayedSelection.name}</h2><p className={styles.muted}>{displayedSelection.class || displayedSelection.kind || "Unknown contact"}</p></div>
                 <div className={styles.vesselTags}>
                   <span>{displayedSelection.shipCategory?.toUpperCase() || "UNCLASSIFIED"}</span>
-                  {!selected && <span className={styles.ownershipTag}>YOUR SHIP</span>}
+                  {!hasSelectedContact && <span className={styles.ownershipTag}>YOUR SHIP</span>}
                 </div>
               </div>
               <div className={styles.vesselRanges}>
@@ -1026,21 +1253,15 @@ export function App() {
             </section>
 
             <section className={styles.fleetBank} aria-label="Battlegroup or squadron roster">
-              <p className={styles.eyebrow}>FORMATION // ROSTER</p>
-              <div className={styles.fleetStatus}><span className={styles.light} /><strong>NOT ASSIGNED</strong></div>
-              <button
-                type="button"
-                className={styles.fleetShip}
-                aria-label={`Select ${observer.name}`}
-                aria-pressed={!selected}
-                onClick={() => selectContact(observer.id)}
-              >
-                <span>LOCAL ELEMENT</span>
-                <strong>{observer.name}</strong>
-                <small>{speedLabel(observer.speed)} SPD // {sensorRange === null ? "—" : `${formatCoordinate(sensorRange)} u`} SCAN</small>
-              </button>
+              <FleetRoster fleet={fleet} fleetOrder={telemetry.snapshot?.metadata?.fleetOrder} localName={observer.name}
+                selectedId={selected?.id || selectedFleetMemberId || "player-ship"}
+                scope={fleetScope}
+                onScopeChange={setFleetScope}
+                onSelectMember={selectFleetMember}
+                onSelectLocal={() => { setFleetScope("local"); selectContact(observer.id); }} />
             </section>
-          </footer>
+            </footer>
+          </div>
         )}
 
         {expandedCluster?.members && (
