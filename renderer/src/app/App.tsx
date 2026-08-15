@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { buildScene, findScenePoint, formatCoordinate, type ScenePoint } from "../domain/scene";
+import { canCommandFormation } from "../domain/fleet";
 import { hyperspaceClearance } from "../domain/hyperspace";
 import { NavigationDrawer } from "../features/commands/NavigationDrawer";
 import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
@@ -186,6 +187,7 @@ export function App() {
   const [manualScanStatus, setManualScanStatus] = useState("");
   const [spaceProbeAttempt, setSpaceProbeAttempt] = useState(0);
   const [hyperspacePlanner, setHyperspacePlanner] = useState<"local" | "galactic" | null>(null);
+  const [navigationRefreshBlocked, setNavigationRefreshBlocked] = useState(false);
   const [activeRoute, setActiveRoute] = useState<HyperspaceRoutePayload | null>(null);
   const [escapePlan, setEscapePlan] = useState<EscapePlanDraft | undefined>();
   const [hyperspaceEscapePending, setHyperspaceEscapePending] = useState(false);
@@ -196,6 +198,7 @@ export function App() {
   const manualScanIntentIdsRef = useRef(new Set<string>());
   const autotrackIntentIdsRef = useRef(new Set<string>());
   const hyperspaceEscapeIntentIdsRef = useRef(new Set<string>());
+  const navigationRefreshIntentIdsRef = useRef(new Set<string>());
   const targetIntentShipsRef = useRef(new Map<string, { name: string }>());
   const lastObservedSpeedRef = useRef<number | null>(null);
   const lastMaximumSpeedRef = useRef<number | null>(null);
@@ -329,6 +332,7 @@ export function App() {
   const spaceTelemetryActive = telemetry.connected && reportedInSpace === true
     && telemetry.snapshot?.metadata?.inSpace === true;
   const fleetCommandMode = fleet?.active === true && fleetScope !== "local";
+  const formationCommandsEnabled = fleet ? canCommandFormation(fleet, observer.name) : false;
   useEffect(() => {
     if (fleet?.active !== true) setFleetScope("local");
   }, [fleet?.active]);
@@ -476,21 +480,25 @@ export function App() {
   }, [activeRoute, hyperdriveClearance.known, hyperspaceState.phase]);
 
   useEffect(() => {
-    if (!hyperspacePlanner) return;
+    if (!hyperspacePlanner || navigationRefreshBlocked) return;
     const needsRange = navigationDestinations.length === 0;
     const needsCatalog = hyperspacePlanner === "galactic" && galaxyCatalogSize === 0;
     const needsPosition = !currentGalaxyPosition;
     if (!needsRange && !needsCatalog && !needsPosition) return;
 
-    const refreshMissingNavigationData = () => {
+    const refreshMissingNavigationData = async () => {
       if (needsCatalog) void window.holocron?.sendIntent("refresh_galaxy_catalog");
-      if (needsPosition) void window.holocron?.sendIntent("refresh_navigation", { command: "navstat" });
-      else if (needsRange) void window.holocron?.sendIntent("refresh_navigation", { command: "calc" });
+      if (!needsPosition && !needsRange) return;
+      const result = await window.holocron?.sendIntent("refresh_navigation", {
+        command: needsPosition ? "navstat" : "calc",
+      });
+      if (result?.id) navigationRefreshIntentIdsRef.current.add(result.id);
     };
-    refreshMissingNavigationData();
+    void refreshMissingNavigationData();
     const timer = setInterval(refreshMissingNavigationData, 2_500);
     return () => clearInterval(timer);
-  }, [currentGalaxyPosition?.x, currentGalaxyPosition?.y, galaxyCatalogSize, hyperspacePlanner, navigationDestinations.length]);
+  }, [currentGalaxyPosition?.x, currentGalaxyPosition?.y, galaxyCatalogSize, hyperspacePlanner,
+    navigationDestinations.length, navigationRefreshBlocked]);
 
   useEffect(() => {
     if (hyperspaceState.phase !== "hyperspace") setHyperspaceEscapePending(false);
@@ -831,6 +839,16 @@ export function App() {
   }, [knownMaximumSpeed, maximumSpeed, observedMaximumSpeed, observerSpeed]);
 
   useEffect(() => window.holocron?.onIntentAck((ack) => {
+    if (ack.id && navigationRefreshIntentIdsRef.current.has(ack.id)) {
+      if (ack.status === "accepted") return;
+      navigationRefreshIntentIdsRef.current.delete(ack.id);
+      const reason = String(ack.reason || "");
+      if (ack.status === "rejected" && reason.toLowerCase().includes("navigation computer")) {
+        setNavigationRefreshBlocked(true);
+        setCommandAlert(`NAVIGATION DATA UNAVAILABLE // ${reason.toUpperCase()}`);
+      }
+      return;
+    }
     if (ack.id && spaceProbeIntentIdsRef.current.has(ack.id)) {
       if (ack.status === "accepted") return;
       spaceProbeIntentIdsRef.current.delete(ack.id);
@@ -1020,6 +1038,7 @@ export function App() {
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
           combatEvents={combatEvents}
+          jumpEvents={telemetry.snapshot?.metadata?.shipJumpEvents}
           onSelect={selectContact}
           onMovementVector={setCourseVector}
           onMovementCommit={stageNavigation}
@@ -1061,10 +1080,10 @@ export function App() {
               ><ViewIcon type="sector" /></button>
               <button type="button" className={styles.iconButton} disabled={landed || activeRoute !== null}
                 aria-label="Plot a local hyperspace jump" data-tooltip="LOCAL JUMP"
-                onClick={() => setHyperspacePlanner("local")}><HyperspaceIcon /></button>
+                onClick={() => { setNavigationRefreshBlocked(false); setHyperspacePlanner("local"); }}><HyperspaceIcon /></button>
               <button type="button" className={styles.iconButton} disabled={landed || activeRoute !== null}
                 aria-label="Plot a galactic hyperspace route" data-tooltip="PLOT HYPERSPACE ROUTE"
-                onClick={() => setHyperspacePlanner("galactic")}><HyperspaceIcon galactic /></button>
+                onClick={() => { setNavigationRefreshBlocked(false); setHyperspacePlanner("galactic"); }}><HyperspaceIcon galactic /></button>
             </nav>
             <nav className={`${styles.viewControls} ${styles.cameraControls}`} aria-label="Camera controls">
               <button type="button" disabled={navigationMode !== "idle"}
@@ -1149,7 +1168,7 @@ export function App() {
                   targetName={combatTargetName || undefined}
                   events={combatEvents}
                   canTarget={selectedShip !== null}
-                  disabled={landed || commandLocked || fleet.role !== "lead"}
+                  disabled={landed || commandLocked || !formationCommandsEnabled}
                   weaponsDisabled={landed}
                   onTarget={() => void targetSelectedShip()}
                   onFire={fireWeapon}

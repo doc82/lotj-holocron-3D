@@ -2,7 +2,12 @@ const path = require("node:path");
 const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
-const appIcon = path.resolve(__dirname, "assets", "icon", "holocron3d.ico");
+const targetPlatform = process.env.HOLOCRON_TARGET_PLATFORM || process.platform;
+const targetArch = process.env.HOLOCRON_TARGET_ARCH || process.arch;
+const relayPlatform = targetPlatform === "win32" ? "windows" : targetPlatform;
+const relayName = targetPlatform === "win32" ? "holocron-relay.exe" : "holocron-relay";
+const appIcon = path.resolve(__dirname, "assets", "icon",
+  targetPlatform === "darwin" ? "holocron3d.icns" : "holocron3d.ico");
 
 module.exports = {
   packagerConfig: {
@@ -10,7 +15,7 @@ module.exports = {
     executableName: "Holocron3D",
     icon: appIcon,
     extraResource: [
-      path.resolve(__dirname, "relay", "bin", "holocron-relay.exe"),
+      path.resolve(__dirname, "relay", "bin", `${relayPlatform}-${targetArch}`, relayName),
       path.resolve(__dirname, "out", "mudlet", "Holocron3D.mpackage"),
     ],
     ignore: [

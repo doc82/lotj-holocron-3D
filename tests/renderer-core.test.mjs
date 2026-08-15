@@ -21,6 +21,19 @@ import {
   elevationFromPointer,
   elevationFromWheel,
 } from "../renderer/src/domain/coursePlot.ts";
+import { canCommandFormation, localFormationRole } from "../renderer/src/domain/fleet.ts";
+
+test("squadron leadership is inferred from the local roster member", () => {
+  const fleet = {
+    kind: "squadron", active: true, members: [
+      { id: "heehee", name: "HeeHee", leader: true, role: "lead" },
+      { id: "hhee2", name: "Hhee2", role: "wing" },
+    ],
+  };
+  assert.equal(localFormationRole(fleet, "heehee"), "lead");
+  assert.equal(canCommandFormation(fleet, "HeeHee"), true);
+  assert.equal(canCommandFormation(fleet, "Hhee2"), false);
+});
 
 test("remote scan range always includes the 500-unit base", () => {
   assert.equal(sensorRangeFor(undefined), 500);

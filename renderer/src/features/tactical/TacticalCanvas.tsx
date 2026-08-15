@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 
 import { formatCoordinate } from "../../domain/scene";
 import { RangeMeter } from "../telemetry/RangeMeter";
-import type { CombatEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
+import type { CombatEvent, ShipJumpEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
 import { TacticalEngine, type ClusterLabel, type CourseLabel, type PlayerShipLabel, type TacticalCameraMode, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
 
@@ -22,6 +22,7 @@ interface TacticalCanvasProps {
   radarBubbleEnabled: boolean;
   originGridEnabled: boolean;
   combatEvents?: CombatEvent[];
+  jumpEvents?: ShipJumpEvent[];
   onSelect(id: string | null): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
@@ -30,7 +31,7 @@ interface TacticalCanvasProps {
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel, onCameraModeChange }, ref) {
+  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, jumpEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel, onCameraModeChange }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
@@ -75,6 +76,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     useEffect(() => {
       for (const event of combatEvents ?? []) engineRef.current?.pushCombatEvent(event);
     }, [combatEvents]);
+
+    useEffect(() => {
+      for (const event of jumpEvents ?? []) engineRef.current?.pushJumpEvent(event);
+    }, [jumpEvents]);
 
     useImperativeHandle(ref, () => ({
       fitSystem: () => engineRef.current?.fitSystem(),

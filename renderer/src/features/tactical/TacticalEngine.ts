@@ -13,7 +13,7 @@ import {
   type ScenePoint,
   type TacticalScene,
 } from "../../domain/scene";
-import type { Color3, CombatEvent, SystemSnapshot, Vector3, WeaponType } from "../../types/telemetry";
+import type { Color3, CombatEvent, ShipJumpEvent, SystemSnapshot, Vector3, WeaponType } from "../../types/telemetry";
 import { shipModelFor } from "../../domain/shipModels";
 import { elevationFromPointer, elevationFromWheel } from "../../domain/coursePlot";
 
@@ -161,6 +161,13 @@ interface CombatEffect {
   to: Vector3;
   outcome?: "hit" | "miss";
 }
+interface JumpEffect {
+  id: number;
+  start: number;
+  duration: number;
+  origin: Vector3;
+  direction: Vector3;
+}
 
 function requireBuffer(gl: WebGLRenderingContext): WebGLBuffer {
   const buffer = gl.createBuffer();
@@ -244,6 +251,8 @@ export class TacticalEngine {
   private savedCameraState: SavedCameraState | null = null;
   private combatEffects: CombatEffect[] = [];
   private lastCombatEventId = 0;
+  private jumpEffects: JumpEffect[] = [];
+  private lastJumpEventId = 0;
 
   constructor(canvas: HTMLCanvasElement, callbacks: TacticalEngineCallbacks) {
     this.canvas = canvas;
@@ -498,6 +507,30 @@ export class TacticalEngine {
         });
       }
     }
+    this.requestRender();
+  }
+
+  pushJumpEvent(event: ShipJumpEvent): void {
+    if (!event.id || event.id <= this.lastJumpEventId || event.phase !== "departure") return;
+    this.lastJumpEventId = event.id;
+    const ship = this.findPointByName(event.shipName);
+    if (!ship) return;
+    const rawDirection: Vector3 = [
+      Number(ship.heading?.x) || 0,
+      Number(ship.heading?.y) || 0,
+      Number(ship.heading?.z) || 0,
+    ];
+    const length = Math.hypot(...rawDirection);
+    const direction = length > 0.001
+      ? rawDirection.map((value) => value / length) as Vector3
+      : [0, 0, 1] as Vector3;
+    this.jumpEffects.push({
+      id: event.id,
+      start: performance.now(),
+      duration: 1_350,
+      origin: [...ship.position3d],
+      direction,
+    });
     this.requestRender();
   }
 
@@ -1034,6 +1067,25 @@ export class TacticalEngine {
           effect.outcome === "hit" ? explosive ? 26 : 18 : 8));
       }
     }
+    this.jumpEffects = this.jumpEffects.filter((effect) => now - effect.start < effect.duration);
+    for (const effect of this.jumpEffects) {
+      const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
+      const eased = 1 - (1 - progress) ** 3;
+      const length = 35 + eased * 220;
+      const tail = effect.origin.map((value, axis) =>
+        value + effect.direction[axis] * length * Math.max(0, progress - 0.3)) as Vector3;
+      const head = effect.origin.map((value, axis) =>
+        value + effect.direction[axis] * length) as Vector3;
+      const color: Color3 = [0.54, 0.76, 1];
+      for (let ray = -3; ray <= 3; ray += 1) {
+        const spread = Math.sin(progress * Math.PI) * ray * 1.8;
+        const rayHead: Vector3 = [head[0] + spread, head[1] + Math.abs(ray) * 0.45, head[2]];
+        lines.push(...this.interleavedVertex(tail, color), ...this.interleavedVertex(rayHead, color));
+      }
+      const glow: Color3 = [0.18, 0.3, 0.48];
+      points.push(...this.interleavedVertex(head, glow, 42 * (1 - progress * 0.55)));
+      points.push(...this.interleavedVertex(head, color, 16 * (1 - progress * 0.45)));
+    }
     for (const point of this.scene.points) {
       if (point.kind !== "projectile") continue;
       const weapon = this.projectileWeapon(point);
@@ -1267,7 +1319,8 @@ export class TacticalEngine {
     this.publishPlayerShipLabel();
     const focusMoving = this.cameraFocus.some((value, index) => Math.abs(cameraTarget[index] - value) > 0.05);
     if (this.interpolator.isAnimating(now) || this.camera.isMoving() || focusMoving
-        || this.combatEffects.length > 0 || this.heightGuideFadeStartedAt !== null) {
+        || this.combatEffects.length > 0 || this.jumpEffects.length > 0
+        || this.heightGuideFadeStartedAt !== null) {
       this.scheduleActiveFrame();
     }
   };

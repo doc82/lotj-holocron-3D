@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { createTelemetryHost } from "../electron/shared/protocol.mjs";
 import { ensureRelayToken, validateRelayAuth } from "../electron/shared/relay-auth.mjs";
-import { appDataPaths } from "../electron/shared/windows-paths.mjs";
+import { appDataPaths } from "../electron/shared/app-paths.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -114,9 +114,31 @@ test("relay credentials are persistent and validated", async () => {
 });
 
 test("Windows paths are stable and overridable", () => {
-  const paths = appDataPaths({ LOCALAPPDATA: "C:\\Users\\Test\\AppData\\Local" });
+  const paths = appDataPaths({ LOCALAPPDATA: "C:\\Users\\Test\\AppData\\Local" }, "win32", "C:\\Users\\Test");
   assert.equal(paths.token, path.win32.join("C:\\Users\\Test\\AppData\\Local", "Holocron3D", "bridge-token"));
-  const custom = appDataPaths({ HOLOCRON_DATA_DIR: "D:\\Holocron" });
+  const custom = appDataPaths({ HOLOCRON_DATA_DIR: "D:\\Holocron" }, "win32");
   assert.equal(custom.relay, path.win32.join("D:\\Holocron", "bin", "holocron-relay.exe"));
   assert.equal(custom.mudletPackage, path.win32.join("D:\\Holocron", "mudlet", "Holocron3D.mpackage"));
+});
+
+test("macOS paths use Application Support and an extensionless relay", () => {
+  const paths = appDataPaths({}, "darwin", "/Users/Test");
+  assert.equal(paths.base, path.join("/Users/Test", "Library", "Application Support", "Holocron3D"));
+  assert.equal(paths.relay, path.join(paths.base, "bin", "holocron-relay"));
+  assert.equal(paths.mudletPackage, path.join(paths.base, "mudlet", "Holocron3D.mpackage"));
+});
+
+test("release tooling builds native macOS relays and DMG artifacts without extra package policy", async () => {
+  const [forge, release, dmg, manifest] = await Promise.all([
+    readFile(path.resolve(here, "../forge.config.cjs"), "utf8"),
+    readFile(path.resolve(here, "../tools/release-build.mjs"), "utf8"),
+    readFile(path.resolve(here, "../tools/build-dmg.mjs"), "utf8"),
+    readFile(path.resolve(here, "../package.json"), "utf8"),
+  ]);
+  assert.match(forge, /darwin/);
+  assert.match(forge, /holocron-relay/);
+  assert.match(release, /build-dmg\.mjs/);
+  assert.match(dmg, /hdiutil/);
+  assert.match(manifest, /make:mac:arm64/);
+  assert.match(manifest, /make:mac:x64/);
 });

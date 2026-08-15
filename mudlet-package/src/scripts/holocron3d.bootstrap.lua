@@ -1,9 +1,11 @@
 lotjHolocron3DPackage = lotjHolocron3DPackage or {}
 
 local Package = lotjHolocron3DPackage
-Package.VERSION = "0.1.3"
+Package.VERSION = "0.1.4"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
+Package.settingsPath = getMudletHomeDir() .. "/holocron3d-settings.txt"
+Package.settings = {confirmations = true, debug = false}
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -20,10 +22,77 @@ local function say(color, message)
   cecho(string.format("\n<%s>[Holocron3D] %s<reset>\n", color, tostring(message)))
 end
 
+local function platformName()
+  local reported = type(getOS) == "function" and tostring(getOS()):lower() or ""
+  if reported:find("mac", 1, true) or reported:find("osx", 1, true) then return "macos" end
+  if reported:find("win", 1, true) then return "windows" end
+  if jit and tostring(jit.os):lower() == "osx" then return "macos" end
+  return "windows"
+end
+
+local function loadSettings()
+  local file = io.open(Package.settingsPath, "rb")
+  if not file then return end
+  for line in file:lines() do
+    local key, value = line:match("^(%w+)%s*=%s*(%w+)$")
+    if Package.settings[key] ~= nil then Package.settings[key] = value == "true" end
+  end
+  file:close()
+end
+
+local function saveSettings()
+  local file, openError = io.open(Package.settingsPath, "wb")
+  if not file then return nil, openError end
+  file:write("confirmations=", tostring(Package.settings.confirmations), "\n")
+  file:write("debug=", tostring(Package.settings.debug), "\n")
+  file:close()
+  return true
+end
+
+local function confirmation(color, message)
+  if Package.settings.confirmations then say(color, message) end
+end
+
+local function setBooleanSetting(name, argument)
+  local value = trim(argument):lower()
+  if value == "" or value == "status" then
+    say("cyan", name .. " " .. (Package.settings[name] and "on" or "off"))
+    return true
+  end
+  if value ~= "on" and value ~= "off" then
+    say("yellow", "usage: h3d " .. name .. " on | off")
+    return nil, "invalid setting"
+  end
+  Package.settings[name] = value == "on"
+  local saved, saveError = saveSettings()
+  if not saved then
+    say("red", "could not save settings: " .. tostring(saveError))
+    return nil, saveError
+  end
+  say("green", name .. " " .. value)
+  return true
+end
+
+loadSettings()
+
 local function installedPaths()
+  if platformName() == "macos" then
+    local home = (os.getenv("HOME") or ""):gsub("\\", "/")
+    local root = home .. "/Library/Application Support/Holocron3D"
+    local applications = {
+      "/Applications/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D",
+      home .. "/Applications/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D",
+    }
+    local launcher = applications[1]
+    for _, candidate in ipairs(applications) do
+      if fileExists(candidate) then launcher = candidate; break end
+    end
+    return root .. "/bin/holocron-relay", launcher, root .. "/bridge-token", false
+  end
   local localAppData = (os.getenv("LOCALAPPDATA") or ""):gsub("\\", "/")
   local root = localAppData .. "/Holocron3D"
-  return root .. "/bin/holocron-relay.exe", root .. "/Update.exe"
+  return root .. "/bin/holocron-relay.exe", root .. "/Update.exe",
+    root .. "/bridge-token", true
 end
 
 local function normalizePath(path)
@@ -50,6 +119,12 @@ local function resolveDevExecutable(path)
       path .. "/LotJ Holocron 3D-win32-x64/Holocron3D.exe")
     table.insert(candidates,
       path .. "/out/LotJ Holocron 3D-win32-x64/Holocron3D.exe")
+    table.insert(candidates,
+      path .. "/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D")
+    table.insert(candidates,
+      path .. "/out/LotJ Holocron 3D-darwin-arm64/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D")
+    table.insert(candidates,
+      path .. "/out/LotJ Holocron 3D-darwin-x64/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D")
   end
   for _, candidate in ipairs(candidates) do
     if fileExists(candidate) then return candidate end
@@ -70,7 +145,7 @@ function Package.setDevelopmentMode(argument)
   mode = mode and mode:lower() or "status"
   if mode == "off" then
     os.remove(Package.devConfigPath)
-    say("green", "development mode disabled; the installed desktop app will be used")
+    confirmation("green", "development mode disabled; the installed desktop app will be used")
     return true
   end
   if mode == "status" then
@@ -86,7 +161,7 @@ function Package.setDevelopmentMode(argument)
 
   local executable = resolveDevExecutable(path)
   if not executable then
-    say("red", "could not find the local Holocron3D.exe beneath that path")
+    say("red", "could not find a local Holocron3D desktop executable beneath that path")
     say("yellow", "build it with pnpm package, then pass the repository path")
     return nil, "development executable unavailable"
   end
@@ -95,8 +170,8 @@ function Package.setDevelopmentMode(argument)
     say("red", "could not save development mode: " .. tostring(saveError))
     return nil, saveError
   end
-  say("green", "development mode enabled: " .. executable)
-  say("yellow", "close any installed Holocron3D window, then enter: h3d start")
+  confirmation("green", "development mode enabled: " .. executable)
+  confirmation("yellow", "close any installed Holocron3D window, then enter: h3d start")
   return true
 end
 
@@ -104,7 +179,7 @@ function Package.stop(quiet)
   if lotjHolocron3D and type(lotjHolocron3D.stop) == "function" then
     pcall(lotjHolocron3D.stop)
   end
-  if not quiet then say("yellow", "telemetry stopped") end
+  if not quiet then confirmation("yellow", "telemetry stopped") end
   return true
 end
 
@@ -115,10 +190,10 @@ function Package.start()
   package.loaded["lotj_holocron_parsers"] = nil
   package.loaded["lotj_holocron_scraper"] = nil
 
-  local relay, updater = installedPaths()
+  local relay, launcher, token, squirrel = installedPaths()
   local devExecutable = readDevExecutable()
   if not fileExists(relay) then
-    say("red", "the Windows desktop app is not installed or has not been opened yet")
+    say("red", "the desktop app is not installed or has not been opened yet")
     say("yellow", "install Holocron3D, open it once, then enter: h3d start")
     return nil, "desktop app unavailable"
   end
@@ -127,8 +202,8 @@ function Package.start()
     say("yellow", "rebuild it, choose a new path, or enter: h3d dev off")
     return nil, "development executable unavailable"
   end
-  if not devExecutable and not fileExists(updater) then
-    say("red", "the installed Windows desktop app launcher is unavailable")
+  if not devExecutable and not fileExists(launcher) then
+    say("red", "the installed desktop app launcher is unavailable")
     return nil, "desktop app unavailable"
   end
 
@@ -140,11 +215,12 @@ function Package.start()
   lotjHolocron3D = proxyOrError
 
   lotjHolocron3D.onDiagnostic = function(level, message)
+    if level ~= "error" and level ~= "warn" and not Package.settings.debug then return end
     local color = level == "error" and "red" or level == "warn" and "yellow" or "cyan"
     say(color, message)
   end
   lotjHolocron3D.onReady = function()
-    say("green", "Mudlet is connected to the desktop renderer")
+    confirmation("green", "Mudlet is connected to the desktop renderer")
   end
 
   local scraperLoaded, scraperOrError = pcall(require, "lotj_holocron_scraper")
@@ -158,16 +234,22 @@ function Package.start()
     return nil, scraperError
   end
 
-  local relayArguments = devExecutable
-    and {"--app", devExecutable}
-    or {"--app", updater, "--squirrel-exe", "Holocron3D.exe"}
+  local relayArguments
+  if devExecutable then
+    relayArguments = {"--app", devExecutable, "--token-file", token}
+  elseif squirrel then
+    relayArguments = {"--app", launcher, "--squirrel-exe", "Holocron3D.exe",
+      "--token-file", token}
+  else
+    relayArguments = {"--app", launcher, "--token-file", token}
+  end
   local started, startError = lotjHolocron3D.start(relay, relayArguments)
   if not started then
     scraperOrError.teardown()
     say("red", "could not start the desktop bridge: " .. tostring(startError))
     return nil, startError
   end
-  say("yellow", (devExecutable and "development" or "installed")
+  confirmation("yellow", (devExecutable and "development" or "installed")
     .. " desktop bridge started; waiting for connection")
   return true
 end
@@ -188,6 +270,8 @@ function Package.status()
   local devExecutable = readDevExecutable()
   say("cyan", devExecutable and ("development app: " .. devExecutable)
     or "desktop mode: installed app")
+  say("cyan", "confirmations " .. (Package.settings.confirmations and "on" or "off")
+    .. " // debug " .. (Package.settings.debug and "on" or "off"))
 end
 
 local function profileRate(value, elapsed)
@@ -269,7 +353,7 @@ function Package.profile(argument)
   end
   if action == "start" then
     scraper.startProfiler()
-    say("green", "profiler started; play normally, then enter h3d profile report")
+    confirmation("green", "profiler started; play normally, then enter h3d profile report")
     return true
   end
   local report, reportError
@@ -304,9 +388,12 @@ function Package.command(action, argument)
   end
   if action == "dev" then return Package.setDevelopmentMode(argument) end
   if action == "profile" then return Package.profile(argument) end
-  say("cyan", "commands: h3d start | stop | status | snapshot | profile | dev | help")
+  if action == "confirmations" then return setBooleanSetting("confirmations", argument) end
+  if action == "debug" then return setBooleanSetting("debug", argument) end
+  say("cyan", "commands: h3d start | stop | status | snapshot | profile | dev | confirmations | debug | help")
   say("cyan", "profiling: h3d profile start | report | stop")
   say("cyan", "development: h3d dev on <repository path> | h3d dev off")
+  say("cyan", "output: h3d confirmations on | off // h3d debug on | off")
 end
 
 tempTimer(0, function() Package.start() end)
