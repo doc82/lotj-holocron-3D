@@ -359,6 +359,8 @@ function denyCurrentSend()
   deniedSends = deniedSends + 1
 end
 assert(dispositionWayfarer and dispositionWayfarer.disposition == "enemy")
+scraper.scanState.wayfarer.statusAt = os.time()
+  - scraper.polling.hostileScanIntervalSeconds
 local scanTimer = scraper.getPollingState().timerId
 timers[scanTimer].callback()
 assert(sentCommands[#sentCommands].command == "status Wayfarer",
