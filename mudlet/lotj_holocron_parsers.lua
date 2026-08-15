@@ -560,7 +560,11 @@ function Parsers.parseFleetRadar(input)
         end
         local pipeName, pipeLeader, pipePosition = line:match(
           "^%s*(.-)%s*|%s*(.-)%s*|%s*(.-)%s*$")
-        if coordinateName then
+        if pipeName then
+          entity.name = pipeName
+          entity.leader = pipeLeader
+          entity.position = pipePosition
+        elseif coordinateName then
           coordinateName = trim(coordinateName)
           if coordinateName:lower():match("^your%s+coordinates%s*:") then
             result.observer = {x = number(x), y = number(y), z = number(z)}
@@ -571,10 +575,6 @@ function Parsers.parseFleetRadar(input)
             entity.position = tactical
             entity.x, entity.y, entity.z = number(x), number(y), number(z)
           end
-        elseif pipeName then
-          entity.name = pipeName
-          entity.leader = pipeLeader
-          entity.position = pipePosition
         elseif columns and #values >= 2 then
           for index, value in ipairs(values) do
             if columns[index] then entity[columns[index]] = value end
