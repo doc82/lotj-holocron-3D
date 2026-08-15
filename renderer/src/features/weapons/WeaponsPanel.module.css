@@ -73,8 +73,8 @@
 .panel button::after {
   position: absolute;
   bottom: calc(100% + 7px);
-  left: 50%;
-  z-index: 20;
+  left: 0;
+  z-index: 1000;
   width: max-content;
   max-width: 260px;
   padding: 6px 8px;
@@ -84,13 +84,13 @@
   pointer-events: none;
   opacity: 0;
   background: rgba(27, 5, 11, 0.98);
-  transform: translate(-50%, 3px);
+  transform: translateY(3px);
   transition: 100ms ease;
   font: 700 9px/1.35 ui-monospace, monospace;
   white-space: nowrap;
 }
 .panel button:hover::after,
-.panel button:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+.panel button:focus-visible::after { opacity: 1; transform: translateY(0); }
 .panel .charging { color: #6e8990; animation: weapon-charge 900ms ease-in-out infinite alternate; }
 .panel.rumbleOdd { animation: weapons-rumble-odd 420ms ease-out; }
 .panel.rumbleEven { animation: weapons-rumble-even 420ms ease-out; }

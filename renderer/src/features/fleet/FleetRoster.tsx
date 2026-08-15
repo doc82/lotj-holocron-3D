@@ -72,22 +72,29 @@ export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, o
       {weakestHull !== null && <small>H {Math.round(weakestHull)}%</small>}
     </div>
     {fleet.kind === "squadron" && <div className={styles.controls}>
-      ASSIST {fleet.assist ? "ACTIVE" : "OFF"} // AIM {(fleet.aimSystem || "NONE").toUpperCase()}
+      ASSIST {fleet.assist === undefined ? "UNKNOWN" : fleet.assist ? "ACTIVE" : "OFF"}
+      {" // "}AIM {(fleet.aimSystem || "NONE").toUpperCase()}
     </div>}
-    <div className={styles.scopes} aria-label="Fleet command scope">
-      {(["local", "all", "wings"] as const).map((value) => <button key={value}
+    <div className={styles.scopes} aria-label="Formation command scope">
+      {(fleet.kind === "squadron" ? ["local", "all"] as const : ["local", "all", "wings"] as const)
+        .map((value) => <button key={value}
         type="button" disabled={value !== "local" && !canCommandFormation}
         aria-pressed={scope === value} onClick={() => onScopeChange(value)}>
-        {value === "local" ? "LOCAL" : value === "all" ? "ALL FLEET" : "WINGS"}
+        {value === "local" ? "LOCAL" : value === "all"
+          ? fleet.kind === "squadron" ? "SQUADRON" : "ALL FLEET" : "WINGS"}
       </button>)}
-      {scope === "selected" && <button type="button" aria-pressed="true">SELECTED</button>}
+      {fleet.kind !== "squadron" && scope === "selected"
+        && <button type="button" aria-pressed="true">SELECTED</button>}
     </div>
     <div className={styles.list}>
       {fleet.members.map((member) => {
         const location = member.system || member.location || "Location unknown";
         const orderResult = fleetOrder?.results?.[member.name];
-        const autopilotOrder = fleetOrder?.order === "autopilot" ? orderResult : undefined;
-        const autopilot = autopilotOrder?.autopilot ?? member.autopilot;
+        const autopilotOrder = fleet.kind === "battlegroup" && fleetOrder?.order === "autopilot"
+          ? orderResult : undefined;
+        const autopilot = fleet.kind === "battlegroup"
+          ? autopilotOrder?.autopilot ?? member.autopilot
+          : undefined;
         const autopilotLabel = autopilotOrder?.status === "awaiting" ? "AWAITING"
           : `${autopilot === undefined ? "UNKNOWN" : autopilot ? "ON" : "OFF"}`
             + (autopilotOrder?.status === "rejected" ? " // REJECTED" : "");

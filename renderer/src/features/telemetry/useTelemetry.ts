@@ -20,13 +20,30 @@ const initialTelemetry: TelemetryState = {
 
 function mergeInitial(current: TelemetryState, initial: InitialState): TelemetryState {
   const connected = initial.connected === true;
+  const spaceState = current.spaceState ?? initial.spaceState ?? null;
+  const snapshot = spaceState?.inSpace === false
+    ? null
+    : current.snapshot ?? initial.snapshot ?? null;
   return {
     connected,
     connectionLabel: connected ? "MUDLET LINK" : "WAITING FOR MUDLET",
-    snapshot: initial.snapshot ?? current.snapshot,
-    spaceState: initial.spaceState ?? current.spaceState,
+    snapshot,
+    spaceState,
     galaxyCatalog: initial.galaxyCatalog ?? current.galaxyCatalog,
   };
+}
+
+function receiveSnapshot(current: TelemetryState, snapshot: SystemSnapshot): TelemetryState {
+  if (current.spaceState?.inSpace === false || snapshot.metadata?.inSpace === false) {
+    return { ...current, snapshot: null };
+  }
+  return { ...current, snapshot };
+}
+
+function receiveSpaceState(current: TelemetryState, spaceState: SpaceState): TelemetryState {
+  // A space-state transition is a hard renderer session boundary. Even on
+  // launch, wait for a new snapshot instead of briefly restoring the old system.
+  return { ...current, spaceState, snapshot: null };
 }
 
 export function useTelemetry(): TelemetryState {
@@ -40,8 +57,8 @@ export function useTelemetry(): TelemetryState {
       const api = window.holocron;
       setTelemetry((current) => ({ ...current, connectionLabel: "WAITING FOR MUDLET" }));
       cleanups.push(
-        api.onSnapshot((snapshot) => setTelemetry((current) => ({ ...current, snapshot }))),
-        api.onSpaceState((spaceState) => setTelemetry((current) => ({ ...current, spaceState }))),
+        api.onSnapshot((snapshot) => setTelemetry((current) => receiveSnapshot(current, snapshot))),
+        api.onSpaceState((spaceState) => setTelemetry((current) => receiveSpaceState(current, spaceState))),
         api.onGalaxyCatalog((galaxyCatalog) => setTelemetry((current) => ({ ...current, galaxyCatalog }))),
         api.onConnectionState((connection) => {
           const connected = connection?.connected === true;
@@ -49,6 +66,7 @@ export function useTelemetry(): TelemetryState {
             ...current,
             connected,
             connectionLabel: connected ? "MUDLET LINK" : "WAITING FOR MUDLET",
+            ...(!connected ? { snapshot: null, spaceState: null } : {}),
           }));
         }),
       );
@@ -92,16 +110,17 @@ export function useTelemetry(): TelemetryState {
         if (message.type === "bridge_ready") {
           setTelemetry((current) => ({ ...current, connected: true, connectionLabel: "LIVE LINK" }));
         } else if (message.type === "system_snapshot") {
-          setTelemetry((current) => ({ ...current, snapshot: message as unknown as SystemSnapshot }));
+          setTelemetry((current) => receiveSnapshot(current, message as unknown as SystemSnapshot));
         } else if (message.type === "space_state") {
-          setTelemetry((current) => ({ ...current, spaceState: message as unknown as SpaceState }));
+          setTelemetry((current) => receiveSpaceState(current, message as unknown as SpaceState));
         } else if (message.type === "galaxy_catalog") {
           setTelemetry((current) => ({ ...current, galaxyCatalog: message as unknown as GalaxyCatalog }));
         }
       });
       socket.addEventListener("close", () => {
         if (!active) return;
-        setTelemetry((current) => ({ ...current, connected: false, connectionLabel: "RECONNECTING" }));
+        setTelemetry((current) => ({ ...current, connected: false, connectionLabel: "RECONNECTING",
+          snapshot: null, spaceState: null }));
         reconnectTimer = setTimeout(connect, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 1.7, 8000);
       });

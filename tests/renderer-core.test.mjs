@@ -17,6 +17,10 @@ import {
   sensorRangeFor,
   scenesHaveMotion,
 } from "../renderer/src/domain/scene.ts";
+import {
+  elevationFromPointer,
+  elevationFromWheel,
+} from "../renderer/src/domain/coursePlot.ts";
 
 test("remote scan range always includes the 500-unit base", () => {
   assert.equal(sensorRangeFor(undefined), 500);
@@ -108,6 +112,35 @@ test("course plotting keeps the X/Z vector endpoint under the pointer", () => {
   assert.ok(endpoint);
   assert.ok(Math.abs(endpoint.x - (width / 2 + deltaX)) < 0.001);
   assert.ok(Math.abs(endpoint.y - (height / 2 + deltaY)) < 0.001);
+});
+
+test("course elevation starts at the dropped plot height and follows vertical movement", () => {
+  const initialElevation = 240;
+  const droppedPointerY = 315;
+  const unitsPerPixel = 0.5;
+
+  assert.equal(
+    elevationFromPointer(initialElevation, droppedPointerY, droppedPointerY, unitsPerPixel),
+    initialElevation,
+    "engaging Shift must not jump Y to a canvas-centered value",
+  );
+  assert.equal(
+    elevationFromPointer(initialElevation, droppedPointerY, droppedPointerY - 40, unitsPerPixel),
+    260,
+    "moving upward should raise the plotted Y coordinate",
+  );
+  assert.equal(
+    elevationFromPointer(initialElevation, droppedPointerY, droppedPointerY + 40, unitsPerPixel),
+    220,
+    "moving downward should lower the plotted Y coordinate",
+  );
+});
+
+test("Shift-wheel course elevation follows scroll direction", () => {
+  assert.equal(elevationFromWheel(100, -30, 0.5), 115,
+    "scrolling upward should raise the plotted Y coordinate");
+  assert.equal(elevationFromWheel(100, 30, 0.5), 85,
+    "scrolling downward should lower the plotted Y coordinate");
 });
 
 test("renderer scene stays centered on the observer", () => {

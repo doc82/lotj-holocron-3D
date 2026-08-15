@@ -31,7 +31,7 @@ local Scraper = {
   proxy = nil,
   state = nil,
   lastCapture = nil,
-  polling = {enabled = false, index = 1, timerId = nil, dispatching = false,
+  polling = {enabled = false, resumeWhenInSpace = false, index = 1, timerId = nil, dispatching = false,
     hydrationQueue = {}, lastFleetRadarAt = 0, lastBattlegroupAt = 0,
     lastSquadronAt = 0},
   scanState = {},
@@ -953,6 +953,8 @@ function Scraper.setInSpace(inSpace, reason)
   Scraper.state.metadata.spaceStateChangedAt = os.time()
 
   if not inSpace then
+    if Scraper.polling.enabled then Scraper.polling.resumeWhenInSpace = true end
+    Scraper.polling.enabled = false
     abandonCapture(reason or "not in space")
     cancelPollTimer()
     Scraper.state.entities = {}
@@ -1001,8 +1003,17 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.shields.activationPending = false
     Scraper.state.metadata.shieldRecharging = false
     Scraper.state.metadata.shieldStatusPending = false
-  elseif Scraper.polling.enabled and scheduleNextPoll then
-    scheduleNextPoll(0.25)
+  else
+    if Scraper.polling.resumeWhenInSpace then
+      Scraper.polling.enabled = true
+      Scraper.polling.resumeWhenInSpace = false
+    end
+    if Scraper.polling.enabled and scheduleNextPoll then scheduleNextPoll(0.25) end
+  end
+
+  if Scraper.state.metadata.polling then
+    Scraper.state.metadata.polling.enabled = Scraper.polling.enabled
+    Scraper.state.metadata.polling.active = Scraper.polling.enabled and inSpace
   end
 
   if not changed then return true end
@@ -2066,7 +2077,9 @@ function Scraper.startPolling(options)
     return nil, "Mudlet send() is unavailable"
   end
   options = type(options) == "table" and options or {}
-  Scraper.polling.enabled = true
+  local waitingForSpace = Scraper.state and Scraper.state.metadata.inSpace == false
+  Scraper.polling.enabled = not waitingForSpace
+  Scraper.polling.resumeWhenInSpace = waitingForSpace == true
   Scraper.polling.index = 1
   Scraper.polling.lastFleetRadarAt = 0
   Scraper.polling.lastBattlegroupAt = 0
@@ -2110,6 +2123,7 @@ end
 function Scraper.stopPolling()
   cancelPollTimer()
   Scraper.polling.enabled = false
+  Scraper.polling.resumeWhenInSpace = false
   Scraper.polling.dispatching = false
   if Scraper.state then updatePollingMetadata(nil) end
   return true
@@ -3269,14 +3283,15 @@ local function dispatchFleetOrder(payload, message)
   end
 
   if fleet.kind ~= "squadron" then return false, "unsupported formation type" end
-  -- Squadron wings cannot receive individual nav/fire commands. Selecting a
-  -- wing intentionally operates the lead; Fire Assist mirrors that order to
-  -- the squadron according to LotJ's native formation behavior.
+  -- Squadron formation actions use LotJ's native squadron channel. Movement,
+  -- targeting, and fire remain lead-cockpit actions which wingmen inherit.
   local squadronScope = scope == "selected" and "local" or scope
   local commands = {}
   if order == "roll" or order == "chaff" then
-    if squadronScope == "all" or squadronScope == "local" then table.insert(commands, order) end
-    if squadronScope == "all" or squadronScope == "wings" then table.insert(commands, "squadron " .. order) end
+    if squadronScope == "local" then
+      return false, "use the local ship controls for a lead-ship-only " .. order
+    end
+    table.insert(commands, "squadron " .. order)
   elseif order == "assist" then
     table.insert(commands, "squadron assist")
   elseif order == "aim" then

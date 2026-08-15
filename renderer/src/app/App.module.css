@@ -231,7 +231,7 @@
   position: absolute;
   left: 50%;
   bottom: calc(100% + 7px);
-  z-index: 30;
+  z-index: 1000;
   width: max-content;
   max-width: 190px;
   padding: 5px 7px;
@@ -369,16 +369,38 @@
   display: grid;
   grid-template-columns: var(--command-deck-columns);
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: auto;
-  clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   animation: controls-enter 320ms ease-out both;
+}
+
+.commandDeck::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.25), inset 0 0 24px rgba(28, 132, 151, 0.035);
+  backdrop-filter: blur(12px);
+  clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+  content: "";
+  pointer-events: none;
 }
 
 .commandDeck > section {
   position: relative;
+  z-index: 1;
   min-width: 0;
   padding: 17px 18px;
+}
+
+.commandDeck > section:hover,
+.commandDeck > section:focus-within {
+  z-index: 10;
 }
 
 .commandDeck .eyebrow {
@@ -394,6 +416,21 @@
 .commandBank,
 .fleetBank {
   background: linear-gradient(180deg, rgba(10, 39, 50, 0.32), rgba(2, 11, 18, 0.2));
+}
+
+.commandBank [data-tooltip]::before,
+.commandBank [data-tooltip]::after {
+  right: auto;
+  left: 0;
+  z-index: 1000;
+  transform: translateY(3px);
+}
+
+.commandBank [data-tooltip]:hover::before,
+.commandBank [data-tooltip]:hover::after,
+.commandBank [data-tooltip]:focus-visible::before,
+.commandBank [data-tooltip]:focus-visible::after {
+  transform: translateY(0);
 }
 
 .commandBank h2,
@@ -754,29 +791,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font: 600 14px ui-monospace, monospace;
-}
-
-.landed {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  min-width: 310px;
-  padding: 18px 22px;
-  border: 1px solid rgba(255, 217, 87, 0.5);
-  color: var(--gold);
-  text-align: center;
-  background: rgba(17, 13, 3, 0.88);
-  font: 600 13px ui-monospace, "Cascadia Mono", monospace;
-  letter-spacing: 0.12em;
-}
-
-.landed small {
-  display: block;
-  margin-top: 8px;
-  color: #ac9e69;
-  font-size: 10px;
-  letter-spacing: 0;
 }
 
 @keyframes panel-enter {
