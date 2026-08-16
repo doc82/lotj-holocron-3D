@@ -43,7 +43,8 @@ reconciliation every 60 seconds, and prioritizes `radar projectiles` during
 combat while refreshing fleet positions more slowly. Proximity is calculated
 locally from coordinates, so `prox` and `prox velocity` remain available for
 visible manual refreshes but are not automatically polled.
-Only `Sensor Array` is retained from `info`; access codes are discarded and
+Structured `status` and `info` cards are retained for the renderer's ship
+dossier, including access codes shown by LotJ. Raw `info` output remains
 redacted from the package's last-capture diagnostics.
 
 ## Development Step 1: Make sure the files are present

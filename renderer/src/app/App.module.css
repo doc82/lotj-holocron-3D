@@ -106,6 +106,42 @@
   overflow: auto;
 }
 
+.scopeDrawer {
+  top: 154px;
+  bottom: 316px;
+  left: 112px;
+  z-index: 17;
+  width: min(340px, calc(100vw - 146px));
+  padding: 15px;
+  overflow: hidden;
+  animation: panel-enter 180ms ease-out both;
+  clip-path: polygon(0 9px, 9px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.scopeDrawer > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(82, 220, 244, 0.18);
+  padding-bottom: 10px;
+}
+
+.scopeDrawer h2 { color: #ddfaff; font: 600 15px/1.2 ui-monospace, monospace; }
+
+.closeScopeDrawer {
+  border: 1px solid rgba(82, 220, 244, 0.24);
+  padding: 1px 7px 3px;
+  color: #7eb3bd;
+  background: rgba(7, 31, 42, 0.72);
+  cursor: pointer;
+  font: 18px/1 ui-monospace, monospace;
+}
+
+.closeScopeDrawer:hover,
+.closeScopeDrawer:focus-visible { border-color: #75e8ff; outline: none; color: #dffaff; }
+
 .clusterPanel > header {
   display: flex;
   align-items: flex-start;
@@ -334,12 +370,12 @@
 }
 
 .commandDeckFrame {
-  --command-deck-columns: minmax(280px, 1fr) minmax(320px, 420px) minmax(300px, 1fr);
+  --command-deck-columns: minmax(250px, 0.85fr) minmax(300px, 1.05fr) minmax(390px, 1.45fr);
   position: absolute;
   bottom: 22px;
   left: 22px;
   right: 22px;
-  height: 252px;
+  height: 274px;
   display: grid;
   grid-template-columns: var(--command-deck-columns);
   pointer-events: none;
@@ -365,7 +401,7 @@
   grid-row: 1;
   grid-column: 1 / -1;
   width: 100%;
-  height: 252px;
+  height: 274px;
   display: grid;
   grid-template-columns: var(--command-deck-columns);
   padding: 0;
@@ -414,9 +450,18 @@
 }
 
 .commandBank,
-.fleetBank {
+.issuerBank {
   background: linear-gradient(180deg, rgba(10, 39, 50, 0.32), rgba(2, 11, 18, 0.2));
 }
+
+.commandBank {
+  grid-column: 3;
+  grid-row: 1;
+  border-left: 1px solid rgba(82, 220, 244, 0.2);
+  box-shadow: inset 16px 0 24px rgba(7, 44, 58, 0.12);
+}
+.selectedVessel { grid-column: 2; grid-row: 1; }
+.issuerBank { grid-column: 1; grid-row: 1; border-left: 0 !important; box-shadow: none !important; }
 
 .commandBank [data-tooltip]::before,
 .commandBank [data-tooltip]::after {
@@ -434,7 +479,8 @@
 }
 
 .commandBank h2,
-.selectedVessel h2 {
+.selectedVessel h2,
+.issuerBank h2 {
   overflow: hidden;
   color: #e0faff;
   text-overflow: ellipsis;
@@ -605,7 +651,7 @@
 .commandToasts {
   position: relative;
   grid-row: 1;
-  grid-column: 1;
+  grid-column: 3;
   align-self: start;
   z-index: 20;
   width: 100%;
@@ -668,6 +714,86 @@
   background: radial-gradient(circle at 50% 120%, rgba(23, 130, 163, 0.15), transparent 65%);
 }
 
+.selectedVessel[data-disabled="true"] {
+  box-shadow: inset 0 2px 0 rgba(255, 77, 48, 0.55), inset 0 0 32px rgba(150, 30, 16, 0.12);
+  background: radial-gradient(circle at 50% 120%, rgba(181, 47, 25, 0.2), transparent 68%);
+}
+
+.emptyTarget {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(82, 220, 244, 0.2);
+  color: #587b84;
+  text-align: center;
+  background: radial-gradient(circle at 50% 55%, rgba(27, 122, 151, 0.1), transparent 58%);
+}
+
+.emptyTarget > span { margin-bottom: 8px; color: #70bed0; font: 32px/1 ui-monospace, monospace; }
+.emptyTarget > strong { color: #82acb5; font: 800 10px/1.3 ui-monospace, monospace; letter-spacing: 0.13em; }
+.emptyTarget > small { max-width: 240px; margin-top: 7px; font: 700 8px/1.5 ui-monospace, monospace; letter-spacing: 0.09em; }
+
+.issuerHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issuerHeading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issuerHeading p { margin: 4px 0 0; color: #698f98; font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: 0.08em; }
+.issuerHeading > span {
+  flex: none;
+  border: 1px solid rgba(92, 255, 158, 0.45);
+  padding: 4px 6px;
+  color: #72e6aa;
+  background: rgba(22, 87, 57, 0.22);
+  font: 800 8px ui-monospace, monospace;
+  letter-spacing: 0.08em;
+}
+
+.issuerRanges { display: grid; grid-template-columns: 1fr; margin-top: 3px; }
+.issuerRanges > div { margin-top: 5px; }
+
+.issuerStatus {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #668d96;
+  font: 700 8px/1.3 ui-monospace, monospace;
+  letter-spacing: 0.06em;
+}
+
+.hyperspaceActions {
+  margin-top: 9px;
+  border-top: 1px solid rgba(82, 220, 244, 0.18);
+  padding-top: 7px;
+}
+
+.hyperspaceActions > p { margin: 0 0 5px; color: #6baab7; font: 800 8px ui-monospace, monospace; letter-spacing: 0.13em; }
+.hyperspaceActions > div { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.hyperspaceActions button {
+  min-width: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(82, 220, 244, 0.3);
+  color: #8cc8d4;
+  background: rgba(12, 48, 62, 0.7);
+  cursor: pointer;
+}
+.hyperspaceActions button:hover:not(:disabled),
+.hyperspaceActions button:focus-visible { border-color: #75e8ff; outline: none; color: #e0fbff; background: rgba(21, 93, 118, 0.7); }
+.hyperspaceActions button:disabled { opacity: 0.3; cursor: not-allowed; }
+.hyperspaceActions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.hyperspaceActions button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 800 8px ui-monospace, monospace; letter-spacing: 0.04em; }
+.hyperspaceActions > small { display: block; margin-top: 5px; color: #587f88; font: 700 7px ui-monospace, monospace; letter-spacing: 0.1em; }
+
 .playerVessel {
   box-shadow: inset 0 2px 0 rgba(132, 239, 255, 0.36), inset 16px 0 24px rgba(7, 44, 58, 0.12);
   background: radial-gradient(circle at 50% 115%, rgba(55, 194, 221, 0.2), transparent 67%);
@@ -697,12 +823,49 @@
   letter-spacing: 0.1em;
 }
 
+.vesselTags > .dossierLaunchers {
+  display: inline-flex;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+}
+
+.dossierLaunchers button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid rgba(82, 220, 244, 0.38);
+  padding: 0;
+  color: #73cada;
+  background: rgba(8, 35, 46, 0.78);
+  cursor: pointer;
+  font: 800 9px ui-monospace, monospace;
+}
+
+.dossierLaunchers button:hover,
+.dossierLaunchers button:focus-visible {
+  border-color: #75e8ff;
+  outline: none;
+  color: #e1fbff;
+  background: rgba(24, 103, 128, 0.56);
+}
+
 .vesselTags .ownershipTag {
   border-color: rgba(92, 255, 158, 0.72);
   color: #8fffc0;
   background: rgba(20, 112, 64, 0.3);
   box-shadow: inset 0 0 9px rgba(66, 255, 142, 0.12), 0 0 8px rgba(66, 255, 142, 0.18);
   text-shadow: 0 0 7px rgba(93, 255, 159, 0.58);
+}
+
+.vesselTags > .disabledTag {
+  border-color: rgba(255, 86, 56, 0.7);
+  color: #ff765f;
+  background: rgba(123, 25, 12, 0.42);
+  box-shadow: inset 0 0 10px rgba(255, 62, 34, 0.12), 0 0 9px rgba(255, 55, 31, 0.15);
+  text-shadow: 0 0 8px rgba(255, 63, 35, 0.62);
+  animation: disabled-target-pulse 1.35s ease-in-out infinite;
 }
 
 .vesselRanges {
@@ -822,12 +985,16 @@
     left: 12px;
     right: 12px;
     bottom: 12px;
-    height: 270px;
+    height: 286px;
   }
 
-  .commandDeck { height: 270px; }
+  .commandDeck { height: 286px; }
 
-  .fleetBank { display: none; }
+  .selectedVessel { display: none; }
+  .issuerBank { grid-column: 1; }
+  .commandBank { grid-column: 2; }
+
+  .scopeDrawer { top: 148px; bottom: 310px; left: 82px; width: calc(100vw - 94px); }
 
   .clusterPanel {
     right: 12px;
@@ -844,8 +1011,15 @@
   50% { opacity: 0.48; border-color: #ffd1d7; }
 }
 
+@keyframes disabled-target-pulse {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .experience {
     transition-duration: 120ms;
   }
+
+  .vesselTags > .disabledTag { animation: none; }
 }

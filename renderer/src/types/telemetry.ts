@@ -21,6 +21,23 @@ export interface SpeedReading {
   maximum?: number;
 }
 
+export interface ShipCardRow {
+  label: string;
+  value: string;
+}
+
+export interface ShipCardSection {
+  title: string;
+  rows: ShipCardRow[];
+}
+
+export interface ShipTelemetryCard {
+  title?: string;
+  description?: string | string[];
+  notices?: string[];
+  sections?: ShipCardSection[];
+}
+
 export interface TelemetryEntity {
   id: string;
   name?: string;
@@ -33,8 +50,13 @@ export interface TelemetryEntity {
   speed?: number | SpeedReading;
   position?: string;
   disposition?: ShipDisposition;
+  formationMember?: boolean;
+  combatTarget?: boolean;
   shipCategory?: string;
+  condition?: string;
   heading?: { x?: number; y?: number; z?: number };
+  statusCard?: ShipTelemetryCard;
+  infoCard?: ShipTelemetryCard;
   [key: string]: unknown;
 }
 
@@ -72,6 +94,10 @@ export interface FleetMember {
   presence?: "active" | "landed" | "missing";
   autopilot?: boolean;
   autopilotStatus?: string;
+  condition?: string;
+  statusCard?: ShipTelemetryCard;
+  infoCard?: ShipTelemetryCard;
+  [key: string]: unknown;
 }
 
 export interface FleetStatus {
@@ -109,6 +135,17 @@ export interface FleetOrderStatus {
   observedAt?: number;
 }
 
+export interface CombatTargetTrack {
+  key?: string;
+  scope: "local" | "all" | "wings" | "selected" | "squadron";
+  targetName: string;
+  ownerId?: string;
+  ownerName?: string;
+  ownerLabel?: string;
+  formationKind?: "battlegroup" | "squadron";
+  observedAt?: number;
+}
+
 export interface GalaxyPlanet {
   name: string;
   government?: string;
@@ -140,6 +177,12 @@ export interface HyperspaceRoutePayload {
   systemName?: string;
   planetName?: string;
   acknowledgeFuelRisk?: boolean;
+  scope?: "local" | "all" | "wings" | "selected";
+  formationKind?: "battlegroup" | "squadron";
+  memberId?: string;
+  memberName?: string;
+  memberSlot?: number;
+  recipientLabel?: string;
 }
 
 export interface HyperspaceState {
@@ -179,6 +222,7 @@ export interface SystemSnapshot {
     autotrackObservedAt?: number;
     autotrackResponse?: string;
     combatTarget?: string;
+    combatTargets?: Record<string, CombatTargetTrack>;
     combatEvent?: CombatEvent;
     combatEvents?: CombatEvent[];
     autoRechargeEnabled?: boolean;

@@ -271,6 +271,41 @@ local STATUS_KEYS = {
   ["escape pods"] = "escapePods",
 }
 
+local function cardSection(card, title)
+  local normalized = trim(title or "OVERVIEW"):upper()
+  local current = card.sections[#card.sections]
+  if current and current.title == normalized then return current end
+  current = {title = normalized, rows = {}}
+  table.insert(card.sections, current)
+  return current
+end
+
+local function linePairs(line)
+  local pairsFound = {}
+  local padded = line .. "  "
+  local cursor = 1
+  while cursor <= #line do
+    local _, colon, key = padded:find("%s*([^:]+):", cursor)
+    if not colon then break end
+    local nextStart = padded:find("%s%s+[^:]+:", colon + 1)
+    local _, _, bracketNext = padded:find("%]%s+()[%a][%w%s%(%)%-]*:", colon + 1)
+    if bracketNext and (not nextStart or bracketNext < nextStart) then nextStart = bracketNext end
+    local valueEnd = nextStart and (nextStart - 1) or #line
+    table.insert(pairsFound, {label = trim(key), value = trim(padded:sub(colon + 1, valueEnd))})
+    if not nextStart then break end
+    cursor = nextStart
+  end
+  return pairsFound
+end
+
+local function appendCardPairs(card, sectionTitle, line)
+  local pairsFound = linePairs(line)
+  if #pairsFound == 0 then return pairsFound end
+  local section = cardSection(card, sectionTitle)
+  for _, pair in ipairs(pairsFound) do table.insert(section.rows, pair) end
+  return pairsFound
+end
+
 local function assignStatus(result, rawKey, rawValue)
   local key = trim(rawKey):lower()
   local field = STATUS_KEYS[key]
@@ -314,36 +349,37 @@ function Parsers.parseStatus(input)
   if not lines then return nil, err end
 
   local result = {source = "status"}
+  local card = {title = "SHIP STATUS", sections = {}, notices = {}}
+  local sectionTitle = "FLIGHT"
   local recognized = 0
 
   for _, line in ipairs(lines) do
-    if not isDecoration(line) then
+    local decoratedSection = line:match("^%-%-([^%-]+)%-+")
+    if decoratedSection then
+      sectionTitle = trim(decoratedSection)
+    elseif not isDecoration(line) then
       local requiredSensors = line:match("[Nn]eed%s+(%d+)%s+sensors%s+to%s+scan%s+for%s+lifeforms")
       local detectedLifeforms = line:match("[Ll]ifeforms%s+detected:%s*(.+)$")
       if requiredSensors then
         result.lifeformScan = {available = false, requiredSensors = number(requiredSensors)}
+        table.insert(card.notices, trim(line))
         recognized = recognized + 1
       elseif detectedLifeforms then
         result.lifeformScan = {available = true, value = trim(detectedLifeforms)}
+        table.insert(card.notices, trim(line))
         recognized = recognized + 1
+      elseif line:lower() == "you cannot scan your own ship for lifeforms." then
+        table.insert(card.notices, trim(line))
       end
       local foundPair = false
       -- Status often prints two or more key/value pairs on one line. A new key
       -- begins after two spaces; values themselves may contain single spaces.
-      local padded = line .. "  "
-      local cursor = 1
-      while cursor <= #line do
-        local keyStart, colon, key = padded:find("%s*([^:]+):", cursor)
-        if not colon then break end
-        local nextStart = padded:find("%s%s+[^:]+:", colon + 1)
-        local valueEnd = nextStart and (nextStart - 1) or #line
-        local value = trim(padded:sub(colon + 1, valueEnd))
-        if assignStatus(result, key, value) then
+      local pairsFound = linePairs(line)
+      for _, pair in ipairs(pairsFound) do
+        if assignStatus(result, pair.label, pair.value) then
           recognized = recognized + 1
           foundPair = true
         end
-        if not nextStart then break end
-        cursor = nextStart
       end
 
       if not foundPair and not result.name then
@@ -353,67 +389,217 @@ function Parsers.parseStatus(input)
           result.name, result.class = parseDisplayName(name)
           result.kind = "ship"
           result.id = slug(result.name)
+          card.title = trim(line:gsub(":$", ""))
           recognized = recognized + 1
         end
+      end
+      if #pairsFound > 0 and not (not foundPair and #pairsFound == 1
+          and pairsFound[1].value == "" and result.name) then
+        appendCardPairs(card, sectionTitle, line)
       end
     end
   end
 
+  result.statusCard = card
+
   return resultOrError(result, recognized, "status")
+end
+
+local INFO_CARD_FIELDS = {
+  OVERVIEW = {
+    {source = "Quota", label = "Quota", kind = "ratio"},
+    {source = "Value", label = "Value", kind = "credits"},
+    {source = "Owner", label = "Owner", kind = "bracket"},
+    {source = "Pilot", label = "Pilot", kind = "bracket"},
+    {source = "Copilot", label = "Copilot", kind = "bracket"},
+    {source = "Crew", label = "Crew", kind = "bracket"},
+  },
+  WEAPONS = {
+    {source = "Autoblasters", label = "Autoblasters", kind = "count", weapon = "autoblasters"},
+    {source = "Laser cannons", label = "Laser Cannons", kind = "count", weapon = "laserCannons"},
+    {source = "Turbolasers", label = "Turbolasers", kind = "count", weapon = "turbolasers"},
+    {source = "Ion cannons", label = "Ion Cannons", kind = "count", weapon = "ionCannons"},
+    {source = "Maximum Missiles", label = "Maximum Missiles", kind = "count", weapon = "maximumMissiles"},
+    {source = "Maximum Torpedoes", label = "Maximum Torpedoes", kind = "count", weapon = "maximumTorpedoes"},
+    {source = "Maximum Rockets", label = "Maximum Rockets", kind = "count", weapon = "maximumRockets"},
+    {source = "Maximum Pulses", label = "Maximum Pulses", kind = "count", weapon = "maximumPulses"},
+    {source = "Maximum Chaff", label = "Maximum Chaff", kind = "count", weapon = "maximumChaff"},
+    {source = "Missile Tubes", label = "Missile Tubes", kind = "count", weapon = "missileTubes"},
+    {source = "Tractorbeams", label = "Tractor Beams", kind = "count"},
+    {source = "Escape Pods", label = "Escape Pods", kind = "count"},
+  },
+  ["ACCESS CODES"] = {
+    {source = "Hatchway", label = "Hatchway", kind = "count"},
+    {source = "Hangar Bays", label = "Hangar Bays", kind = "count"},
+    {source = "Docking", label = "Docking", kind = "count"},
+    {source = "Selfdestruct", label = "Self-destruct", kind = "count"},
+  },
+  SYSTEMS = {
+    {source = "Max Hull", label = "Maximum Hull", kind = "count"},
+    {source = "Max Shields", label = "Maximum Shields", kind = "count"},
+    {source = "Max Energy(fuel)", label = "Maximum Energy (fuel)", kind = "count"},
+    {source = "Maximum Speed", label = "Maximum Speed", kind = "count", result = "maximumSpeed"},
+    {source = "Hyperspeed", label = "Hyperspeed", kind = "count"},
+    {source = "Maneuver", label = "Maneuver", kind = "count"},
+    {source = "Sensor Array", label = "Sensor Array", kind = "count", result = "sensorArray"},
+    {source = "Shield Boosters", label = "Shield Boosters", kind = "count"},
+    {source = "Communications", label = "Communications", kind = "count"},
+    {source = "Cloaking Device", label = "Cloaking Device", kind = "text"},
+  },
+}
+
+local function validatedInfoValue(rawValue, kind)
+  local value = trim(rawValue)
+  if kind == "count" then
+    return value:match("^([%d,]+)")
+  elseif kind == "ratio" then
+    local current, maximum = value:match("^([%d,%.]+)%s*/%s*([%d,%.]+)")
+    return current and maximum and (current .. "/" .. maximum) or nil
+  elseif kind == "credits" then
+    return value:match("^([%d,%.]+%s+credit%(s%))")
+  elseif kind == "bracket" then
+    local contents = value:match("^%[([^%]]*)%]")
+    if contents == nil then return nil end
+    contents = trim(contents)
+    return contents ~= "" and contents or "UNASSIGNED"
+  elseif kind == "text" then
+    if value == "" or #value > 80 or value:find("[{}]") or not value:find("%a") then return nil end
+    return value
+  end
+  return nil
+end
+
+local INFO_CARD_SECTION_ORDER = {"OVERVIEW", "WEAPONS", "ACCESS CODES", "SYSTEMS"}
+
+local function validatedInfoFields(definitions, line)
+  if not definitions then return {} end
+  local lower = line:lower()
+  local fields = {}
+  for _, definition in ipairs(definitions) do
+    local needle = definition.source:lower() .. ":"
+    local searchAt = 1
+    local startAt, endAt
+    repeat
+      startAt, endAt = lower:find(needle, searchAt, true)
+      if not startAt then
+        searchAt = #lower + 1
+      elseif startAt > 1 and lower:sub(startAt - 1, startAt - 1):find("[%w]") then
+        searchAt = endAt + 1
+        startAt, endAt = nil, nil
+      end
+    until startAt or searchAt > #lower
+    if startAt then
+      table.insert(fields, {startAt = startAt, endAt = endAt, definition = definition})
+    end
+  end
+  table.sort(fields, function(left, right) return left.startAt < right.startAt end)
+  return fields
+end
+
+local function appendValidatedInfoPairs(card, sectionTitle, line)
+  local resolvedSection = sectionTitle
+  local fields = validatedInfoFields(INFO_CARD_FIELDS[resolvedSection], line)
+  if #fields == 0 then
+    for _, candidate in ipairs(INFO_CARD_SECTION_ORDER) do
+      if candidate ~= sectionTitle then
+        fields = validatedInfoFields(INFO_CARD_FIELDS[candidate], line)
+        if #fields > 0 then resolvedSection = candidate; break end
+      end
+    end
+  end
+  local accepted = {}
+  for index, field in ipairs(fields) do
+    local nextField = fields[index + 1]
+    local rawValue = line:sub(field.endAt + 1, nextField and nextField.startAt - 1 or #line)
+    local value = validatedInfoValue(rawValue, field.definition.kind)
+    if value then
+      local pair = {label = field.definition.label, value = value}
+      table.insert(cardSection(card, resolvedSection).rows, pair)
+      table.insert(accepted, {definition = field.definition, value = value})
+    end
+  end
+  return accepted
+end
+
+local function normalizedInfoDescription(lines)
+  local paragraph = table.concat(lines, " "):gsub("%s+", " ")
+  paragraph = trim(paragraph):gsub("%s+([,%.%!%?%;:])", "%1")
+  return paragraph ~= "" and paragraph or nil
 end
 
 function Parsers.parseInfo(input)
   local lines, err = linesFrom(input)
   if not lines then return nil, err end
 
-  -- Ship info also contains private access codes. Deliberately allow-list only
-  -- public identity, size class, sensors, speed, and non-sensitive weapon counts.
   local result = {source = "info"}
+  local card = {title = "SHIP INFORMATION", sections = {}}
+  local sectionTitle = "OVERVIEW"
+  local headerFound = false
+  local descriptionOpen = false
+  local descriptionLines = {}
   local recognized = 0
-  local weaponPatterns = {
-    autoblasters = "[Aa]utoblasters:%s*([%d,]+)",
-    laserCannons = "[Ll]aser%s+[Cc]annons:%s*([%d,]+)",
-    turbolasers = "[Tt]urbolasers:%s*([%d,]+)",
-    ionCannons = "[Ii]on%s+[Cc]annons:%s*([%d,]+)",
-    maximumMissiles = "[Mm]aximum%s+[Mm]issiles:%s*([%d,]+)",
-    maximumTorpedoes = "[Mm]aximum%s+[Tt]orpedoes:%s*([%d,]+)",
-    maximumRockets = "[Mm]aximum%s+[Rr]ockets:%s*([%d,]+)",
-    maximumPulses = "[Mm]aximum%s+[Pp]ulses:%s*([%d,]+)",
-    missileTubes = "[Mm]issile%s+[Tt]ubes:%s*([%d,]+)",
-  }
   local weapons = {}
-  local weaponFieldCount = 0
+
   for _, line in ipairs(lines) do
-    local category, description = line:match("^%[Class:%s*([^%]]+)%]%s*:%s*(.+)$")
-    if category and description then
-      result.shipCategory = trim(category)
-      result.name, result.class = parseDisplayName(description)
-      recognized = recognized + 1
-    end
-    local sensorArray = line:match("[Ss]ensor%s+[Aa]rray:%s*([%d,]+)")
-    if sensorArray then
-      result.sensorArray = math.max(0, number(sensorArray) or 0)
-      result.radarRange = 500 + (result.sensorArray * 10)
-      recognized = recognized + 1
-    end
-    local maximumSpeed = line:match("[Mm]aximum%s+[Ss]peed:%s*([%d,]+)")
-    if maximumSpeed then
-      result.maximumSpeed = math.max(0, number(maximumSpeed) or 0)
-      recognized = recognized + 1
-    end
-    for field, pattern in pairs(weaponPatterns) do
-      local value = line:match(pattern)
-      if value then
-        if weapons[field] == nil then weaponFieldCount = weaponFieldCount + 1 end
-        weapons[field] = math.max(0, number(value) or 0)
+    local decoratedSection = line:match("^%-%-([^%-]+)%-+")
+    local normalizedSection = decoratedSection and trim(decoratedSection):upper() or nil
+    if normalizedSection and INFO_CARD_FIELDS[normalizedSection] then
+      sectionTitle = normalizedSection
+      descriptionOpen = false
+    elseif trim(line):lower():match("^kill markers:") then
+      sectionTitle = "OVERVIEW"
+      descriptionOpen = false
+    else
+      local category, displayName = line:match("^%[Class:%s*([^%]]+)%]%s*:%s*(.+)$")
+      category = category and trim(category) or ""
+      displayName = displayName and trim(displayName) or ""
+      local validHeader = category ~= "" and displayName ~= ""
+        and #category <= 60 and #displayName <= 160
+        and not category:find("[{}:]") and not displayName:find("[{}]")
+      if validHeader then
+        result.shipCategory = category
+        result.name, result.class = parseDisplayName(displayName)
+        result.kind = "ship"
+        result.id = slug(result.name)
+        headerFound = true
+        descriptionOpen = true
         recognized = recognized + 1
+      elseif headerFound and not decoratedSection and not isDecoration(line) then
+        local accepted = appendValidatedInfoPairs(card, sectionTitle, line)
+        for _, field in ipairs(accepted) do
+          local definition = field.definition
+          if definition.weapon then
+            weapons[definition.weapon] = math.max(0, number(field.value) or 0)
+          elseif definition.result then
+            result[definition.result] = math.max(0, number(field.value) or 0)
+          end
+          recognized = recognized + 1
+        end
+        if #accepted == 0 and descriptionOpen then
+          local prose = trim(line):gsub("^[%d,%.]+%s+", "")
+          local validProse = prose ~= "" and prose:find("%a")
+            and not prose:find("[{}]") and not prose:find(":")
+          if validProse then table.insert(descriptionLines, prose) end
+        end
       end
     end
   end
 
+  card.description = normalizedInfoDescription(descriptionLines)
+  if card.description then recognized = recognized + 1 end
+  if not headerFound or recognized < 2 then
+    return nil, "info output did not contain a validated ship header and body"
+  end
+  if result.sensorArray then result.radarRange = 500 + (result.sensorArray * 10) end
   if next(weapons) then
     result.weapons = weapons
-    if weaponFieldCount == 9 then
+    local requiredWeaponFields = {"autoblasters", "laserCannons", "turbolasers", "ionCannons",
+      "maximumMissiles", "maximumTorpedoes", "maximumRockets", "maximumPulses", "missileTubes"}
+    local complete = true
+    for _, field in ipairs(requiredWeaponFields) do
+      if weapons[field] == nil then complete = false; break end
+    end
+    if complete then
       local launchersArmed = weapons.missileTubes > 0
         and (weapons.maximumMissiles > 0 or weapons.maximumTorpedoes > 0
           or weapons.maximumRockets > 0 or weapons.maximumPulses > 0)
@@ -422,6 +608,7 @@ function Parsers.parseInfo(input)
     end
   end
 
+  result.infoCard = card
   return resultOrError(result, recognized, "info")
 end
 

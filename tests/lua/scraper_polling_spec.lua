@@ -17,6 +17,33 @@ local function beginPolling(options)
 end
 
 describe("scraper polling scheduler", function()
+  it("prioritizes a full radar refresh when a ship exits hyperspace into the sector", function()
+    beginPolling()
+    assert(fixture.scraper.handleSectorArrival(
+      "Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at 6145"))
+    equal(fixture.scraper.state.metadata.lastSectorArrival.shipName, "TeeHee3")
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
+
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(fixture:lastCommand().command, "radar")
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Victory-II Class Star Destroyer 'TeeHee3' 6145 500 -661")
+    fixture.scraper.captureLine("Your Coordinates: 0 0 0")
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
+  end)
+
+  it("does not let a radar started before the arrival satisfy the refresh", function()
+    beginPolling()
+    assert(fixture.scraper.startCapture("radar", "radar", {polled = true, pollDelay = 0.1}))
+    assert(fixture.scraper.handleSectorArrival(
+      "Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at 6145"))
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Your Coordinates: 0 0 0")
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
+  end)
+
   it("hydrates a newly discovered in-range ship before routine formation polls", function()
     assert(fixture.scraper.applyResult(assert(fixture.parsers.parse("radar", [[
 Corellian System
@@ -81,6 +108,22 @@ Sensor Array: 1
       if fixture.scraper.active then fixture.scraper.finishCapture("fixture") end
       timer = fixture.scraper.getPollingState().timerId
     end
+  end)
+
+  it("does not send the same automatic command twice within three seconds", function()
+    local timer = beginPolling({combatRadarIntervalSeconds = 1})
+    fixture.scraper.combat.lastActivityAt = os.time()
+    fixture.scraper.combat.lastRadarAt = 0
+    fixture:tick(timer)
+    equal(fixture:lastCommand().command, "radar projectiles")
+    local commandCount = #fixture.commands
+    fixture.scraper.finishCapture("fixture")
+    fixture.scraper.combat.lastRadarAt = 0
+    timer = fixture.scraper.getPollingState().timerId
+    fixture:tick(timer)
+    equal(#fixture.commands, commandCount)
+    local state = fixture.scraper.getPollingState()
+    equal(state.combatRadarIntervalSeconds, 3)
   end)
 
   it("manual Mudlet input preempts a background capture and debounces polling", function()

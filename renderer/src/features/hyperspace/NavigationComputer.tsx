@@ -26,6 +26,7 @@ export function NavigationComputer({ route, state, escape, clearance, onStop, on
   return <>
     <aside className={`${styles.computer} ${styles[phase]}`} aria-label="Hyperspace navigation computer">
       <header><span>NAV COMPUTER</span><strong>{phase.replace("_", " ").toUpperCase()}</strong></header>
+      <div className={styles.recipient}>ROUTE FOR // {(route.recipientLabel || "YOUR SHIP").toUpperCase()}</div>
       <h3>{route.mode === "local" ? "LOCAL JUMP" : route.systemName || `GX ${route.galaxy?.x} / ${route.galaxy?.y}`}</h3>
       <p>SX {fmt(destination.x)} // SY {fmt(destination.y)} // SZ {fmt(destination.z)}</p>
       {Number.isFinite(state.remainingSeconds) && <div className={styles.countdown}><span style={{ width: `${Math.max(3, Math.min(100, Number(state.remainingSeconds)))}%` }} />

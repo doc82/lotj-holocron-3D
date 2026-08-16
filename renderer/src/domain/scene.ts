@@ -45,11 +45,13 @@ export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">
 }
 
 export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position" | "name" | "class">): Color3 {
-  if (entity.id === "player-ship") return [0.5, 0.96, 1];
+  const tacticalEntity = entity as TelemetryEntity;
+  if (tacticalEntity.combatTarget === true) return [1, 0.13, 0.18];
+  if (entity.id === "player-ship" || tacticalEntity.formationMember === true) return [0.68, 0.3, 1];
   if (entity.kind === "projectile") return projectileVisual(entity).color;
   if (["celestial", "planet", "star"].includes(entity.kind ?? "")) return [0.66, 0.5, 1];
   if (entity.kind === "ship") {
-    const disposition = (entity as TelemetryEntity).disposition;
+    const disposition = tacticalEntity.disposition;
     if (disposition === "enemy") return [1, 0.16, 0.2];
     if (disposition === "ally") return [0.16, 0.58, 1];
     return [1, 0.76, 0.12];
@@ -109,7 +111,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
     kind: "observer",
     position3d: [0, 0, 0],
     worldPosition: [...origin],
-    color: colorFor({ id: "player-ship" }),
+    color: colorFor({ ...observer, id: "player-ship" }),
     pointSize: observerVisual.pixels,
     markerShape: observerVisual.shape,
     shipSize: observerVisual.size,

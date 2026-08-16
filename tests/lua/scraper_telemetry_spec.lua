@@ -58,6 +58,14 @@ describe("scraper authoritative telemetry", function()
     equal(fixture.intentAcks[#fixture.intentAcks].status, "rejected")
   end)
 
+  it("opens local status and info cards with unqualified commands", function()
+    local ok, failure = fixture.intentHandlers.scan_ship({
+      targetId = "player-ship", targetName = "Forrestal", source = "status",
+    }, {id = "local-status"})
+    assert(ok, failure)
+    equal(fixture:lastCommand().command, "status")
+  end)
+
   it("turns navigation-computer output into one intent rejection", function()
     local diagnosticCount = #fixture.diagnostics
     local ok, failure = fixture.intentHandlers.refresh_navigation({command = "calc"}, {id = "nav"})
@@ -94,7 +102,10 @@ describe("scraper authoritative telemetry", function()
 
   it("profiles captures, lines, snapshots, and GMCP events per fixture", function()
     assert(fixture.scraper.startProfiler())
-    assert(fixture:capture("info", "Sensor Array: 7"))
+    assert(fixture:capture("info", [[
+[Class: Transport] : Rojan-class Patrol Craft 'Forrestal'
+Sensor Array: 7
+]]))
     _G.gmcp = {Ship = {Info = {speed = 20, maxSpeed = 200}}}
     assert(fixture.scraper.handleShipGmcp())
     local report = fixture.scraper.getProfilerReport()

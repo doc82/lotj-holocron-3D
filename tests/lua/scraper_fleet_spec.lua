@@ -29,6 +29,45 @@ local function battlegroup()
 end
 
 describe("scraper formation commands", function()
+  it("scans a roster member even before fleet radar supplies coordinates", function()
+    battlegroup()
+    local ok, failure = fixture.intentHandlers.scan_ship({
+      targetId = "reeheehee", targetName = "ReeHeeHee", source = "info",
+    }, {id = "fleet-info"})
+    assert(ok, failure)
+    equal(fixture:lastCommand().command, "info ReeHeeHee")
+  end)
+
+  it("keeps status and info cards attached to formation members", function()
+    local fleet = battlegroup()
+    assert(fixture.scraper.applyResult({source = "status", name = "ReeHeeHee",
+      statusCard = {title = "STATUS", sections = {}}}, "status ReeHeeHee"))
+    assert(fixture.scraper.applyResult({source = "info", name = "ReeHeeHee",
+      infoCard = {title = "INFO", sections = {}}}, "info ReeHeeHee"))
+    equal(fleet.members[2].statusCard.title, "STATUS")
+    equal(fleet.members[2].infoCard.title, "INFO")
+  end)
+
+  it("rejects an info response whose header belongs to a different ship", function()
+    local fleet = battlegroup()
+    local applied, failure = fixture.scraper.applyResult({source = "info", name = "Impostor",
+      infoCard = {title = "SHIP INFORMATION", description = "Wrong ship", sections = {}}},
+      "info ReeHeeHee")
+    equal(applied, nil)
+    assert(failure:find("identity mismatch", 1, true))
+    equal(fleet.members[2].infoCard, nil)
+  end)
+
+  it("rejects a status response whose header belongs to a different ship", function()
+    local fleet = battlegroup()
+    local applied, failure = fixture.scraper.applyResult({source = "status", name = "Impostor",
+      statusCard = {title = "SHIP STATUS", sections = {}}}, "status ReeHeeHee")
+    equal(applied, nil)
+    assert(failure:find("identity mismatch", 1, true))
+    equal(fleet.members[2].statusCard, nil)
+    equal(fixture:entity("Impostor"), nil)
+  end)
+
   it("infers squadron leadership after observer status arrives", function()
     fixture.scraper.state.observer.name = "Previous Carrier"
     assert(fixture.scraper.applyResult({source = "squadron", fleet = {
@@ -44,12 +83,60 @@ describe("scraper formation commands", function()
 
   it("targets the whole battlegroup through the native channel", function()
     battlegroup()
+    assert(fixture.scraper.applyResult({source = "status", name = "TeeHee",
+      target = "Privateer"}, "status"))
     local ok, failure = fixture.intentHandlers.fleet_order({
       order = "target", scope = "all", targetId = "wayfarer",
     })
     assert(ok, failure)
     equal(fixture:lastCommand().command, "battlegroup target all Wayfarer")
-    equal(fixture.scraper.state.metadata.combatTarget, "Wayfarer")
+    equal(fixture.scraper.state.metadata.combatTarget, "Privateer")
+    equal(fixture.scraper.state.metadata.combatTargets["local"].targetName, "Privateer")
+    equal(fixture.scraper.state.metadata.combatTargets.fleet.targetName, "Wayfarer")
+    equal(fixture.scraper.state.metadata.combatTargets.fleet.ownerLabel, "FLEET TARGET")
+  end)
+
+  it("retains separate target memories for the fleet and its wings", function()
+    battlegroup()
+    assert(fixture.intentHandlers.fleet_order({
+      order = "target", scope = "all", targetId = "wayfarer",
+    }))
+    assert(fixture.intentHandlers.fleet_order({
+      order = "target", scope = "wings", targetId = "wayfarer",
+    }))
+    equal(fixture.scraper.state.metadata.combatTargets.fleet.scope, "all")
+    equal(fixture.scraper.state.metadata.combatTargets.wings.scope, "wings")
+    equal(fixture.scraper.state.metadata.combatTargets.wings.ownerLabel, "WING TARGET")
+  end)
+
+  it("retains a target memory for one selected battlegroup ship", function()
+    battlegroup()
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "target", scope = "selected", memberId = "reeheehee", targetId = "wayfarer",
+    })
+    assert(ok, failure)
+    equal(fixture:lastCommand().command, "battlegroup target ReeHeeHee Wayfarer")
+    local target = fixture.scraper.state.metadata.combatTargets["selected:reeheehee"]
+    equal(target.targetName, "Wayfarer")
+    equal(target.ownerName, "ReeHeeHee")
+    equal(target.ownerLabel, "REEHEEHEE'S TARGET")
+  end)
+
+  it("records a squadron target as both squadron and lead-ship target", function()
+    local fleet = {kind = "squadron", active = true, role = "lead", members = {
+      {id = "teehee", name = "TeeHee", leader = true, role = "lead"},
+      {id = "wing", name = "Wing", leader = false, role = "wing"},
+    }}
+    fixture.scraper.state.metadata.fleet = fleet
+    fixture.scraper.state.metadata.formations.squadron = fleet
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "target", scope = "all", targetId = "wayfarer",
+    }, {id = "squadron-target"})
+    assert(ok, failure)
+    equal(fixture:lastCommand().command, "target Wayfarer")
+    assert(fixture:trigger("Target Locked."))
+    equal(fixture.scraper.state.metadata.combatTargets.squadron.targetName, "Wayfarer")
+    equal(fixture.scraper.state.metadata.combatTargets["local"].targetName, "Wayfarer")
   end)
 
   it("expands fire-all into known flagship weapons without cockpit fallthrough", function()
@@ -112,6 +199,122 @@ describe("scraper formation commands", function()
     equal(fixture.scraper.state.metadata.hyperspace.phase, "idle")
     local events = fixture:lastSnapshot().metadata.shipJumpEvents
     equal(events[#events].shipName, "ReeHeeHee")
+  end)
+
+  it("plots and engages a hyperspace route for battlegroup wings only", function()
+    battlegroup()
+    local plotted, plotFailure = fixture.intentHandlers.plot_hyperspace({
+      mode = "local", scope = "wings", formationKind = "battlegroup",
+      destination = {x = 1200, y = -50, z = 800}, recipientLabel = "WINGS",
+    }, {id = "wing-route"})
+    assert(plotted, plotFailure)
+    equal(fixture:lastCommand().command,
+      "battlegroup nav 1 calculate local 1200 -50 800")
+    equal(fixture.scraper.state.metadata.hyperspace.route.scope, "wings")
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, false)
+
+    assert(fixture.scraper.handleHyperspaceLine(
+      "[Status]: Hyperspace calculations have been completed."))
+    local engaged, engageFailure = fixture.intentHandlers.engage_hyperdrive({
+      scope = "wings", formationKind = "battlegroup",
+    }, {id = "wing-engage"})
+    assert(engaged, engageFailure)
+    equal(fixture:lastCommand().command, "battlegroup nav 1 hyper")
+    assert(fixture.scraper.handleHyperspaceLine(
+      "The stars become streaks of light as you enter hyperspace."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "ready")
+    local events = fixture:lastSnapshot().metadata.shipJumpEvents
+    equal(events[#events].shipName, "ReeHeeHee")
+  end)
+
+  it("routes a whole battlegroup through the all selector", function()
+    battlegroup()
+    local route = {
+      mode = "galactic", scope = "all", formationKind = "battlegroup",
+      galaxy = {x = 12, y = -8}, destination = {x = 100, y = 200, z = -300},
+      recipientLabel = "FLEET",
+    }
+    local plotted, failure = fixture.intentHandlers.plot_hyperspace(route, {id = "fleet-route"})
+    assert(plotted, failure)
+    equal(fixture:lastCommand().command,
+      "battlegroup nav all calculate '12 -8' 100 200 -300")
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
+    equal(fixture.scraper.state.metadata.hyperspace.route.recipientLabel, "FLEET")
+  end)
+
+  it("routes one selected battlegroup wing by its stable slot", function()
+    battlegroup()
+    local route = {
+      mode = "local", scope = "selected", formationKind = "battlegroup",
+      memberId = "reeheehee", memberName = "ReeHeeHee", memberSlot = 1,
+      destination = {x = 50, y = 60, z = 70}, recipientLabel = "REEHEEHEE",
+    }
+    local plotted, failure = fixture.intentHandlers.plot_hyperspace(route, {id = "selected-route"})
+    assert(plotted, failure)
+    equal(fixture:lastCommand().command, "battlegroup nav 1 calculate local 50 60 70")
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, false)
+  end)
+
+  it("uses the lead cockpit for squadron hyperspace workflows", function()
+    local fleet = {kind = "squadron", active = true, role = "lead", members = {
+      {id = "teehee", name = "TeeHee", leader = true, role = "lead"},
+      {id = "wing", name = "Wing", leader = false, role = "wing"},
+    }}
+    fixture.scraper.state.metadata.fleet = fleet
+    fixture.scraper.state.metadata.formations.squadron = fleet
+    local route = {
+      mode = "local", scope = "all", formationKind = "squadron",
+      destination = {x = 25, y = 35, z = 45}, recipientLabel = "SQUADRON",
+    }
+    local plotted, failure = fixture.intentHandlers.plot_hyperspace(route, {id = "squadron-route"})
+    assert(plotted, failure)
+    equal(fixture:lastCommand().command, "calculate local 25 35 45")
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
+    assert(fixture.scraper.handleHyperspaceLine(
+      "[Status]: Hyperspace calculations have been completed."))
+    fixture.scraper.state.metadata.lastSpatialFixAt = os.time()
+    fixture:entity("Wayfarer").x = 600
+    local engaged, engageFailure = fixture.intentHandlers.engage_hyperdrive(route, {id = "squadron-engage"})
+    assert(engaged, engageFailure)
+    equal(fixture:lastCommand().command, "hyper")
+  end)
+
+  it("completes a wing calculation abort without a local terminal response", function()
+    battlegroup()
+    local route = {
+      mode = "local", scope = "wings", formationKind = "battlegroup",
+      destination = {x = 1200, y = -50, z = 800}, recipientLabel = "WINGS",
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, {id = "wing-route"}))
+
+    local stopped, stopFailure = fixture.intentHandlers.stop_hyperspace(route, {id = "wing-stop"})
+    assert(stopped, stopFailure)
+    equal(fixture:lastCommand().command, "battlegroup nav 1 calc stop")
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "idle")
+    equal(fixture.scraper.state.metadata.hyperspace.aborted, true)
+    equal(fixture.scraper.state.metadata.hyperspace.route, nil)
+    equal(fixture.scraper.hyperspace.initiatedByHolocron, false)
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, nil)
+
+    local commandCount = #fixture.commands
+    local stoppedAgain, retryFailure = fixture.intentHandlers.stop_hyperspace(route, {id = "wing-stop-again"})
+    assert(stoppedAgain, retryFailure)
+    equal(#fixture.commands, commandCount)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "idle")
+  end)
+
+  it("does not reinterpret an in-flight hyperspace escape as a calculation abort", function()
+    fixture.scraper.hyperspace.phase = "hyperspace"
+    fixture.scraper.state.metadata.hyperspace = {
+      phase = "hyperspace", route = {mode = "local", destination = {x = 1, y = 2, z = 3}},
+    }
+    local commandCount = #fixture.commands
+    local stopped, failure = fixture.intentHandlers.stop_hyperspace({}, {id = "late-stop"})
+    equal(stopped, false)
+    assert(failure:find("already in hyperspace", 1, true))
+    equal(#fixture.commands, commandCount)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    assert(fixture.scraper.state.metadata.hyperspace.route)
   end)
 
   it("moves the observer into hyperspace after a direct local command", function()
