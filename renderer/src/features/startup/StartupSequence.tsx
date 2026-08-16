@@ -53,19 +53,27 @@ export function StartupSequence({ onComplete }: StartupSequenceProps) {
 
   const jumping = phase === "jumping" || phase === "departing";
   return (
-    <section className={`${styles.sequence} ${styles[phase]}`} aria-label="LotJ and Holocron3D startup sequence">
+    <section
+      className={`${styles.sequence} ${styles[phase]}`}
+      aria-label="LotJ and Holocron3D startup sequence"
+    >
       <HyperspaceField engaged={jumping} className={styles.hyperspace} />
       <div className={styles.vignette} aria-hidden="true" />
-      {(phase === "lotj" || phase === "lotjDeparting") ? (
+      {phase === "lotj" || phase === "lotjDeparting" ? (
         <div className={styles.lotjStage}>
           <p className={styles.lotjIntro}>A long time ago in a galaxy far, far away....</p>
-          <h1 className={styles.lotjTitle}>Legends of<br />the Jedi</h1>
+          <h1 className={styles.lotjTitle}>
+            Legends of
+            <br />
+            the Jedi
+          </h1>
           <p className={styles.lotjSubtitle}>The Galaxy Awaits</p>
         </div>
       ) : (
         <div className={styles.titleStage}>
           <h1 className={styles.title} aria-label="Holocron3D">
-            <span className={styles.word}>Holocron</span><span className={styles.threeD}>3D</span>
+            <span className={styles.word}>Holocron</span>
+            <span className={styles.threeD}>3D</span>
           </h1>
           <p className={styles.veska}>Crafted by Veska</p>
         </div>

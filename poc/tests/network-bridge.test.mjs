@@ -89,9 +89,7 @@ test("network bridge proxies snapshots and serves the renderer", async (t) => {
   sockets.push(client);
   const clientMessages = websocketReader(client);
   await once(client, "open");
-  const clientReady = await clientMessages.waitFor(
-    (message) => message.type === "bridge_ready",
-  );
+  const clientReady = await clientMessages.waitFor((message) => message.type === "bridge_ready");
   assert.equal(clientReady.v, 1);
   assert.equal(clientReady.rendererUrl, ready.rendererUrl);
 
@@ -107,9 +105,7 @@ test("network bridge proxies snapshots and serves the renderer", async (t) => {
   );
   assert.equal(snapshot.metadata.system, "Esstran Sector");
   assert.equal(snapshot.entities[0].id, "gore");
-  await pipe.waitFor(
-    (message) => message.type === "snapshot_received" && message.sequence === 7,
-  );
+  await pipe.waitFor((message) => message.type === "snapshot_received" && message.sequence === 7);
 
   sendPipe(child, {
     type: "space_state",
@@ -121,13 +117,15 @@ test("network bridge proxies snapshots and serves the renderer", async (t) => {
   );
   assert.equal(landed.reason, "landing sequence complete");
 
-  client.send(JSON.stringify({
-    v: 1,
-    type: "intent",
-    id: "third-party-1",
-    action: "prototype_ping",
-    payload: { message: "network round trip" },
-  }));
+  client.send(
+    JSON.stringify({
+      v: 1,
+      type: "intent",
+      id: "third-party-1",
+      action: "prototype_ping",
+      payload: { message: "network round trip" },
+    }),
+  );
   const intent = await pipe.waitFor(
     (message) => message.type === "intent" && message.id === "third-party-1",
   );
@@ -144,18 +142,14 @@ test("network bridge proxies snapshots and serves the renderer", async (t) => {
   assert.equal(ack.status, "accepted");
 
   client.send(JSON.stringify({ v: 1, type: "raw_command", command: "fire" }));
-  const rejected = await clientMessages.waitFor(
-    (message) => message.type === "client_error",
-  );
+  const rejected = await clientMessages.waitFor((message) => message.type === "client_error");
   assert.match(rejected.reason, /only send intent/);
 
   const lateClient = new WebSocket(ready.websocketUrl);
   sockets.push(lateClient);
   const lateMessages = websocketReader(lateClient);
   await once(lateClient, "open");
-  const replayedState = await lateMessages.waitFor(
-    (message) => message.type === "space_state",
-  );
+  const replayedState = await lateMessages.waitFor((message) => message.type === "space_state");
   const replayedSnapshot = await lateMessages.waitFor(
     (message) => message.type === "system_snapshot",
   );

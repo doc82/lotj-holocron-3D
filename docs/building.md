@@ -42,24 +42,24 @@ the Mudlet package before the GitHub release is published.
 
 ## Development commands
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm test` | Run Node protocol, renderer, package, and archived POC tests. |
-| `pnpm check` | Syntax-check active code and archived POC JavaScript. |
-| `pnpm renderer:dev` | Run the Vite renderer alone with hot module replacement. |
-| `pnpm renderer:build` | Build the production renderer in `renderer/dist`. |
-| `pnpm renderer:typecheck` | Type-check the React renderer without emitting files. |
-| `pnpm relay:test` | Run Go relay tests. |
-| `pnpm relay:build` | Build the native relay for the current platform and architecture. |
-| `pnpm relay:build:win` | Build the Windows x64 relay. |
-| `pnpm relay:build:mac:arm64` | Cross-build the Apple Silicon relay. |
-| `pnpm relay:build:mac:x64` | Cross-build the Intel macOS relay. |
-| `pnpm mudlet:package` | Build `out/mudlet/Holocron3D.mpackage`. |
-| `pnpm electron:smoke` | Launch Electron with representative telemetry. |
-| `pnpm package` | Build the relay, Mudlet package, and unpacked Electron app for the current host. |
-| `pnpm make:win` | Build the complete Squirrel Windows installer. |
-| `pnpm make:mac:arm64` | Build the Apple Silicon application and DMG on macOS. |
-| `pnpm make:mac:x64` | Build the Intel application and DMG on macOS. |
+| Command                      | Purpose                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `pnpm test`                  | Run Node protocol, renderer, package, and archived POC tests.                    |
+| `pnpm check`                 | Syntax-check active code and archived POC JavaScript.                            |
+| `pnpm renderer:dev`          | Run the Vite renderer alone with hot module replacement.                         |
+| `pnpm renderer:build`        | Build the production renderer in `renderer/dist`.                                |
+| `pnpm renderer:typecheck`    | Type-check the React renderer without emitting files.                            |
+| `pnpm relay:test`            | Run Go relay tests.                                                              |
+| `pnpm relay:build`           | Build the native relay for the current platform and architecture.                |
+| `pnpm relay:build:win`       | Build the Windows x64 relay.                                                     |
+| `pnpm relay:build:mac:arm64` | Cross-build the Apple Silicon relay.                                             |
+| `pnpm relay:build:mac:x64`   | Cross-build the Intel macOS relay.                                               |
+| `pnpm mudlet:package`        | Build `out/mudlet/Holocron3D.mpackage`.                                          |
+| `pnpm electron:smoke`        | Launch Electron with representative telemetry.                                   |
+| `pnpm package`               | Build the relay, Mudlet package, and unpacked Electron app for the current host. |
+| `pnpm make:win`              | Build the complete Squirrel Windows installer.                                   |
+| `pnpm make:mac:arm64`        | Build the Apple Silicon application and DMG on macOS.                            |
+| `pnpm make:mac:x64`          | Build the Intel application and DMG on macOS.                                    |
 
 The parser and scraper use isolated Lua 5.1 tests with fresh Mudlet globals,
 timers, captures, and snapshots for every test:
@@ -102,14 +102,14 @@ pnpm make:win
 
 Several independent prerequisite errors can appear during the same first build:
 
-| Symptom | Resolution |
-| --- | --- |
-| `go` is not recognized | Install Go 1.22 or newer, reopen PowerShell, and confirm `go version` works. |
-| `java` is not recognized or `muddle.bat` immediately exits | Install a Java 17 or 21 JDK, reopen PowerShell, and confirm `java -version` works. |
-| `Set MUDDLER_HOME to a Muddler distribution directory` | Point `MUDDLER_HOME` at the extracted distribution containing `bin\muddle.bat`; use the `Test-Path` check in the development guide. |
-| pnpm reports a blocked exotic Electron dependency | Confirm `pnpm --version` reports 11.19.x, remove `node_modules`, and rerun `pnpm install --frozen-lockfile`. The committed lockfile passes the supported pnpm policy; do not disable the policy project-wide as a first step. |
-| Forge reports missing or mismatched Electron fuses | Run `pnpm list electron @electron/fuses @electron-forge/plugin-fuses --depth 0`. The verified set is Electron 43.4.0, `@electron/fuses` 2.1.3, and Forge plugin 7.11.2. Restore it with a clean frozen-lockfile install before changing fuse enforcement. |
-| Files beneath `out\` are locked | Close all running Holocron3D windows and rerun the build. |
+| Symptom                                                    | Resolution                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `go` is not recognized                                     | Install Go 1.22 or newer, reopen PowerShell, and confirm `go version` works.                                                                                                                                                                              |
+| `java` is not recognized or `muddle.bat` immediately exits | Install a Java 17 or 21 JDK, reopen PowerShell, and confirm `java -version` works.                                                                                                                                                                        |
+| `Set MUDDLER_HOME to a Muddler distribution directory`     | Point `MUDDLER_HOME` at the extracted distribution containing `bin\muddle.bat`; use the `Test-Path` check in the development guide.                                                                                                                       |
+| pnpm reports a blocked exotic Electron dependency          | Confirm `pnpm --version` reports 11.19.x, remove `node_modules`, and rerun `pnpm install --frozen-lockfile`. The committed lockfile passes the supported pnpm policy; do not disable the policy project-wide as a first step.                             |
+| Forge reports missing or mismatched Electron fuses         | Run `pnpm list electron @electron/fuses @electron-forge/plugin-fuses --depth 0`. The verified set is Electron 43.4.0, `@electron/fuses` 2.1.3, and Forge plugin 7.11.2. Restore it with a clean frozen-lockfile install before changing fuse enforcement. |
+| Files beneath `out\` are locked                            | Close all running Holocron3D windows and rerun the build.                                                                                                                                                                                                 |
 
 If a clean install still fails, include the four version commands from the
 development guide, the exact `pnpm install --frozen-lockfile` error, and the

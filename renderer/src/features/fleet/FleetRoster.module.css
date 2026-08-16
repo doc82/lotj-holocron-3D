@@ -1,7 +1,10 @@
 .eyebrow {
   margin: 0 0 7px;
   color: #76d9ed;
-  font: 700 11px ui-monospace, "Cascadia Mono", monospace;
+  font:
+    700 11px ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.13em;
 }
 
@@ -11,12 +14,19 @@
   gap: 8px;
   margin: 4px 0 8px;
   color: #77939a;
-  font: 700 10px ui-monospace, monospace;
+  font:
+    700 10px ui-monospace,
+    monospace;
   letter-spacing: 0.1em;
 }
 
-.status small { margin-left: auto; color: #8cb6be; }
-.status small + small { margin-left: 0; }
+.status small {
+  margin-left: auto;
+  color: #8cb6be;
+}
+.status small + small {
+  margin-left: 0;
+}
 
 .light {
   width: 6px;
@@ -25,12 +35,17 @@
   background: #67777b;
 }
 
-.light.active { background: #59e7a1; box-shadow: 0 0 9px rgba(89, 231, 161, 0.8); }
+.light.active {
+  background: #59e7a1;
+  box-shadow: 0 0 9px rgba(89, 231, 161, 0.8);
+}
 
 .controls {
   margin-bottom: 7px;
   color: #8ecbd7;
-  font: 700 9px ui-monospace, monospace;
+  font:
+    700 9px ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
 }
 
@@ -56,15 +71,53 @@
   cursor: default;
 }
 
+.member[data-selectable="true"] {
+  cursor: pointer;
+}
+.member[data-selectable="true"]:hover,
+.member[data-selectable="true"]:focus-visible {
+  border-color: rgba(117, 232, 255, 0.65);
+  outline: none;
+  background: rgba(16, 61, 78, 0.72);
+}
+
 .activeMember {
   border-left-color: #c9f9ff;
   background: rgba(21, 79, 99, 0.68);
-  box-shadow: inset 0 0 14px rgba(82, 220, 244, 0.12);
+  box-shadow:
+    inset 0 0 14px rgba(82, 220, 244, 0.18),
+    0 0 9px rgba(71, 211, 240, 0.12);
 }
 
-.memberTop { display: flex; justify-content: space-between; gap: 8px; }
-.memberTools { display: flex; align-items: center; gap: 7px; }
-.cardActions { display: inline-flex; flex: none; gap: 3px; }
+.activeMember::before {
+  float: right;
+  margin: 24px 0 0 6px;
+  color: #83f4ff;
+  content: "✓";
+  font:
+    800 11px/1 ui-monospace,
+    monospace;
+}
+
+.member[data-viewing="true"] {
+  border-right-color: #e6c76a;
+}
+
+.memberTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.memberTools {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.cardActions {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
 .cardActions button {
   display: grid;
   width: 22px;
@@ -75,24 +128,39 @@
   color: #75c9da;
   background: rgba(7, 32, 43, 0.78);
   cursor: pointer;
-  font: 800 9px ui-monospace, monospace;
+}
+.cardActions svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
 }
 
 .member[data-disabled="true"] {
   border-color: rgba(255, 82, 55, 0.48);
   border-left-color: #ff4a2f;
   background: linear-gradient(90deg, rgba(119, 28, 16, 0.46), rgba(9, 37, 49, 0.56) 72%);
-  box-shadow: inset 0 0 18px rgba(255, 62, 34, 0.08), 0 0 10px rgba(255, 55, 31, 0.08);
+  box-shadow:
+    inset 0 0 18px rgba(255, 62, 34, 0.08),
+    0 0 10px rgba(255, 55, 31, 0.08);
 }
 .cardActions button:hover,
-.cardActions button:focus-visible { border-color: #75e8ff; outline: none; color: #e1fbff; background: rgba(24, 103, 128, 0.56); }
+.cardActions button:focus-visible {
+  border-color: #75e8ff;
+  outline: none;
+  color: #e1fbff;
+  background: rgba(24, 103, 128, 0.56);
+}
 .member em,
 .member small {
   overflow: hidden;
   color: #6f949d;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 700 8px/1.35 ui-monospace, monospace;
+  font:
+    700 8px/1.35 ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
 }
 
@@ -103,36 +171,91 @@
   color: #cceef5;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 600 12px ui-monospace, monospace;
+  font:
+    600 12px ui-monospace,
+    monospace;
 }
 
-.member > small { display: block; }
-.member > .orderResult { margin-top: 3px; color: #e5c96f; }
-.member > .orderResult[data-status="accepted"] { color: #5be5a1; }
-.member > .orderResult[data-status="rejected"] { color: #ff7185; }
-.member > .autopilotState { margin-top: 3px; color: #ff7185; }
-.member > .autopilotState[data-enabled="true"] { color: #5be5a1; }
-.member > .autopilotState[data-status="awaiting"] { color: #e5c96f; }
-.member > .autopilotState[data-status="rejected"] { color: #ff7185; }
+.member > small {
+  display: block;
+}
+.member > .orderResult {
+  margin-top: 3px;
+  color: #e5c96f;
+}
+.member > .orderResult[data-status="accepted"] {
+  color: #5be5a1;
+}
+.member > .orderResult[data-status="rejected"] {
+  color: #ff7185;
+}
+.member > .autopilotState {
+  margin-top: 3px;
+  color: #ff7185;
+}
+.member > .autopilotState[data-enabled="true"] {
+  color: #5be5a1;
+}
+.member > .autopilotState[data-status="awaiting"] {
+  color: #e5c96f;
+}
+.member > .autopilotState[data-status="rejected"] {
+  color: #ff7185;
+}
 .member > .disabledState {
   margin-top: 4px;
   color: #ff765f;
   text-shadow: 0 0 8px rgba(255, 63, 35, 0.55);
   animation: disabled-pulse 1.4s ease-in-out infinite;
 }
-.meters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
-.meter { display: grid; grid-template-columns: 8px 1fr; align-items: center; gap: 3px; }
-.meter > span { color: #73949b; font: 700 7px ui-monospace, monospace; }
-.meter > i { display: block; height: 4px; overflow: hidden; background: #27343a; }
-.meter b { display: block; height: 100%; }
-.hull, .shield { background: linear-gradient(90deg, #ed4356, #efca4c 45%, #4ee6a0 78%); }
-.energy { background: linear-gradient(90deg, #c44935, #efb83f 52%, #fff19b); }
+.meters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+.meter {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  align-items: center;
+  gap: 3px;
+}
+.meter > span {
+  color: #73949b;
+  font:
+    700 7px ui-monospace,
+    monospace;
+}
+.meter > i {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  background: #27343a;
+}
+.meter b {
+  display: block;
+  height: 100%;
+}
+.hull,
+.shield {
+  background: linear-gradient(90deg, #ed4356, #efca4c 45%, #4ee6a0 78%);
+}
+.energy {
+  background: linear-gradient(90deg, #c44935, #efb83f 52%, #fff19b);
+}
 
 @keyframes disabled-pulse {
-  0%, 100% { opacity: 0.68; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.68;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .member > .disabledState { animation: none; }
+  .member > .disabledState {
+    animation: none;
+  }
 }

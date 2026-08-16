@@ -1,8 +1,16 @@
 export type Vector3 = [number, number, number];
 export type Color3 = [number, number, number];
 export type ShipDisposition = "neutral" | "ally" | "enemy";
-export type WeaponType = "best" | "autoblaster" | "laser" | "turbolaser" | "ion"
-  | "missile" | "torpedo" | "rocket" | "burst";
+export type WeaponType =
+  | "best"
+  | "autoblaster"
+  | "laser"
+  | "turbolaser"
+  | "ion"
+  | "missile"
+  | "torpedo"
+  | "rocket"
+  | "burst";
 
 export interface CombatEvent {
   id: number;
@@ -78,6 +86,9 @@ export interface PollingState {
 export interface FleetMember {
   id: string;
   name: string;
+  x?: number;
+  y?: number;
+  z?: number;
   class?: string;
   shipCategory?: string;
   role?: "leader" | "lead" | "wing";
@@ -112,6 +123,18 @@ export interface FleetStatus {
   members: FleetMember[];
 }
 
+export interface TacticalView {
+  memberId: string;
+  memberName: string;
+  memberSlot?: number;
+  system?: string;
+  observedAt?: number;
+  observer: Observer;
+  entities: TelemetryEntity[];
+  stale?: boolean;
+  staleReason?: string;
+}
+
 export interface FleetOrderMemberResult {
   name: string;
   status: "awaiting" | "accepted" | "rejected";
@@ -141,6 +164,8 @@ export interface CombatTargetTrack {
   targetName: string;
   ownerId?: string;
   ownerName?: string;
+  ownerIds?: string[];
+  ownerNames?: string[];
   ownerLabel?: string;
   formationKind?: "battlegroup" | "squadron";
   observedAt?: number;
@@ -182,11 +207,23 @@ export interface HyperspaceRoutePayload {
   memberId?: string;
   memberName?: string;
   memberSlot?: number;
+  memberIds?: string[];
+  memberNames?: string[];
+  memberSlots?: number[];
   recipientLabel?: string;
 }
 
 export interface HyperspaceState {
-  phase?: "idle" | "calculating" | "fuel_warning" | "ready" | "engaging" | "hyperspace" | "reentry" | "arrived" | "failed";
+  phase?:
+    | "idle"
+    | "calculating"
+    | "fuel_warning"
+    | "ready"
+    | "engaging"
+    | "hyperspace"
+    | "reentry"
+    | "arrived"
+    | "failed";
   route?: HyperspaceRoutePayload;
   remainingSeconds?: number;
   fuelRequired?: number;
@@ -203,6 +240,16 @@ export interface ShipJumpEvent {
   id: number;
   shipName: string;
   phase: "departure";
+  observedAt?: number;
+}
+
+export interface ShipDestructionEvent {
+  id: number;
+  shipName: string;
+  phase: "destroyed";
+  x?: number;
+  y?: number;
+  z?: number;
   observedAt?: number;
 }
 
@@ -231,6 +278,7 @@ export interface SystemSnapshot {
     shieldStatusPending?: boolean;
     hyperspace?: HyperspaceState;
     shipJumpEvents?: ShipJumpEvent[];
+    shipDestructionEvents?: ShipDestructionEvent[];
     navigation?: {
       galaxy?: { x?: number; y?: number };
       arrivalRefreshedAt?: number;
@@ -249,6 +297,9 @@ export interface SystemSnapshot {
     };
     fleet?: FleetStatus;
     fleetOrder?: FleetOrderStatus;
+    tacticalViews?: Record<string, TacticalView>;
+    lastRemoteViewMemberId?: string;
+    lastRemoteViewObservedAt?: number;
     formations?: {
       battlegroup?: FleetStatus;
       squadron?: FleetStatus;
@@ -277,12 +328,21 @@ export interface InitialState {
 export interface HolocronApi {
   getInitialState(): Promise<InitialState | null>;
   getAppVersion(): Promise<string | null>;
-  sendIntent(action: string, payload?: Record<string, unknown>): Promise<{ accepted?: boolean; reason?: string; id?: string }>;
+  sendIntent(
+    action: string,
+    payload?: Record<string, unknown>,
+  ): Promise<{ accepted?: boolean; reason?: string; id?: string }>;
   onSnapshot(callback: (snapshot: SystemSnapshot) => void): () => void;
   onSpaceState(callback: (state: SpaceState) => void): () => void;
   onGalaxyCatalog(callback: (catalog: GalaxyCatalog) => void): () => void;
   onConnectionState(callback: (state: ConnectionState) => void): () => void;
-  onIntentAck(callback: (ack: { id?: string; status?: "accepted" | "rejected" | "completed"; reason?: string }) => void): () => void;
+  onIntentAck(
+    callback: (ack: {
+      id?: string;
+      status?: "accepted" | "rejected" | "completed";
+      reason?: string;
+    }) => void,
+  ): () => void;
 }
 
 declare global {

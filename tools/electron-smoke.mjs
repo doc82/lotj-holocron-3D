@@ -7,10 +7,15 @@ const root = process.cwd();
 const profile = path.join(root, ".electron-smoke-profile");
 const tokenFile = path.join(profile, "bridge-token");
 const packagedExecutable = process.env.HOLOCRON_ELECTRON_EXECUTABLE;
-const executable = packagedExecutable || path.join(
-  root, "node_modules", "electron", "dist",
-  process.platform === "win32" ? "electron.exe" : "electron",
-);
+const executable =
+  packagedExecutable ||
+  path.join(
+    root,
+    "node_modules",
+    "electron",
+    "dist",
+    process.platform === "win32" ? "electron.exe" : "electron",
+  );
 const arguments_ = [`--user-data-dir=${profile}`];
 if (!packagedExecutable) arguments_.push(root);
 const child = spawn(executable, arguments_, {
@@ -34,30 +39,47 @@ const messages = [
   { type: "hello", source: "electron-smoke" },
   { type: "space_state", inSpace: true, reason: "smoke-test telemetry" },
   {
-  type: "system_snapshot",
-  sequence: 1,
-  observer: {
-    id: "player-ship",
-    kind: "ship",
-    name: "Forrestal",
-    class: "Rojan-class Invincible Firespray Patrol Craft",
-    x: -107,
-    y: -259,
-    z: 450,
-    speed: { current: 50, maximum: 200 },
-    sensorArray: 7,
-    radarRange: 570,
-  },
-  entities: [
-    { id: "dromund-kaas", kind: "celestial", name: "Dromund Kaas", x: 0, y: 0, z: 0 },
-    { id: "pollution", kind: "ship", name: "Pollution", class: "Imperial-II Class Star Destroyer", x: -51, y: 62, z: 32, position: "Ctr" },
-    { id: "mk1af19", kind: "ship", name: "MK1AF19", class: "Mark-I Assault Frigate", x: -369, y: -34, z: -120 },
-  ],
-  metadata: {
-    system: "Esstran Sector",
-    inSpace: true,
-    polling: { enabled: true, command: "radar" },
-  },
+    type: "system_snapshot",
+    sequence: 1,
+    observer: {
+      id: "player-ship",
+      kind: "ship",
+      name: "Forrestal",
+      class: "Rojan-class Invincible Firespray Patrol Craft",
+      x: -107,
+      y: -259,
+      z: 450,
+      speed: { current: 50, maximum: 200 },
+      sensorArray: 7,
+      radarRange: 570,
+    },
+    entities: [
+      { id: "dromund-kaas", kind: "celestial", name: "Dromund Kaas", x: 0, y: 0, z: 0 },
+      {
+        id: "pollution",
+        kind: "ship",
+        name: "Pollution",
+        class: "Imperial-II Class Star Destroyer",
+        x: -51,
+        y: 62,
+        z: 32,
+        position: "Ctr",
+      },
+      {
+        id: "mk1af19",
+        kind: "ship",
+        name: "MK1AF19",
+        class: "Mark-I Assault Frigate",
+        x: -369,
+        y: -34,
+        z: -120,
+      },
+    ],
+    metadata: {
+      system: "Esstran Sector",
+      inSpace: true,
+      polling: { enabled: true, command: "radar" },
+    },
   },
 ];
 

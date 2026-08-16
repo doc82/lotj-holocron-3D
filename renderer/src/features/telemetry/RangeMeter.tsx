@@ -17,11 +17,12 @@ export function RangeMeter({
   reading?: RangeReading;
   tone?: RangeMeterTone;
 }) {
-  const known = Number.isFinite(reading?.current)
-    && Number.isFinite(reading?.maximum)
-    && Number(reading?.maximum) > 0;
+  const known =
+    Number.isFinite(reading?.current) &&
+    Number.isFinite(reading?.maximum) &&
+    Number(reading?.maximum) > 0;
   const percent = known
-    ? Math.max(0, Math.min(100, Number(reading?.current) / Number(reading?.maximum) * 100))
+    ? Math.max(0, Math.min(100, (Number(reading?.current) / Number(reading?.maximum)) * 100))
     : 0;
   const tooltip = known
     ? `${label} // ${formatCoordinate(reading?.current)} / ${formatCoordinate(reading?.maximum)}`

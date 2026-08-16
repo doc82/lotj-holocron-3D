@@ -2,8 +2,22 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 
 import { formatCoordinate } from "../../domain/scene";
 import { RangeMeter } from "../telemetry/RangeMeter";
-import type { CombatEvent, ShipJumpEvent, SystemSnapshot, Vector3 } from "../../types/telemetry";
-import { TacticalEngine, type ClusterLabel, type CourseLabel, type PlayerShipLabel, type TacticalCameraMode, type TacticalFidelity, type TacticalTooltip } from "./TacticalEngine";
+import type {
+  CombatEvent,
+  ShipDestructionEvent,
+  ShipJumpEvent,
+  SystemSnapshot,
+  Vector3,
+} from "../../types/telemetry";
+import {
+  TacticalEngine,
+  type ClusterLabel,
+  type CourseLabel,
+  type PlayerShipLabel,
+  type TacticalCameraMode,
+  type TacticalFidelity,
+  type TacticalTooltip,
+} from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
 
 export interface TacticalCanvasHandle {
@@ -19,10 +33,12 @@ export interface TacticalCanvasHandle {
 
 interface TacticalCanvasProps {
   snapshot: SystemSnapshot | null;
+  observerLabel?: string;
   radarBubbleEnabled: boolean;
   originGridEnabled: boolean;
   combatEvents?: CombatEvent[];
   jumpEvents?: ShipJumpEvent[];
+  destructionEvents?: ShipDestructionEvent[];
   selectedId: string | null;
   onSelect(id: string | null): void;
   onMovementVector(vector: Vector3): void;
@@ -32,7 +48,24 @@ interface TacticalCanvasProps {
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, jumpEvents, selectedId, onSelect, onMovementVector, onMovementCommit, onMovementCancel, onCameraModeChange }, ref) {
+  function TacticalCanvas(
+    {
+      snapshot,
+      observerLabel = "YOUR SHIP",
+      radarBubbleEnabled,
+      originGridEnabled,
+      combatEvents,
+      jumpEvents,
+      destructionEvents,
+      selectedId,
+      onSelect,
+      onMovementVector,
+      onMovementCommit,
+      onMovementCancel,
+      onCameraModeChange,
+    },
+    ref,
+  ) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
@@ -86,25 +119,37 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
       for (const event of jumpEvents ?? []) engineRef.current?.pushJumpEvent(event);
     }, [jumpEvents]);
 
-    useImperativeHandle(ref, () => ({
-      fitSystem: () => engineRef.current?.fitSystem(),
-      sectorView: () => engineRef.current?.sectorView(),
-      resetOrientation: () => engineRef.current?.resetOrientation(),
-      setCameraMode: (mode, targetId) => engineRef.current?.setCameraMode(mode, targetId),
-      beginMovementPlanning: (vector, interactive, origins) =>
-        engineRef.current?.beginMovementPlanning(vector, interactive, origins),
-      finishMovementPlanning: () => engineRef.current?.finishMovementPlanning(),
-      setMovementActive: (active, vector, interactive) => engineRef.current?.setMovementActive(active, vector, interactive),
-      freezeMovement: () => engineRef.current?.freezeMovement(),
-    }), []);
+    useEffect(() => {
+      for (const event of destructionEvents ?? []) engineRef.current?.pushDestructionEvent(event);
+    }, [destructionEvents]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        fitSystem: () => engineRef.current?.fitSystem(),
+        sectorView: () => engineRef.current?.sectorView(),
+        resetOrientation: () => engineRef.current?.resetOrientation(),
+        setCameraMode: (mode, targetId) => engineRef.current?.setCameraMode(mode, targetId),
+        beginMovementPlanning: (vector, interactive, origins) =>
+          engineRef.current?.beginMovementPlanning(vector, interactive, origins),
+        finishMovementPlanning: () => engineRef.current?.finishMovementPlanning(),
+        setMovementActive: (active, vector, interactive) =>
+          engineRef.current?.setMovementActive(active, vector, interactive),
+        freezeMovement: () => engineRef.current?.freezeMovement(),
+      }),
+      [],
+    );
 
     return (
       <>
         <canvas ref={canvasRef} className={styles.space} aria-label="3D system map" />
         {snapshot && playerShipLabel && (
-          <div className={styles.playerShipLabel}
-            style={{ left: playerShipLabel.x, top: playerShipLabel.y }} aria-hidden="true">
-            YOUR SHIP <span>// {snapshot.observer?.name || "PLAYER SHIP"}</span>
+          <div
+            className={styles.playerShipLabel}
+            style={{ left: playerShipLabel.x, top: playerShipLabel.y }}
+            aria-hidden="true"
+          >
+            {observerLabel} <span>// {snapshot.observer?.name || "PLAYER SHIP"}</span>
           </div>
         )}
         {fidelity === "strategic" && <div className={styles.fidelity}>STRATEGIC CONTACTS</div>}
@@ -115,15 +160,17 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             className={styles.clusterCount}
             style={{ left: label.x, top: label.y }}
             aria-label={`Open group of ${label.count} contacts`}
-            onPointerEnter={(event) => setTooltip({
-              name: `${label.count} contacts`,
-              memberCount: label.count,
-              groupSummary: label.summary,
-              distance: label.distance,
-              worldPosition: label.worldPosition,
-              x: Math.min(event.clientX + 14, window.innerWidth - 210),
-              y: Math.min(event.clientY + 14, window.innerHeight - 150),
-            })}
+            onPointerEnter={(event) =>
+              setTooltip({
+                name: `${label.count} contacts`,
+                memberCount: label.count,
+                groupSummary: label.summary,
+                distance: label.distance,
+                worldPosition: label.worldPosition,
+                x: Math.min(event.clientX + 14, window.innerWidth - 210),
+                y: Math.min(event.clientY + 14, window.innerHeight - 150),
+              })
+            }
             onPointerLeave={() => setTooltip(null)}
             onClick={() => onSelect(label.id)}
           >
@@ -147,10 +194,12 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             {tooltip.shipCategory && <span>CLASS {tooltip.shipCategory.toUpperCase()}</span>}
             <span>DIST {formatCoordinate(tooltip.distance)} u</span>
             <span>XYZ {tooltip.worldPosition.map(formatCoordinate).join(" / ")}</span>
-            {!tooltip.memberCount && <>
-              <RangeMeter label="SHIELD" reading={tooltip.shields} tone="shield" />
-              <RangeMeter label="HULL" reading={tooltip.hull} />
-            </>}
+            {!tooltip.memberCount && (
+              <>
+                <RangeMeter label="SHIELD" reading={tooltip.shields} tone="shield" />
+                <RangeMeter label="HULL" reading={tooltip.hull} />
+              </>
+            )}
           </div>
         )}
       </>

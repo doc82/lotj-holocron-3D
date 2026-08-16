@@ -1,0 +1,15 @@
+{
+  "editor.formatOnSave": true,
+  "prettier.requireConfig": true,
+  "[javascript][javascriptreact][typescript][typescriptreact][json][jsonc][css][markdown][yaml][html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[lua]": {
+    "editor.defaultFormatter": "JohnnyMorganz.stylua"
+  },
+  "[go]": {
+    "editor.defaultFormatter": "golang.go"
+  },
+  "Lua.runtime.version": "Lua 5.1",
+  "Lua.diagnostics.globals": ["getMudletHomeDir", "cecho", "matches"]
+}

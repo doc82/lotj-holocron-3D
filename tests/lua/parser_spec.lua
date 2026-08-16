@@ -32,12 +32,15 @@ Your Coordinates: 12 22 -3
   end)
 
   it("classifies projectile radar contacts", function()
-    local result = assert(parsers.parse("radar projectiles", [[
+    local result = assert(parsers.parse(
+      "radar projectiles",
+      [[
 Esstran Sector
 Mark-I Assault Frigate 'MK1AF19' -369 -34 -120
 A Concussion Missile -240 -34 -120
 Your Coordinates: 0 0 0
-]]))
+]]
+    ))
     equal(result.entities[2].name, "A Concussion Missile")
     equal(result.entities[2].kind, "projectile")
   end)
@@ -52,11 +55,14 @@ Your Coordinates: 10 20 -5
     equal(#prox.entities, 2)
     equal(prox.entities[1].distance, 1250)
     equal(prox.entities[2].class, "YT-1300")
-    local velocity = assert(parsers.parse("proximity speed", [[
+    local velocity = assert(parsers.parse(
+      "proximity speed",
+      [[
 YT-1300 'Wayfarer' Velocity: -120
 Corellia Velocity: 0
 Your Coordinates: 11 21 -4
-]]))
+]]
+    ))
     equal(velocity.entities[1].speed, -120)
     equal(velocity.observer.y, 21)
   end)
@@ -95,6 +101,31 @@ Shields: 1400/4200 [33%]     Energy(fuel): 35926/37500 [95%]
     equal(disabled.condition, "Disabled")
   end)
 
+  it("splits turret summaries and ignores Mudlet prompt fields in status cards", function()
+    local result = assert(parsers.parseStatus([[
+Forrestal:
+--Weapons----------------------------------------------------------------
+Total Turrets: 2. Damaged Turrets: [ (All turrets working) ]
+--Storage----------------------------------------------------------------
+Escape Pods: 30/30
+Hangar 1: Closed
+Slot(s): 0/17
+{Tone: none } {Time: night } {Ambience: quiet }
+{Health: 1100/1100} {OOC:||||||} [ ] {Movement: 1990/1990} []
+]]))
+    local rows = {}
+    for _, section in ipairs(result.statusCard.sections) do
+      for _, row in ipairs(section.rows) do
+        rows[row.label] = row.value
+        assert(not row.label:find("{", 1, true))
+        assert(not row.value:find("{", 1, true))
+      end
+    end
+    equal(rows["Total Turrets"], "2")
+    equal(rows["Damaged Turrets"], "[ (All turrets working) ]")
+    equal(rows["Escape Pods"], "30/30")
+  end)
+
   it("parses complete info cards including access codes", function()
     local result = assert(parsers.parseInfo([[
 [Class: Transport] : Rojan-class Patrol Craft 'Forrestal'
@@ -112,7 +143,9 @@ Maximum Speed: 200  Sensor Array: 7
     local hatchway
     for _, section in ipairs(result.infoCard.sections) do
       for _, row in ipairs(section.rows) do
-        if row.label == "Hatchway" then hatchway = row.value end
+        if row.label == "Hatchway" then
+          hatchway = row.value
+        end
       end
     end
     equal(hatchway, "94599")
@@ -149,8 +182,10 @@ Cloaking Device: Not Installed
     equal(result.name, "TeeHee2")
     equal(result.shipCategory, "Battleship")
     equal(result.infoCard.title, "SHIP INFORMATION")
-    equal(result.infoCard.description,
-      "The Victory-class Star Destroyer, also known simply as the Victory-class Destroyer, is a direct predecessor to the feared Imperial-class Star Destroyers of the Galactic Empire. At just under a kilometre in length, the ship is ideal for deep space combat.")
+    equal(
+      result.infoCard.description,
+      "The Victory-class Star Destroyer, also known simply as the Victory-class Destroyer, is a direct predecessor to the feared Imperial-class Star Destroyers of the Galactic Empire. At just under a kilometre in length, the ship is ideal for deep space combat."
+    )
     equal(result.maximumSpeed, 55)
     equal(result.sensorArray, 50)
     equal(result.weapons.turbolasers, 27)
@@ -211,23 +246,29 @@ Your Coordinates: 0 0 0
   end)
 
   it("parses battlegroup and squadron formations", function()
-    local battlegroup = assert(parsers.parse("battlegroup", [[
+    local battlegroup = assert(parsers.parse(
+      "battlegroup",
+      [[
 [ L ] Battleship :MC-90 Star Cruiser 'Azure Vanguard' -<Pos:Central>-
  Energy: 100%|Hull: 91%|Shields: 73%|Crew: 001|System: Corellian System 2/19
 [001] Cruiser :Thranta-Class Light Cruiser 'Cerulean Spear' -<Pos:Outer>-
  Energy: 88%|Hull: 76%|Shields: 54%|Crew: 000|System: Corellian System 2/19
-]]))
+]]
+    ))
     equal(battlegroup.fleet.kind, "battlegroup")
     equal(battlegroup.fleet.memberCount, 2)
     equal(battlegroup.fleet.members[1].leader, true)
     equal(battlegroup.fleet.members[2].slot, 1)
-    local squadron = assert(parsers.parse("squadron status", [[
+    local squadron = assert(parsers.parse(
+      "squadron status",
+      [[
 Lead: TIE/S Striker 'Wrecker01'
  Energy: 97% Shield: 100% Hull: 100% Location: Kanz Sector
 TIE/S Striker 'Wrecker10'
  Energy: 67% Shield: 67% Hull: 100% Location: Kanz Sector
 Squadron Fire Assist: Active Systems Target: Laser
-]]))
+]]
+    ))
     equal(squadron.fleet.memberCount, 2)
     equal(squadron.fleet.members[1].role, "lead")
     equal(squadron.fleet.members[2].role, "wing")
@@ -235,7 +276,9 @@ Squadron Fire Assist: Active Systems Target: Laser
   end)
 
   it("parses navigation status and destinations", function()
-    local navstat = assert(parsers.parse("navstat", [[
+    local navstat = assert(parsers.parse(
+      "navstat",
+      [[
 Readout for E-wing Escort Fighter 'Booger':
 Current Coordinates: 5 10 -17
 Current System: Esstran Sector
@@ -244,15 +287,19 @@ This ship can jump to all standard sectors.
 Jump System: Mandalore Sector
 Jump Distance: 49.5 parsecs
 Jump Time: 7m 36s
-]]))
+]]
+    ))
     equal(navstat.galaxy.x, 92)
     equal(navstat.jumpTimeSeconds, 456)
-    local destinations = assert(parsers.parse("calc", [[
+    local destinations = assert(parsers.parse(
+      "calc",
+      [[
 Possible destinations:
 Starsystem Parsecs Time Fuel
 Mandalore Sector 49.5 7m 36s 87%
 Wroona System 67.1 (Out of Range)
-]]))
+]]
+    ))
     equal(destinations.mode, "destinations")
     equal(destinations.destinations[1].reachable, true)
     equal(destinations.destinations[2].reachable, false)

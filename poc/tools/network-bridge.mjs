@@ -25,19 +25,23 @@ function option(name, fallback) {
 
 const host = option("host", DEFAULT_HOST);
 const requestedPort = Number(option("port", DEFAULT_PORT));
-const requestedHttpPort = Number(option(
-  "http-port",
-  requestedPort === 0 ? 0 : DEFAULT_HTTP_PORT,
-));
-if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535
-    || !Number.isInteger(requestedHttpPort) || requestedHttpPort < 0
-    || requestedHttpPort > 65535) {
-  process.stdout.write(`${JSON.stringify({
-    v: PROTOCOL_VERSION,
-    type: "bridge_diagnostic",
-    level: "error",
-    message: "--port and --http-port must be integers from 0 through 65535",
-  })}\n`);
+const requestedHttpPort = Number(option("http-port", requestedPort === 0 ? 0 : DEFAULT_HTTP_PORT));
+if (
+  !Number.isInteger(requestedPort) ||
+  requestedPort < 0 ||
+  requestedPort > 65535 ||
+  !Number.isInteger(requestedHttpPort) ||
+  requestedHttpPort < 0 ||
+  requestedHttpPort > 65535
+) {
+  process.stdout.write(
+    `${JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: "bridge_diagnostic",
+      level: "error",
+      message: "--port and --http-port must be integers from 0 through 65535",
+    })}\n`,
+  );
   process.exit(1);
 }
 
@@ -89,9 +93,10 @@ function validIntent(message) {
   if (typeof message.action !== "string" || !message.action) {
     return "intent action must be a non-empty string";
   }
-  if (message.payload !== undefined
-      && (!message.payload || typeof message.payload !== "object"
-        || Array.isArray(message.payload))) {
+  if (
+    message.payload !== undefined &&
+    (!message.payload || typeof message.payload !== "object" || Array.isArray(message.payload))
+  ) {
     return "intent payload must be an object";
   }
   return null;
@@ -102,22 +107,26 @@ function handleClientMessage(client, raw) {
   try {
     message = JSON.parse(raw.toString());
   } catch {
-    client.send(JSON.stringify({
-      v: PROTOCOL_VERSION,
-      type: "client_error",
-      reason: "invalid JSON",
-    }));
+    client.send(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "client_error",
+        reason: "invalid JSON",
+      }),
+    );
     return;
   }
 
   const error = validIntent(message);
   if (error) {
-    client.send(JSON.stringify({
-      v: PROTOCOL_VERSION,
-      type: "client_error",
-      id: typeof message?.id === "string" ? message.id : undefined,
-      reason: error,
-    }));
+    client.send(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "client_error",
+        id: typeof message?.id === "string" ? message.id : undefined,
+        reason: error,
+      }),
+    );
     return;
   }
 
@@ -149,13 +158,15 @@ server.on("connection", (client) => {
     return;
   }
 
-  client.send(JSON.stringify({
-    v: PROTOCOL_VERSION,
-    type: "bridge_ready",
-    bridge: "network-bridge",
-    websocketUrl,
-    rendererUrl,
-  }));
+  client.send(
+    JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: "bridge_ready",
+      bridge: "network-bridge",
+      websocketUrl,
+      rendererUrl,
+    }),
+  );
   if (latestSpaceState) client.send(JSON.stringify(latestSpaceState));
   if (latestSnapshot) client.send(JSON.stringify(latestSnapshot));
 
@@ -182,9 +193,11 @@ const httpServer = http.createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("Content-Security-Policy",
-    "default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; "
-      + "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'");
+  response.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; " +
+      "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+  );
 
   if (pathname === "/config.json") {
     response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
@@ -207,7 +220,8 @@ const httpServer = http.createServer(async (request, response) => {
 
   try {
     const body = await readFile(assetPath);
-    const contentType = rendererContentTypes.get(path.extname(assetPath)) || "application/octet-stream";
+    const contentType =
+      rendererContentTypes.get(path.extname(assetPath)) || "application/octet-stream";
     response.writeHead(200, { "Content-Type": contentType });
     response.end(body);
   } catch {
@@ -270,10 +284,10 @@ function handleMudletMessage(message) {
       latestSnapshot = message;
       broadcast(message);
       write({
-      type: "snapshot_received",
-      sequence: message.sequence,
-      entityCount: Array.isArray(message.entities) ? message.entities.length : 0,
-      polled: message.metadata?.lastCapturePolled === true,
+        type: "snapshot_received",
+        sequence: message.sequence,
+        entityCount: Array.isArray(message.entities) ? message.entities.length : 0,
+        polled: message.metadata?.lastCapturePolled === true,
       });
       break;
 

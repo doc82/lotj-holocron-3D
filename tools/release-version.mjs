@@ -10,7 +10,9 @@ const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 function parseVersion(value, label) {
   const version = String(value || "").trim();
   if (!VERSION_PATTERN.test(version)) {
-    throw new Error(`${label} must use numeric MAJOR.MINOR.PATCH format; received ${version || "nothing"}.`);
+    throw new Error(
+      `${label} must use numeric MAJOR.MINOR.PATCH format; received ${version || "nothing"}.`,
+    );
   }
   return version;
 }
@@ -24,14 +26,21 @@ function compareVersions(left, right) {
   return 0;
 }
 
-export function decideRelease({ currentVersion, previousVersion, requestedVersion, manual = false }) {
+export function decideRelease({
+  currentVersion,
+  previousVersion,
+  requestedVersion,
+  manual = false,
+}) {
   const current = parseVersion(currentVersion, "package.json version");
   if (manual) {
     const requested = requestedVersion
       ? parseVersion(requestedVersion, "requested release version")
       : current;
     if (requested !== current) {
-      throw new Error(`Requested version ${requested} does not match package.json version ${current}.`);
+      throw new Error(
+        `Requested version ${requested} does not match package.json version ${current}.`,
+      );
     }
     return { release: true, version: current, tag: `v${current}` };
   }
@@ -45,7 +54,8 @@ export function decideRelease({ currentVersion, previousVersion, requestedVersio
 }
 
 function previousPackageVersion(ref) {
-  if (!/^[0-9a-f]{40}$/i.test(ref || "")) throw new Error("Push event did not provide a valid before SHA.");
+  if (!/^[0-9a-f]{40}$/i.test(ref || ""))
+    throw new Error("Push event did not provide a valid before SHA.");
   const content = execFileSync("git", ["show", `${ref}:package.json`], {
     cwd: root,
     encoding: "utf8",
@@ -54,7 +64,11 @@ function previousPackageVersion(ref) {
 }
 
 function writeOutputs(decision) {
-  const lines = [`release=${decision.release}`, `version=${decision.version}`, `tag=${decision.tag}`];
+  const lines = [
+    `release=${decision.release}`,
+    `version=${decision.version}`,
+    `tag=${decision.tag}`,
+  ];
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
   } else {
@@ -67,7 +81,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const manual = process.env.RELEASE_EVENT === "workflow_dispatch";
   const decision = decideRelease({
     currentVersion: manifest.version,
-    previousVersion: manual ? manifest.version : previousPackageVersion(process.env.RELEASE_BEFORE_SHA),
+    previousVersion: manual
+      ? manifest.version
+      : previousPackageVersion(process.env.RELEASE_BEFORE_SHA),
     requestedVersion: process.env.RELEASE_REQUESTED_VERSION,
     manual,
   });

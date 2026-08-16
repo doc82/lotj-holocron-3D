@@ -25,9 +25,15 @@ interface NavigationDrawerProps {
 }
 
 function ActionIcon({ type }: { type: "confirm" | "cancel" }) {
-  return type === "confirm"
-    ? <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m6 16 7 7L27 8" /></svg>
-    : <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 7l18 18M25 7 7 25" /></svg>;
+  return type === "confirm" ? (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="m6 16 7 7L27 8" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M7 7l18 18M25 7 7 25" />
+    </svg>
+  );
 }
 
 export function NavigationDrawer({
@@ -47,7 +53,12 @@ export function NavigationDrawer({
   onConfirm,
   onCancel,
 }: NavigationDrawerProps) {
-  const title = kind === "relative" ? "PLOT COURSE VECTOR" : kind === "away" ? "COURSE AWAY" : "COURSE TO CONTACT";
+  const title =
+    kind === "relative"
+      ? "PLOT COURSE VECTOR"
+      : kind === "away"
+        ? "COURSE AWAY"
+        : "COURSE TO CONTACT";
   const targetMissing = kind !== "relative" && !targetName;
   const departureSpeedMissing = observerStopped && speed <= 0;
   const needsVectorLock = mode === "vector";
@@ -61,12 +72,20 @@ export function NavigationDrawer({
       </header>
 
       <div className={styles.routeSummary}>
-        <span>{kind === "relative" ? "RELATIVE VECTOR" : kind === "away" ? "REVERSE VECTOR" : "INTERCEPT VECTOR"}</span>
-        <strong>{kind === "relative"
-          ? `Δ ${vector.map(formatCoordinate).join(" / ")}`
-          : targetName
-            ? `${targetName.toUpperCase()} // ${formatCoordinate(targetDistance)} u`
-            : "TARGET CONTACT LOST"}</strong>
+        <span>
+          {kind === "relative"
+            ? "RELATIVE VECTOR"
+            : kind === "away"
+              ? "REVERSE VECTOR"
+              : "INTERCEPT VECTOR"}
+        </span>
+        <strong>
+          {kind === "relative"
+            ? `Δ ${vector.map(formatCoordinate).join(" / ")}`
+            : targetName
+              ? `${targetName.toUpperCase()} // ${formatCoordinate(targetDistance)} u`
+              : "TARGET CONTACT LOST"}
+        </strong>
         <small>{status}</small>
       </div>
 
@@ -87,10 +106,17 @@ export function NavigationDrawer({
       )}
 
       {needsVectorLock && !observerStopped && (
-        <p className={styles.instructions}>Move the pointer to set X/Z. Hold Shift for Y. Middle-drag orbits the camera without leaving this action.</p>
+        <p className={styles.instructions}>
+          Move the pointer to set X/Z. Hold Shift for Y. Middle-drag orbits the camera without
+          leaving this action.
+        </p>
       )}
 
-      {targetMissing && <p className={styles.blocker} role="status">TARGET IS NO LONGER AVAILABLE</p>}
+      {targetMissing && (
+        <p className={styles.blocker} role="status">
+          TARGET IS NO LONGER AVAILABLE
+        </p>
+      )}
 
       <div className={styles.actions}>
         <button
@@ -98,9 +124,13 @@ export function NavigationDrawer({
           className={styles.confirm}
           disabled={needsVectorLock ? commandLocked : confirmDisabled}
           onClick={needsVectorLock ? onStageVector : onConfirm}
-        ><ActionIcon type="confirm" /><span>{needsVectorLock ? "LOCK VECTOR" : "CONFIRM COURSE"}</span></button>
+        >
+          <ActionIcon type="confirm" />
+          <span>{needsVectorLock ? "LOCK VECTOR" : "CONFIRM COURSE"}</span>
+        </button>
         <button type="button" className={styles.cancel} onClick={onCancel}>
-          <ActionIcon type="cancel" /><span>CANCEL</span>
+          <ActionIcon type="cancel" />
+          <span>CANCEL</span>
         </button>
       </div>
     </aside>

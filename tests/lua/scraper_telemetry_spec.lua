@@ -6,28 +6,57 @@ local fixture
 h.before_each(function()
   fixture = Fixture.new()
   fixture.scraper.setInSpace(true, "fixture")
-  assert(fixture.scraper.applyResult(assert(fixture.parsers.parse("status", [[
+  assert(fixture.scraper.applyResult(
+    assert(fixture.parsers.parse(
+      "status",
+      [[
 Forrestal:
 Current Coordinates: 0 0 0
 Current Speed: 0/200
 Hull: 150/150 Shields: 100/150 Energy(fuel): 5000/5000
-]])), "status"))
-  assert(fixture.scraper.applyResult(assert(fixture.parsers.parse("radar", [[
+]]
+    )),
+    "status"
+  ))
+  assert(fixture.scraper.applyResult(
+    assert(fixture.parsers.parse(
+      "radar",
+      [[
 Corellian System
 YT-1300 'Wayfarer' 200 0 0
 Your Coordinates: 0 0 0
-]])), "radar"))
+]]
+    )),
+    "radar"
+  ))
 end)
-h.after_each(function() fixture:close() end)
+h.after_each(function()
+  fixture:close()
+end)
 
 describe("scraper authoritative telemetry", function()
   it("applies GMCP ship readings without treating piloting as space state", function()
-    _G.gmcp = {Ship = {Info = {
-      energy = 2773, maxEnergy = 4500, hull = 115, maxHull = 115,
-      shield = 60, maxShield = 60, speed = 50, maxSpeed = 170,
-      posX = 101, posY = -22, posZ = 303, headX = 1, headY = 0, headZ = -1,
-      piloting = false,
-    }}}
+    _G.gmcp = {
+      Ship = {
+        Info = {
+          energy = 2773,
+          maxEnergy = 4500,
+          hull = 115,
+          maxHull = 115,
+          shield = 60,
+          maxShield = 60,
+          speed = 50,
+          maxSpeed = 170,
+          posX = 101,
+          posY = -22,
+          posZ = 303,
+          headX = 1,
+          headY = 0,
+          headZ = -1,
+          piloting = false,
+        },
+      },
+    }
     assert(fixture.scraper.handleShipGmcp())
     local observer = fixture:lastSnapshot().observer
     equal(observer.speed.current, 50)
@@ -39,17 +68,18 @@ describe("scraper authoritative telemetry", function()
   end)
 
   it("preserves a useful heading when GMCP reports an ambiguous zero vector", function()
-    _G.gmcp = {Ship = {Info = {headX = 1, headY = 0, headZ = -1}}}
+    _G.gmcp = { Ship = { Info = { headX = 1, headY = 0, headZ = -1 } } }
     assert(fixture.scraper.handleShipGmcp())
-    _G.gmcp.Ship.Info = {headX = 0, headY = 0, headZ = 0}
+    _G.gmcp.Ship.Info = { headX = 0, headY = 0, headZ = 0 }
     assert(fixture.scraper.handleShipGmcp())
     equal(fixture:lastSnapshot().observer.heading.x, 1)
   end)
 
   it("rejects a manual scan cleanly when LotJ reports range failure", function()
     local ok, failure = fixture.intentHandlers.scan_ship({
-      targetId = "wayfarer", source = "status",
-    }, {id = "scan"})
+      targetId = "wayfarer",
+      source = "status",
+    }, { id = "scan" })
     assert(ok, failure)
     fixture.scraper.captureLine("That target is too far away to scan.")
     local result, scanFailure = fixture.scraper.finishCapture("prompt")
@@ -60,15 +90,20 @@ describe("scraper authoritative telemetry", function()
 
   it("opens local status and info cards with unqualified commands", function()
     local ok, failure = fixture.intentHandlers.scan_ship({
-      targetId = "player-ship", targetName = "Forrestal", source = "status",
-    }, {id = "local-status"})
+      targetId = "player-ship",
+      targetName = "Forrestal",
+      source = "status",
+    }, { id = "local-status" })
     assert(ok, failure)
     equal(fixture:lastCommand().command, "status")
   end)
 
   it("turns navigation-computer output into one intent rejection", function()
     local diagnosticCount = #fixture.diagnostics
-    local ok, failure = fixture.intentHandlers.refresh_navigation({command = "calc"}, {id = "nav"})
+    local ok, failure = fixture.intentHandlers.refresh_navigation(
+      { command = "calc" },
+      { id = "nav" }
+    )
     assert(ok, failure)
     equal(fixture:lastCommand().command, "calc")
     fixture.scraper.captureLine("You must be at a nav computer to calculate jumps.")
@@ -80,7 +115,7 @@ describe("scraper authoritative telemetry", function()
   end)
 
   it("retries an autotrack toggle until the requested state is confirmed", function()
-    local ok, failure = fixture.intentHandlers.set_autotrack({enabled = false}, {id = "track"})
+    local ok, failure = fixture.intentHandlers.set_autotrack({ enabled = false }, { id = "track" })
     assert(ok, failure)
     equal(fixture:lastCommand().command, "autotrack")
     assert(fixture.scraper.handleAutotrackResponse("Autotracking on."))
@@ -91,8 +126,12 @@ describe("scraper authoritative telemetry", function()
   end)
 
   it("consolidates ship damage into a delayed shield status check", function()
-    assert(fixture.scraper.handleShipHit(
-      "You are hit by lasers from Assassin-Class Corvette 'Calculated'!", false))
+    assert(
+      fixture.scraper.handleShipHit(
+        "You are hit by lasers from Assassin-Class Corvette 'Calculated'!",
+        false
+      )
+    )
     local timerId = fixture.scraper.shields.damageTimerId
     assert(timerId and fixture.timers[timerId])
     fixture:tick(timerId)
@@ -102,11 +141,14 @@ describe("scraper authoritative telemetry", function()
 
   it("profiles captures, lines, snapshots, and GMCP events per fixture", function()
     assert(fixture.scraper.startProfiler())
-    assert(fixture:capture("info", [[
+    assert(fixture:capture(
+      "info",
+      [[
 [Class: Transport] : Rojan-class Patrol Craft 'Forrestal'
 Sensor Array: 7
-]]))
-    _G.gmcp = {Ship = {Info = {speed = 20, maxSpeed = 200}}}
+]]
+    ))
+    _G.gmcp = { Ship = { Info = { speed = 20, maxSpeed = 200 } } }
     assert(fixture.scraper.handleShipGmcp())
     local report = fixture.scraper.getProfilerReport()
     assert((report.counts.capturesStarted or 0) > 0)

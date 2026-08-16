@@ -22,14 +22,26 @@ import {
   elevationFromWheel,
   formationCenter,
   formationDestination,
+  resolveFormationOrigins,
 } from "../renderer/src/domain/coursePlot.ts";
 import { canCommandFormation, localFormationRole } from "../renderer/src/domain/fleet.ts";
+import {
+  combatVisualStyle,
+  planCombatEvent,
+  planDestructionEvent,
+} from "../renderer/src/domain/combat.ts";
 import { buildTacticalTargetShortcuts } from "../renderer/src/domain/tacticalTargets.ts";
-import { normalizeShipDescription, validatedInfoSections } from "../renderer/src/domain/shipDossier.ts";
+import {
+  normalizeShipDescription,
+  sanitizedStatusSections,
+  validatedInfoSections,
+} from "../renderer/src/domain/shipDossier.ts";
 
 test("squadron leadership is inferred from the local roster member", () => {
   const fleet = {
-    kind: "squadron", active: true, members: [
+    kind: "squadron",
+    active: true,
+    members: [
       { id: "heehee", name: "HeeHee", leader: true, role: "lead" },
       { id: "hhee2", name: "Hhee2", role: "wing" },
     ],
@@ -40,7 +52,11 @@ test("squadron leadership is inferred from the local roster member", () => {
 });
 
 test("formation movement lines share one destination", () => {
-  const origins = [[-120, 10, 40], [40, -30, 80], [80, 20, -20]];
+  const origins = [
+    [-120, 10, 40],
+    [40, -30, 80],
+    [80, 20, -20],
+  ];
   assert.deepEqual(formationCenter(origins), [-20, -5, 30]);
   assert.deepEqual(formationDestination(origins, [100, 25, -50]), [80, 20, -20]);
   assert.deepEqual(formationDestination([[15, 5, -10]], [100, 25, -50]), [115, 30, -60]);
@@ -54,16 +70,29 @@ test("remote scan range always includes the 500-unit base", () => {
 
 test("every ship category has a unique military marker and experimental pixel width", () => {
   const classes = [
-    ["Vehicle", 1], ["Starfighter", 1], ["Transport", 3], ["Freighter", 4],
-    ["Gunboat", 5], ["Corvette", 6], ["Frigate", 7], ["Cruiser", 8],
-    ["Battleship", 9], ["Battlestation", 10], ["Platform", 11],
+    ["Vehicle", 1],
+    ["Starfighter", 1],
+    ["Transport", 3],
+    ["Freighter", 4],
+    ["Gunboat", 5],
+    ["Corvette", 6],
+    ["Frigate", 7],
+    ["Cruiser", 8],
+    ["Battleship", 9],
+    ["Battlestation", 10],
+    ["Platform", 11],
   ];
   const scene = buildScene({
     observer: { id: "player-ship", shipCategory: "Cruiser", x: 0, y: 0, z: 0 },
     entities: classes.map(([shipCategory], index) => ({
-      id: String(shipCategory).toLowerCase(), name: String(shipCategory), kind: "ship",
-      shipCategory: String(shipCategory), disposition: index % 3 === 0 ? "ally" : index % 3 === 1 ? "enemy" : "neutral",
-      x: index + 1, y: 0, z: 0,
+      id: String(shipCategory).toLowerCase(),
+      name: String(shipCategory),
+      kind: "ship",
+      shipCategory: String(shipCategory),
+      disposition: index % 3 === 0 ? "ally" : index % 3 === 1 ? "enemy" : "neutral",
+      x: index + 1,
+      y: 0,
+      z: 0,
     })),
   });
   const markers = classes.map(([shipCategory, pixels]) => {
@@ -84,10 +113,27 @@ test("formation purple overrides disposition until that ship is the combat targe
   const scene = buildScene({
     observer: { id: "player-ship", x: 0, y: 0, z: 0 },
     entities: [
-      { id: "wing", name: "Wing", kind: "ship", x: 10, y: 0, z: 0,
-        disposition: "enemy", formationMember: true },
-      { id: "targeted-wing", name: "Targeted Wing", kind: "ship", x: 20, y: 0, z: 0,
-        disposition: "ally", formationMember: true, combatTarget: true },
+      {
+        id: "wing",
+        name: "Wing",
+        kind: "ship",
+        x: 10,
+        y: 0,
+        z: 0,
+        disposition: "enemy",
+        formationMember: true,
+      },
+      {
+        id: "targeted-wing",
+        name: "Targeted Wing",
+        kind: "ship",
+        x: 20,
+        y: 0,
+        z: 0,
+        disposition: "ally",
+        formationMember: true,
+        combatTarget: true,
+      },
     ],
   });
   assert.deepEqual(findScenePoint(scene, "wing")?.color, [0.68, 0.3, 1]);
@@ -102,13 +148,27 @@ test("target shortcuts group shared targets and retain scope ownership", () => {
       wings: { key: "wings", scope: "wings", targetName: "wayfarer" },
       fleet: { key: "fleet", scope: "all", targetName: "Unknown Contact" },
     },
-    scenePoints: [{
-      id: "wayfarer", name: "Wayfarer", kind: "ship", condition: "Disabled",
-      x: 100, y: 0, z: 0,
-    }],
+    scenePoints: [
+      {
+        id: "wayfarer",
+        name: "Wayfarer",
+        kind: "ship",
+        condition: "Disabled",
+        x: 100,
+        y: 0,
+        z: 0,
+      },
+    ],
   });
   assert.equal(shortcuts.length, 2);
   assert.deepEqual(shortcuts[0].ownerLabels, ["YOUR SHIP'S TARGET", "WING TARGET"]);
+  assert.deepEqual(
+    shortcuts[0].owners.map(({ key, scope }) => ({ key, scope })),
+    [
+      { key: "local", scope: "local" },
+      { key: "wings", scope: "wings" },
+    ],
+  );
   assert.equal(shortcuts[0].targetName, "Wayfarer");
   assert.equal(shortcuts[0].ship?.condition, "Disabled");
   assert.equal(shortcuts[1].targetName, "Unknown Contact");
@@ -123,6 +183,10 @@ test("target shortcuts recover a legacy local target without duplicating scoped 
   });
   assert.equal(legacy.length, 1);
   assert.deepEqual(legacy[0].ownerLabels, ["YOUR SHIP'S TARGET"]);
+  assert.deepEqual(
+    legacy[0].owners.map(({ key, scope }) => ({ key, scope })),
+    [{ key: "local", scope: "local" }],
+  );
   assert.equal(legacy[0].ship?.id, "wayfarer");
 
   const scoped = buildTacticalTargetShortcuts({
@@ -131,41 +195,112 @@ test("target shortcuts recover a legacy local target without duplicating scoped 
       local: { key: "local", scope: "local", targetName: "Wayfarer" },
     },
   });
-  assert.deepEqual(scoped.map((target) => target.targetName), ["Wayfarer"]);
+  assert.deepEqual(
+    scoped.map((target) => target.targetName),
+    ["Wayfarer"],
+  );
 });
 
 test("ship dossiers keep only static validated info fields in canonical order", () => {
   const sections = validatedInfoSections([
-    { title: "SYSTEMS", rows: [
-      { label: "Sensor Array", value: "  50  " },
-      { label: "4200 Max Shields", value: "4200" },
-      { label: "Maximum Speed", value: "55" },
-      { label: "Communications", value: "{Tone: none}" },
-    ] },
-    { title: "WEAPONS", rows: [
-      { label: "Maximum Torpedoes", value: "80" },
-      { label: "Turbolasers", value: "27" },
-      { label: "Unknown Weapon", value: "999" },
-    ] },
+    {
+      title: "SYSTEMS",
+      rows: [
+        { label: "Sensor Array", value: "  50  " },
+        { label: "4200 Max Shields", value: "4200" },
+        { label: "Maximum Speed", value: "55" },
+        { label: "Communications", value: "{Tone: none}" },
+      ],
+    },
+    {
+      title: "WEAPONS",
+      rows: [
+        { label: "Maximum Torpedoes", value: "80" },
+        { label: "Turbolasers", value: "27" },
+        { label: "Unknown Weapon", value: "999" },
+      ],
+    },
   ]);
   assert.deepEqual(sections, [
-    { title: "WEAPONS", rows: [
-      { label: "Turbolasers", value: "27" },
-      { label: "Maximum Torpedoes", value: "80" },
-    ] },
-    { title: "SYSTEMS", rows: [
-      { label: "Maximum Speed", value: "55" },
-      { label: "Sensor Array", value: "50" },
-    ] },
+    {
+      title: "WEAPONS",
+      rows: [
+        { label: "Turbolasers", value: "27" },
+        { label: "Maximum Torpedoes", value: "80" },
+      ],
+    },
+    {
+      title: "SYSTEMS",
+      rows: [
+        { label: "Maximum Speed", value: "55" },
+        { label: "Sensor Array", value: "50" },
+      ],
+    },
+  ]);
+});
+
+test("formation movement origins resolve every scoped ship without falling back to the player", () => {
+  const members = [
+    { id: "leader", name: "Leader" },
+    { id: "wing-one", name: "Roster One", x: 140, y: 10, z: -20 },
+    { id: "wing-two", name: "Roster Two", x: 160, y: 30, z: -40 },
+  ];
+  const points = [
+    { id: "player-ship", name: "Leader", position3d: [0, 0, 0] },
+    { id: "wing-one", name: "Radar Alias", position3d: [40, 10, -20] },
+  ];
+  const observer = { id: "player-ship", name: "Leader", worldPosition: [100, 0, 0] };
+  assert.deepEqual(resolveFormationOrigins(members, points, observer), [
+    [0, 0, 0],
+    [40, 10, -20],
+    [60, 30, -40],
+  ]);
+  assert.deepEqual(resolveFormationOrigins(members.slice(1), points, observer), [
+    [40, 10, -20],
+    [60, 30, -40],
+  ]);
+  assert.deepEqual(
+    resolveFormationOrigins([{ id: "unknown-wing", name: "Unknown Wing" }], points, observer),
+    [],
+  );
+});
+
+test("status dossiers split turret summaries and discard Mudlet prompt fields", () => {
+  const sections = sanitizedStatusSections([
+    {
+      title: "WEAPONS",
+      rows: [{ label: "Total Turrets", value: "2. Damaged Turrets: [ (All turrets working) ]" }],
+    },
+    {
+      title: "STORAGE",
+      rows: [
+        { label: "Escape Pods", value: "30/30" },
+        { label: "{Tone", value: "none } {Time: night } {Ambience: quiet }" },
+        { label: "{Health", value: "1100/1100} {OOC:||||||} [ ] {Movement: 1990/1990} []" },
+      ],
+    },
+  ]);
+  assert.deepEqual(sections, [
+    {
+      title: "WEAPONS",
+      rows: [
+        { label: "Total Turrets", value: "2" },
+        { label: "Damaged Turrets", value: "[ (All turrets working) ]" },
+      ],
+    },
+    { title: "STORAGE", rows: [{ label: "Escape Pods", value: "30/30" }] },
   ]);
 });
 
 test("ship dossier descriptions collapse into one paragraph and remove prompt blocks", () => {
-  assert.equal(normalizeShipDescription([
-    "The Victory-class Destroyer is a direct predecessor",
-    "to the Imperial-class.   ",
-    "{Tone: none } {Time: dawn }",
-  ]), "The Victory-class Destroyer is a direct predecessor to the Imperial-class.");
+  assert.equal(
+    normalizeShipDescription([
+      "The Victory-class Destroyer is a direct predecessor",
+      "to the Imperial-class.   ",
+      "{Tone: none } {Time: dawn }",
+    ]),
+    "The Victory-class Destroyer is a direct predecessor to the Imperial-class.",
+  );
 });
 
 test("missiles, torpedoes, and rockets have distinct tactical signatures", () => {
@@ -176,8 +311,10 @@ test("missiles, torpedoes, and rockets have distinct tactical signatures", () =>
   ];
   assert.equal(new Set(signatures.map(({ shape }) => shape)).size, 3);
   assert.equal(new Set(signatures.map(({ color }) => color.join(":"))).size, 3);
-  assert.ok(signatures.every(({ pixels }) => pixels >= 12),
-    "live ordnance should remain visible at strategic radar zoom");
+  assert.ok(
+    signatures.every(({ pixels }) => pixels >= 12),
+    "live ordnance should remain visible at strategic radar zoom",
+  );
   const scene = buildScene({
     observer: { id: "player-ship", x: 0, y: 0, z: 0 },
     entities: [
@@ -189,6 +326,183 @@ test("missiles, torpedoes, and rockets have distinct tactical signatures", () =>
   assert.equal(new Set(scene.points.slice(1).map(({ markerShape }) => markerShape)).size, 3);
 });
 
+test("enemy volleys animate from the firing ship to the hit ship", () => {
+  const points = [
+    { name: "Player Ship", kind: "observer", position3d: [0, 0, 0] },
+    { name: "ISD45", kind: "ship", position3d: [-200, 30, 40] },
+    { name: "TeeHee3", kind: "ship", position3d: [200, 30, 40] },
+  ];
+  const now = 10_000;
+  const ion = planCombatEvent(
+    {
+      id: 41,
+      type: "impact",
+      weapon: "ion",
+      sourceName: "ISD45",
+      targetName: "TeeHee3",
+      outcome: "hit",
+      count: 7,
+    },
+    points,
+    now,
+  );
+  const shots = ion.filter((effect) => effect.type === "projectile");
+  const hits = ion.filter((effect) => effect.type === "impact");
+
+  assert.equal(shots.length, 7);
+  assert.equal(hits.length, 7);
+  assert.ok(
+    shots.every(
+      (effect) =>
+        effect.weapon === "ion" && effect.outcome === "hit" && effect.targetName === "TeeHee3",
+    ),
+  );
+  assert.ok(
+    shots.every(
+      (effect) =>
+        JSON.stringify(effect.from) === JSON.stringify([-200, 30, 40]) &&
+        JSON.stringify(effect.to) === JSON.stringify([200, 30, 40]),
+    ),
+  );
+  assert.ok(hits.every((effect) => JSON.stringify(effect.to) === JSON.stringify([200, 30, 40])));
+  assert.equal(shots[0].start, now);
+  assert.equal(
+    hits[0].start,
+    now + 420,
+    "impact flashes should follow the incoming projectile travel",
+  );
+
+  const turbolasers = planCombatEvent(
+    {
+      id: 45,
+      type: "impact",
+      weapon: "turbolaser",
+      sourceName: "ISD45",
+      targetName: "TeeHee3",
+      outcome: "hit",
+      count: 7,
+    },
+    points,
+    now,
+  );
+  assert.equal(turbolasers.filter((effect) => effect.type === "projectile").length, 7);
+  assert.equal(turbolasers.filter((effect) => effect.type === "impact").length, 7);
+  assert.ok(
+    turbolasers.every(
+      (effect) => effect.weapon === "turbolaser" && effect.targetName === "TeeHee3",
+    ),
+  );
+});
+
+test("remote rockets and return fire preserve source, target, count, and outcome", () => {
+  const points = [
+    { name: "Player Ship", kind: "observer", position3d: [0, 0, 0] },
+    { name: "ISD45", kind: "ship", position3d: [-200, 30, 40] },
+    { name: "TeeHee3", kind: "ship", position3d: [200, 30, 40] },
+  ];
+  const rockets = planCombatEvent(
+    {
+      id: 42,
+      type: "launch",
+      weapon: "rocket",
+      sourceName: "ISD45",
+      targetName: "TeeHee3",
+      count: 2,
+    },
+    points,
+    20_000,
+  );
+  assert.equal(rockets.length, 2);
+  assert.ok(
+    rockets.every(
+      (effect) =>
+        effect.type === "launch" && effect.weapon === "rocket" && effect.targetName === "TeeHee3",
+    ),
+  );
+  assert.deepEqual(
+    rockets.map((effect) => effect.from),
+    [
+      [-200, 30, 40],
+      [-200, 30, 40],
+    ],
+  );
+  assert.deepEqual(
+    rockets.map((effect) => effect.to),
+    [
+      [200, 30, 40],
+      [200, 30, 40],
+    ],
+  );
+  assert.deepEqual(
+    rockets.map((effect) => effect.start),
+    [20_000, 20_085],
+  );
+
+  const returnFire = planCombatEvent(
+    {
+      id: 43,
+      type: "impact",
+      weapon: "ion",
+      sourceName: "TeeHee3",
+      targetName: "ISD45",
+      outcome: "hit",
+      count: 4,
+    },
+    points,
+    30_000,
+  );
+  assert.equal(returnFire.filter((effect) => effect.type === "projectile").length, 4);
+  assert.equal(returnFire.filter((effect) => effect.type === "impact").length, 4);
+  assert.deepEqual(returnFire[0].from, [200, 30, 40]);
+  assert.deepEqual(returnFire[0].to, [-200, 30, 40]);
+
+  const miss = planCombatEvent(
+    {
+      id: 44,
+      type: "impact",
+      weapon: "turbolaser",
+      sourceName: "ISD45",
+      targetName: "TeeHee3",
+      outcome: "miss",
+      count: 1,
+    },
+    points,
+    40_000,
+  );
+  assert.equal(miss.length, 2);
+  assert.ok(miss.every((effect) => effect.weapon === "turbolaser" && effect.outcome === "miss"));
+  const missImpact = miss.find((effect) => effect.type === "impact");
+  const hitStyle = combatVisualStyle(returnFire.find((effect) => effect.type === "impact"));
+  const missStyle = combatVisualStyle(missImpact);
+  assert.equal(missImpact.duration, 340);
+  assert.ok(missStyle.impactRadius < hitStyle.impactRadius / 4);
+  assert.ok(missStyle.pointSize < hitStyle.pointSize / 4);
+  assert.ok(missStyle.opacity < hitStyle.opacity / 2);
+  assert.ok(missStyle.trailFraction < hitStyle.trailFraction / 2);
+});
+
+test("destroyed ships explode at their last world position after map removal", () => {
+  const effect = planDestructionEvent(
+    {
+      id: 9,
+      phase: "destroyed",
+      shipName: "ISD45",
+      x: -200,
+      y: 30,
+      z: 40,
+    },
+    [{ name: "Player Ship", kind: "observer", position3d: [0, 0, 0] }],
+    [-20, -30, -40],
+    50_000,
+  );
+
+  assert.ok(effect, "event coordinates should survive removal of the scene contact");
+  assert.equal(effect.shipName, "ISD45");
+  assert.deepEqual(effect.origin, [-220, 0, 0]);
+  assert.equal(effect.start, 50_000);
+  assert.equal(effect.duration, 2_400);
+});
+
 test("orthographic tactical scale projects ten pixels per distance unit", () => {
   const height = 800;
   const halfHeight = height / (2 * 10);
@@ -197,9 +511,11 @@ test("orthographic tactical scale projects ten pixels per distance unit", () => 
   const oneUnit = project([1, 0, -1], matrix, height, height);
   assert.ok(origin && oneUnit);
   assert.ok(Math.abs(oneUnit.x - origin.x - 10) < 0.0001);
-  const gridPixelSpan = 6_000 * matrix[0] * height / 2;
-  assert.ok(Math.abs(gridPixelSpan - 60_000) < 0.01,
-    "the ±3,000-unit grid should span 60,000 pixels at the 10 px/unit reference scale");
+  const gridPixelSpan = (6_000 * matrix[0] * height) / 2;
+  assert.ok(
+    Math.abs(gridPixelSpan - 60_000) < 0.01,
+    "the ±3,000-unit grid should span 60,000 pixels at the 10 px/unit reference scale",
+  );
 });
 
 test("course plotting keeps the X/Z vector endpoint under the pointer", () => {
@@ -212,7 +528,7 @@ test("course plotting keeps the X/Z vector endpoint under the pointer", () => {
   const vector = pointerToXZVector(
     deltaX,
     deltaY,
-    camera.distance * 2 / height,
+    (camera.distance * 2) / height,
     camera.yaw,
     camera.pitch,
   );
@@ -249,10 +565,16 @@ test("course elevation starts at the dropped plot height and follows vertical mo
 });
 
 test("Shift-wheel course elevation follows scroll direction", () => {
-  assert.equal(elevationFromWheel(100, -30, 0.5), 115,
-    "scrolling upward should raise the plotted Y coordinate");
-  assert.equal(elevationFromWheel(100, 30, 0.5), 85,
-    "scrolling downward should lower the plotted Y coordinate");
+  assert.equal(
+    elevationFromWheel(100, -30, 0.5),
+    115,
+    "scrolling upward should raise the plotted Y coordinate",
+  );
+  assert.equal(
+    elevationFromWheel(100, 30, 0.5),
+    85,
+    "scrolling downward should lower the plotted Y coordinate",
+  );
 });
 
 test("renderer scene stays centered on the observer", () => {
@@ -277,8 +599,9 @@ test("renderer scene stays centered on the observer", () => {
 test("disabled ship condition survives scene construction", () => {
   const scene = buildScene({
     observer: { id: "player-ship", x: 0, y: 0, z: 0 },
-    entities: [{ id: "disabled", name: "TeeHee2", kind: "ship",
-      x: 10, y: 0, z: 0, condition: "Disabled" }],
+    entities: [
+      { id: "disabled", name: "TeeHee2", kind: "ship", x: 10, y: 0, z: 0, condition: "Disabled" },
+    ],
   });
   assert.equal(findScenePoint(scene, "disabled")?.condition, "Disabled");
 });
@@ -286,7 +609,10 @@ test("disabled ship condition survives scene construction", () => {
 test("orbit camera cannot detach from the player focus", () => {
   const camera = new OrbitCamera();
   camera.fit(500, true);
-  assert.ok(camera.minimumDistance <= 1.25, "close tactical zoom should be substantially deeper than fit view");
+  assert.ok(
+    camera.minimumDistance <= 1.25,
+    "close tactical zoom should be substantially deeper than fit view",
+  );
   camera.orbit(100, -10_000);
   camera.zoom(-1_000_000);
   camera.update(1);
@@ -295,10 +621,7 @@ test("orbit camera cannot detach from the player focus", () => {
   assert.equal(camera.targetDistance, camera.minimumDistance);
   assert.ok(Math.abs(Math.hypot(...camera.eye()) - camera.distance) < 0.0001);
 
-  const matrix = multiply(
-    perspective(Math.PI / 3, 16 / 9, 0.1, 10_000),
-    lookAt(camera.eye()),
-  );
+  const matrix = multiply(perspective(Math.PI / 3, 16 / 9, 0.1, 10_000), lookAt(camera.eye()));
   const center = project([0, 0, 0], matrix, 1600, 900);
   assert.ok(center);
   assert.ok(Math.abs(center.x - 800) < 0.001);
@@ -334,8 +657,7 @@ test("telemetry interpolation starts promptly and decelerates into its target", 
   assert.equal(easeOutCubic(0), 0);
   assert.equal(easeOutCubic(0.5), 0.875);
   assert.equal(easeOutCubic(1), 1);
-  assert.ok(easeOutCubic(0.25) - easeOutCubic(0)
-    > easeOutCubic(1) - easeOutCubic(0.75));
+  assert.ok(easeOutCubic(0.25) - easeOutCubic(0) > easeOutCubic(1) - easeOutCubic(0.75));
 });
 
 test("exactly colocated ships and celestial bodies share a stable selectable cluster", () => {
@@ -350,17 +672,30 @@ test("exactly colocated ships and celestial bodies share a stable selectable clu
   });
 
   assert.equal(scene.contactCount, 4);
-  assert.equal(scene.points.length, 3, "observer, nearby ship, and combined contact cluster should render");
+  assert.equal(
+    scene.points.length,
+    3,
+    "observer, nearby ship, and combined contact cluster should render",
+  );
   const cluster = scene.points.find((point) => point.kind === "cluster");
   assert.ok(cluster);
   assert.equal(cluster.memberCount, 3);
   assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
-  assert.deepEqual(cluster.members.map((member) => member.id), ["gore", "moon", "strega"]);
+  assert.deepEqual(
+    cluster.members.map((member) => member.id),
+    ["gore", "moon", "strega"],
+  );
   assert.equal(findScenePoint(scene, "strega").name, "Strega");
   assert.equal(findScenePoint(scene, "moon").kind, "celestial");
-  assert.equal(scene.points.some((point) => point.id === "nearby"), true);
-  assert.equal(scene.points.some((point) => point.id === "moon"), false,
-    "the celestial contact should remain selectable inside the cluster rather than overlap it");
+  assert.equal(
+    scene.points.some((point) => point.id === "nearby"),
+    true,
+  );
+  assert.equal(
+    scene.points.some((point) => point.id === "moon"),
+    false,
+    "the celestial contact should remain selectable inside the cluster rather than overlap it",
+  );
 });
 
 test("camera reports motion only while it is converging", () => {

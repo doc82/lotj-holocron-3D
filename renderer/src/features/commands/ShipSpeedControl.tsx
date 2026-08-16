@@ -7,12 +7,36 @@ type SpeedPreset = "stop" | "quarter" | "half" | "threeQuarter" | "maximum";
 function SpeedIcon({ type }: { type: SpeedPreset }) {
   const paths = {
     stop: <rect x="9" y="9" width="14" height="14" />,
-    quarter: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="M7 24h6" /></>,
-    half: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="M7 24 16 15" /></>,
-    threeQuarter: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="m7 24 14-14" /></>,
-    maximum: <><path d="M5 24A19 19 0 0 1 24 5" /><path d="M7 24 24 7M20 7h4v4" /></>,
+    quarter: (
+      <>
+        <path d="M5 24A19 19 0 0 1 24 5" />
+        <path d="M7 24h6" />
+      </>
+    ),
+    half: (
+      <>
+        <path d="M5 24A19 19 0 0 1 24 5" />
+        <path d="M7 24 16 15" />
+      </>
+    ),
+    threeQuarter: (
+      <>
+        <path d="M5 24A19 19 0 0 1 24 5" />
+        <path d="m7 24 14-14" />
+      </>
+    ),
+    maximum: (
+      <>
+        <path d="M5 24A19 19 0 0 1 24 5" />
+        <path d="M7 24 24 7M20 7h4v4" />
+      </>
+    ),
   } satisfies Record<SpeedPreset, ReactNode>;
-  return <svg viewBox="0 0 32 32" aria-hidden="true">{paths[type]}</svg>;
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      {paths[type]}
+    </svg>
+  );
 }
 
 interface ShipSpeedControlProps {
@@ -38,15 +62,20 @@ export function ShipSpeedControl({
 }: ShipSpeedControlProps) {
   const presets = [
     { ratio: 0, icon: "stop", label: "STOP" },
-    { ratio: .25, icon: "quarter", label: "25% SPEED" },
-    { ratio: .5, icon: "half", label: "50% SPEED" },
-    { ratio: .75, icon: "threeQuarter", label: "75% SPEED" },
+    { ratio: 0.25, icon: "quarter", label: "25% SPEED" },
+    { ratio: 0.5, icon: "half", label: "50% SPEED" },
+    { ratio: 0.75, icon: "threeQuarter", label: "75% SPEED" },
     { ratio: 1, icon: "maximum", label: "MAX SPEED" },
   ] as const;
 
   return (
     <div className={styles.speedControl}>
-      <label htmlFor={id}><span>{label}</span><strong>{Math.round(value)} / {Math.round(maximum)}</strong></label>
+      <label htmlFor={id}>
+        <span>{label}</span>
+        <strong>
+          {Math.round(value)} / {Math.round(maximum)}
+        </strong>
+      </label>
       <input
         id={id}
         type="range"
@@ -68,7 +97,9 @@ export function ShipSpeedControl({
             data-tooltip={presetLabel}
             disabled={disabled || maximum <= 0}
             onClick={() => onCommit(Math.round(maximum * ratio))}
-          ><SpeedIcon type={icon} /></button>
+          >
+            <SpeedIcon type={icon} />
+          </button>
         ))}
       </div>
       {maximum <= 0 && <small className={styles.speedUnavailable}>{unavailableLabel}</small>}

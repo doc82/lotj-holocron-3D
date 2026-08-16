@@ -8,10 +8,11 @@
   color: #f7d877;
   background:
     radial-gradient(at top, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-    radial-gradient(at bottom, rgba(168, 85, 247, 0.05) 0%, transparent 50%),
-    #0a0a0f;
+    radial-gradient(at bottom, rgba(168, 85, 247, 0.05) 0%, transparent 50%), #0a0a0f;
   opacity: 1;
-  transition: opacity 700ms ease, filter 700ms ease;
+  transition:
+    opacity 700ms ease,
+    filter 700ms ease;
 }
 
 .sequence::before {
@@ -47,7 +48,10 @@
   opacity: 0;
   transform: scale(0.985);
   animation: lotj-arrival 900ms ease 120ms forwards;
-  transition: opacity 550ms ease, transform 550ms ease, filter 550ms ease;
+  transition:
+    opacity 550ms ease,
+    transform 550ms ease,
+    filter 550ms ease;
 }
 
 .lotjDeparting .lotjStage {
@@ -59,7 +63,11 @@
 .lotjIntro {
   margin: 0 0 1rem;
   color: #3b82f6;
-  font: 400 clamp(16px, 2vw, 24px)/1.4 "Titillium Web", "Segoe UI", system-ui, sans-serif;
+  font:
+    400 clamp(16px, 2vw, 24px)/1.4 "Titillium Web",
+    "Segoe UI",
+    system-ui,
+    sans-serif;
   letter-spacing: 0.15em;
 }
 
@@ -69,7 +77,12 @@
   background: linear-gradient(to bottom, #fbbf24 0%, #fde047 50%, #fbbf24 100%);
   background-clip: text;
   filter: drop-shadow(0 0 20px rgba(251, 191, 36, 0.5));
-  font: 900 clamp(54px, 9vw, 126px)/0.9 "Orbitron", "Rajdhani", "Arial Black", system-ui, sans-serif;
+  font:
+    900 clamp(54px, 9vw, 126px)/0.9 "Orbitron",
+    "Rajdhani",
+    "Arial Black",
+    system-ui,
+    sans-serif;
   letter-spacing: 0.15em;
   text-transform: uppercase;
 }
@@ -77,7 +90,11 @@
 .lotjSubtitle {
   margin: 1rem 0 0;
   color: #939ba5;
-  font: 600 clamp(14px, 1.7vw, 19px)/1.4 "Orbitron", "Rajdhani", system-ui, sans-serif;
+  font:
+    600 clamp(14px, 1.7vw, 19px)/1.4 "Orbitron",
+    "Rajdhani",
+    system-ui,
+    sans-serif;
   letter-spacing: 0.3em;
   text-transform: uppercase;
 }
@@ -87,7 +104,11 @@
   margin: 1.25rem 0 0;
   color: #ef4444;
   filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.38));
-  font: 700 clamp(19px, 2.5vw, 31px)/1 "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  font:
+    700 clamp(19px, 2.5vw, 31px)/1 "Segoe Print",
+    "Bradley Hand",
+    "Comic Sans MS",
+    cursive;
   letter-spacing: 0.025em;
   opacity: 0;
   transform: rotate(-3deg);
@@ -116,7 +137,12 @@
 
 .vignette {
   background:
-    radial-gradient(circle at center, transparent 0 22%, rgba(1, 2, 7, 0.18) 55%, rgba(0, 0, 0, 0.88) 100%),
+    radial-gradient(
+      circle at center,
+      transparent 0 22%,
+      rgba(1, 2, 7, 0.18) 55%,
+      rgba(0, 0, 0, 0.88) 100%
+    ),
     linear-gradient(180deg, rgba(8, 17, 33, 0.2), transparent 35%, rgba(0, 0, 0, 0.35));
 }
 
@@ -126,13 +152,20 @@
   width: min(920px, 92vw);
   text-align: center;
   filter: drop-shadow(0 0 28px rgba(239, 185, 53, 0.14));
-  transition: opacity 480ms ease, transform 800ms cubic-bezier(0.7, 0, 1, 0.35), filter 500ms ease;
+  transition:
+    opacity 480ms ease,
+    transform 800ms cubic-bezier(0.7, 0, 1, 0.35),
+    filter 500ms ease;
 }
 
 .title {
   position: relative;
   margin: 0;
-  font: 900 clamp(52px, 10vw, 142px)/0.82 "Arial Black", Impact, "Segoe UI Black", sans-serif;
+  font:
+    900 clamp(52px, 10vw, 142px)/0.82 "Arial Black",
+    Impact,
+    "Segoe UI Black",
+    sans-serif;
   letter-spacing: -0.075em;
   text-transform: uppercase;
   transform: perspective(640px) rotateX(12deg) scale(0.64);
@@ -149,7 +182,9 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   -webkit-text-stroke: 0.5px rgba(255, 224, 126, 0.22);
-  transition: opacity 620ms ease, filter 620ms ease;
+  transition:
+    opacity 620ms ease,
+    filter 620ms ease;
 }
 
 .threeD {
@@ -179,28 +214,55 @@
 }
 
 @keyframes title-arrival {
-  0% { opacity: 0; transform: perspective(640px) rotateX(20deg) scale(0.45); filter: blur(12px); }
-  55% { opacity: 1; filter: blur(0); }
-  100% { opacity: 1; transform: perspective(640px) rotateX(8deg) scale(1); filter: blur(0); }
+  0% {
+    opacity: 0;
+    transform: perspective(640px) rotateX(20deg) scale(0.45);
+    filter: blur(12px);
+  }
+  55% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(640px) rotateX(8deg) scale(1);
+    filter: blur(0);
+  }
 }
 
 @keyframes lotj-arrival {
-  to { opacity: 1; transform: scale(1); }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes lotj-starfield {
-  to { transform: translateY(-200px); }
+  to {
+    transform: translateY(-200px);
+  }
 }
 
 @keyframes startup-copy {
-  to { opacity: 1; }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes three-d-bounce {
-  0%, 100% { transform: translateY(0) scale(1); }
-  28% { transform: translateY(-0.17em) scale(1.08, 0.94); }
-  52% { transform: translateY(0.035em) scale(0.97, 1.04); }
-  72% { transform: translateY(-0.045em) scale(1.015, 0.99); }
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  28% {
+    transform: translateY(-0.17em) scale(1.08, 0.94);
+  }
+  52% {
+    transform: translateY(0.035em) scale(0.97, 1.04);
+  }
+  72% {
+    transform: translateY(-0.045em) scale(1.015, 0.99);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

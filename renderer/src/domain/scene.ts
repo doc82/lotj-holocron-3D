@@ -37,14 +37,20 @@ function finite(value: unknown, fallback = 0): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
-export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">): { color: Color3; shape: number; pixels: number } {
+export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">): {
+  color: Color3;
+  shape: number;
+  pixels: number;
+} {
   const identity = `${entity.class || ""} ${entity.name || ""}`.toLowerCase();
   if (identity.includes("torpedo")) return { color: [0.72, 0.3, 1], shape: 11, pixels: 15 };
   if (identity.includes("rocket")) return { color: [1, 0.14, 0.06], shape: 2, pixels: 12 };
   return { color: [1, 0.52, 0.08], shape: 6, pixels: 14 };
 }
 
-export function colorFor(entity: Pick<TelemetryEntity, "id" | "kind" | "position" | "name" | "class">): Color3 {
+export function colorFor(
+  entity: Pick<TelemetryEntity, "id" | "kind" | "position" | "name" | "class">,
+): Color3 {
   const tacticalEntity = entity as TelemetryEntity;
   if (tacticalEntity.combatTarget === true) return [1, 0.13, 0.18];
   if (entity.id === "player-ship" || tacticalEntity.formationMember === true) return [0.68, 0.3, 1];
@@ -70,13 +76,16 @@ export function summarizeContacts(members: Array<Pick<ScenePoint, "kind">>): str
     else if (["planet", "celestial"].includes(member.kind)) counts.planets += 1;
     else counts.contacts += 1;
   }
-  const label = (count: number, singular: string): string => `${count} ${singular}${count === 1 ? "" : "S"}`;
+  const label = (count: number, singular: string): string =>
+    `${count} ${singular}${count === 1 ? "" : "S"}`;
   return [
     counts.ships ? label(counts.ships, "SHIP") : "",
     counts.planets ? label(counts.planets, "PLANET") : "",
     counts.stars ? label(counts.stars, "STAR") : "",
     counts.contacts ? label(counts.contacts, "CONTACT") : "",
-  ].filter(Boolean).join(", ");
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 const SHIP_CLASSES: Record<string, { hangarSize: number; markerPixels: number; shape: number }> = {
@@ -119,7 +128,8 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const contacts: ScenePoint[] = [];
   for (const entity of snapshot?.entities ?? []) {
-    if (![entity?.x, entity?.y, entity?.z].every((value) => Number.isFinite(Number(value)))) continue;
+    if (![entity?.x, entity?.y, entity?.z].every((value) => Number.isFinite(Number(value))))
+      continue;
     const position3d: Vector3 = [
       finite(entity.x) - origin[0],
       finite(entity.y) - origin[1],
@@ -136,8 +146,9 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       worldPosition: [finite(entity.x), finite(entity.y), finite(entity.z)],
       color: colorFor(entity),
       pointSize: ["celestial", "planet", "star"].includes(entity.kind || "")
-        ? 13 : projectile?.pixels ?? visual.pixels,
-      markerShape: entity.kind === "ship" ? visual.shape : projectile?.shape ?? 0,
+        ? 13
+        : (projectile?.pixels ?? visual.pixels),
+      markerShape: entity.kind === "ship" ? visual.shape : (projectile?.shape ?? 0),
       shipSize: visual.size,
     });
   }
@@ -153,12 +164,11 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const clusters = new Map<string, ScenePoint>();
   for (const [coordinateKey, unsortedMembers] of colocatedContacts) {
-    if (unsortedMembers.length === 1 || !unsortedMembers.some((member) => member.kind === "ship")) continue;
-    const members = [...unsortedMembers].sort((left, right) => left.name.localeCompare(
-      right.name,
-      undefined,
-      { numeric: true, sensitivity: "base" },
-    ));
+    if (unsortedMembers.length === 1 || !unsortedMembers.some((member) => member.kind === "ship"))
+      continue;
+    const members = [...unsortedMembers].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
+    );
     const representative = unsortedMembers[0];
     clusters.set(coordinateKey, {
       id: `cluster:${coordinateKey}`,
@@ -193,7 +203,10 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const points = [observerPoint, ...renderedContacts];
 
-  const radius = points.reduce((largest, point) => Math.max(largest, Math.hypot(...point.position3d)), 0);
+  const radius = points.reduce(
+    (largest, point) => Math.max(largest, Math.hypot(...point.position3d)),
+    0,
+  );
   return {
     points,
     radius: Math.max(radius, 10),
@@ -228,7 +241,10 @@ export function scenesHaveMotion(previous: TacticalScene | null, next: TacticalS
   const previousById = new Map(previous.points.map((point) => [point.id, point]));
   return next.points.some((point) => {
     const old = previousById.get(point.id);
-    return !old || point.position3d.some((value, index) => Math.abs(value - old.position3d[index]) > 0.0001);
+    return (
+      !old ||
+      point.position3d.some((value, index) => Math.abs(value - old.position3d[index]) > 0.0001)
+    );
   });
 }
 
@@ -262,11 +278,13 @@ export class SceneInterpolator {
       radius: this.startRadius + (this.target.radius - this.startRadius) * amount,
       points: this.target.points.map((point) => {
         const start = this.starts.get(point.id);
-        return start ? {
-          ...point,
-          position3d: lerpVector(start.position3d, point.position3d, amount),
-          worldPosition: lerpVector(start.worldPosition, point.worldPosition, amount),
-        } : point;
+        return start
+          ? {
+              ...point,
+              position3d: lerpVector(start.position3d, point.position3d, amount),
+              worldPosition: lerpVector(start.worldPosition, point.worldPosition, amount),
+            }
+          : point;
       }),
     };
   }
@@ -298,11 +316,10 @@ export function pointerToXZVector(
   const right: Vector3 = [Math.cos(yaw), 0, -Math.sin(yaw)];
   const screenDown: Vector3 = [Math.sin(yaw), 0, Math.cos(yaw)];
   const pitchProjection = Math.sin(pitch);
-  const safePitchProjection = Math.abs(pitchProjection) < 0.08
-    ? (pitchProjection < 0 ? -0.08 : 0.08)
-    : pitchProjection;
+  const safePitchProjection =
+    Math.abs(pitchProjection) < 0.08 ? (pitchProjection < 0 ? -0.08 : 0.08) : pitchProjection;
   const horizontalUnits = deltaX * unitsPerPixel;
-  const depthUnits = deltaY * unitsPerPixel / safePitchProjection;
+  const depthUnits = (deltaY * unitsPerPixel) / safePitchProjection;
   return [
     right[0] * horizontalUnits + screenDown[0] * depthUnits,
     0,
@@ -326,7 +343,11 @@ export class OrbitCamera {
   }
 
   zoom(delta: number): void {
-    this.targetDistance = clamp(this.targetDistance * Math.exp(delta * 0.0035), this.minimumDistance, this.maximumDistance);
+    this.targetDistance = clamp(
+      this.targetDistance * Math.exp(delta * 0.0035),
+      this.minimumDistance,
+      this.maximumDistance,
+    );
   }
 
   fit(radius: number, immediate = false): void {
@@ -361,21 +382,49 @@ export class OrbitCamera {
 
   isMoving(): boolean {
     const distanceTolerance = Math.max(0.001, this.distance * 0.0001);
-    return Math.abs(this.targetYaw - this.yaw) > 0.0001
-      || Math.abs(this.targetPitch - this.pitch) > 0.0001
-      || Math.abs(this.targetDistance - this.distance) > distanceTolerance;
+    return (
+      Math.abs(this.targetYaw - this.yaw) > 0.0001 ||
+      Math.abs(this.targetPitch - this.pitch) > 0.0001 ||
+      Math.abs(this.targetDistance - this.distance) > distanceTolerance
+    );
   }
 
   eye(distance = this.distance): Vector3 {
     const horizontal = Math.cos(this.pitch) * distance;
-    return [Math.sin(this.yaw) * horizontal, Math.sin(this.pitch) * distance, Math.cos(this.yaw) * horizontal];
+    return [
+      Math.sin(this.yaw) * horizontal,
+      Math.sin(this.pitch) * distance,
+      Math.cos(this.yaw) * horizontal,
+    ];
   }
 }
 
-export function perspective(fieldOfView: number, aspect: number, near: number, far: number): Float32Array<ArrayBuffer> {
+export function perspective(
+  fieldOfView: number,
+  aspect: number,
+  near: number,
+  far: number,
+): Float32Array<ArrayBuffer> {
   const f = 1 / Math.tan(fieldOfView / 2);
   const range = 1 / (near - far);
-  return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * range, -1, 0, 0, 2 * far * near * range, 0]);
+  return new Float32Array([
+    f / aspect,
+    0,
+    0,
+    0,
+    0,
+    f,
+    0,
+    0,
+    0,
+    0,
+    (far + near) * range,
+    -1,
+    0,
+    0,
+    2 * far * near * range,
+    0,
+  ]);
 }
 
 export function orthographic(
@@ -387,9 +436,18 @@ export function orthographic(
   far: number,
 ): Float32Array<ArrayBuffer> {
   return new Float32Array([
-    2 / (right - left), 0, 0, 0,
-    0, 2 / (top - bottom), 0, 0,
-    0, 0, -2 / (far - near), 0,
+    2 / (right - left),
+    0,
+    0,
+    0,
+    0,
+    2 / (top - bottom),
+    0,
+    0,
+    0,
+    0,
+    -2 / (far - near),
+    0,
     -(right + left) / (right - left),
     -(top + bottom) / (top - bottom),
     -(far + near) / (far - near),
@@ -403,19 +461,44 @@ function normalize(vector: Vector3): Vector3 {
 }
 
 function cross(left: Vector3, right: Vector3): Vector3 {
-  return [left[1] * right[2] - left[2] * right[1], left[2] * right[0] - left[0] * right[2], left[0] * right[1] - left[1] * right[0]];
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ];
 }
 
 function dot(left: Vector3, right: Vector3): number {
   return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
 }
 
-export function lookAt(eye: Vector3, target: Vector3 = [0, 0, 0], up: Vector3 = [0, 1, 0]): Float32Array<ArrayBuffer> {
+export function lookAt(
+  eye: Vector3,
+  target: Vector3 = [0, 0, 0],
+  up: Vector3 = [0, 1, 0],
+): Float32Array<ArrayBuffer> {
   const z = normalize([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
   let x = normalize(cross(up, z));
   if (Math.hypot(...x) < 0.001) x = [1, 0, 0];
   const y = cross(z, x);
-  return new Float32Array([x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1]);
+  return new Float32Array([
+    x[0],
+    y[0],
+    z[0],
+    0,
+    x[1],
+    y[1],
+    z[1],
+    0,
+    x[2],
+    y[2],
+    z[2],
+    0,
+    -dot(x, eye),
+    -dot(y, eye),
+    -dot(z, eye),
+    1,
+  ]);
 }
 
 export function multiply(
@@ -426,14 +509,19 @@ export function multiply(
   for (let column = 0; column < 4; column += 1) {
     for (let row = 0; row < 4; row += 1) {
       let value = 0;
-      for (let index = 0; index < 4; index += 1) value += left[index * 4 + row] * right[column * 4 + index];
+      for (let index = 0; index < 4; index += 1)
+        value += left[index * 4 + row] * right[column * 4 + index];
       output[column * 4 + row] = value;
     }
   }
   return output;
 }
 
-export interface ScreenPoint { x: number; y: number; depth: number }
+export interface ScreenPoint {
+  x: number;
+  y: number;
+  depth: number;
+}
 
 export function project(
   position: Vector3,
@@ -447,7 +535,11 @@ export function project(
   const clipZ = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
   const clipW = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
   if (clipW <= 0 || clipZ < -clipW || clipZ > clipW) return null;
-  return { x: (clipX / clipW * 0.5 + 0.5) * width, y: (1 - (clipY / clipW * 0.5 + 0.5)) * height, depth: clipZ / clipW };
+  return {
+    x: ((clipX / clipW) * 0.5 + 0.5) * width,
+    y: (1 - ((clipY / clipW) * 0.5 + 0.5)) * height,
+    depth: clipZ / clipW,
+  };
 }
 
 export function formatCoordinate(value: unknown): string {
