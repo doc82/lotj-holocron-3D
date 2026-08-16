@@ -15,7 +15,12 @@ import {
 } from "../../domain/scene";
 import type { Color3, CombatEvent, ShipJumpEvent, SystemSnapshot, Vector3, WeaponType } from "../../types/telemetry";
 import { shipModelFor } from "../../domain/shipModels";
-import { elevationFromPointer, elevationFromWheel } from "../../domain/coursePlot";
+import {
+  elevationFromPointer,
+  elevationFromWheel,
+  formationCenter,
+  formationDestination,
+} from "../../domain/coursePlot";
 
 const VERTEX_SOURCE = `
   attribute vec3 a_position;
@@ -191,6 +196,7 @@ export class TacticalEngine {
   private readonly originGridBuffer: WebGLBuffer;
   private readonly combatLineBuffer: WebGLBuffer;
   private readonly combatPointBuffer: WebGLBuffer;
+  private readonly selectionBuffer: WebGLBuffer;
   private readonly program: WebGLProgram;
   private readonly resizeObserver: ResizeObserver;
   private readonly locations: {
@@ -217,6 +223,7 @@ export class TacticalEngine {
   private originGridCount = 0;
   private combatLineCount = 0;
   private combatPointCount = 0;
+  private selectionCount = 0;
   private radarRange = 0;
   private radarBubbleEnabled = true;
   private originGridEnabled = false;
@@ -253,6 +260,8 @@ export class TacticalEngine {
   private lastCombatEventId = 0;
   private jumpEffects: JumpEffect[] = [];
   private lastJumpEventId = 0;
+  private disabledEffectsActive = false;
+  private selectedId: string | null = null;
 
   constructor(canvas: HTMLCanvasElement, callbacks: TacticalEngineCallbacks) {
     this.canvas = canvas;
@@ -283,6 +292,7 @@ export class TacticalEngine {
     this.originGridBuffer = requireBuffer(gl);
     this.combatLineBuffer = requireBuffer(gl);
     this.combatPointBuffer = requireBuffer(gl);
+    this.selectionBuffer = requireBuffer(gl);
     this.rebuildBuffers();
     this.bindEvents();
     this.resizeObserver = new ResizeObserver(() => this.requestRender());
@@ -365,6 +375,12 @@ export class TacticalEngine {
 
   setOriginGridEnabled(enabled: boolean): void {
     this.originGridEnabled = enabled;
+    this.requestRender();
+  }
+
+  setSelectedId(id: string | null): void {
+    this.selectedId = id;
+    this.rebuildSelectionBuffer(performance.now());
     this.requestRender();
   }
 
@@ -550,6 +566,7 @@ export class TacticalEngine {
     this.gl.deleteBuffer(this.originGridBuffer);
     this.gl.deleteBuffer(this.combatLineBuffer);
     this.gl.deleteBuffer(this.combatPointBuffer);
+    this.gl.deleteBuffer(this.selectionBuffer);
     this.gl.deleteProgram(this.program);
   }
 
@@ -681,30 +698,32 @@ export class TacticalEngine {
     const vertices: number[] = [];
     if (this.movementActive) {
       const color: Color3 = [0.2, 0.72, 1];
-      const length = Math.max(1, Math.hypot(...this.movementVector));
-      const direction = this.movementVector.map((value) => value / length) as Vector3;
-      const reference: Vector3 = Math.abs(direction[1]) > 0.85 ? [1, 0, 0] : [0, 1, 0];
-      const side: Vector3 = [
-        direction[1] * reference[2] - direction[2] * reference[1],
-        direction[2] * reference[0] - direction[0] * reference[2],
-        direction[0] * reference[1] - direction[1] * reference[0],
-      ];
-      const sideLength = Math.max(0.0001, Math.hypot(...side));
-      side.forEach((value, index) => { side[index] = value / sideLength; });
-      const headLength = Math.min(length * 0.24, Math.max(12, this.camera.distance * 0.055));
-      const headWidth = headLength * 0.5;
       const pushLine = (from: Vector3, to: Vector3, lineColor: Color3 = color): void => {
         vertices.push(...this.interleavedVertex(from, lineColor), ...this.interleavedVertex(to, lineColor));
       };
-      for (const [originIndex, origin] of this.movementOrigins.entries()) {
-        const end = origin.map((value, index) => value + this.movementVector[index]) as Vector3;
-        const base = end.map((value, index) => value - direction[index] * headLength) as Vector3;
+      const destination = formationDestination(this.movementOrigins, this.movementVector);
+      for (const origin of this.movementOrigins) {
+        const offset = destination.map((value, index) => value - origin[index]) as Vector3;
+        const exactLength = Math.hypot(...offset);
+        if (exactLength < 0.0001) continue;
+        const length = Math.max(1, exactLength);
+        const direction = offset.map((value) => value / exactLength) as Vector3;
+        const reference: Vector3 = Math.abs(direction[1]) > 0.85 ? [1, 0, 0] : [0, 1, 0];
+        const side: Vector3 = [
+          direction[1] * reference[2] - direction[2] * reference[1],
+          direction[2] * reference[0] - direction[0] * reference[2],
+          direction[0] * reference[1] - direction[1] * reference[0],
+        ];
+        const sideLength = Math.max(0.0001, Math.hypot(...side));
+        side.forEach((value, index) => { side[index] = value / sideLength; });
+        const headLength = Math.min(length * 0.24, Math.max(12, this.camera.distance * 0.055));
+        const headWidth = headLength * 0.5;
+        const base = destination.map((value, index) => value - direction[index] * headLength) as Vector3;
         const left = base.map((value, index) => value + side[index] * headWidth) as Vector3;
         const right = base.map((value, index) => value - side[index] * headWidth) as Vector3;
-        pushLine(origin, end);
-        pushLine(end, left);
-        pushLine(end, right);
-        void originIndex;
+        pushLine(origin, destination);
+        pushLine(destination, left);
+        pushLine(destination, right);
       }
     }
     this.courseCount = vertices.length / 11;
@@ -928,16 +947,7 @@ export class TacticalEngine {
   }
 
   private movementCenter(): Vector3 {
-    const origins = this.movementOrigins.length > 0 ? this.movementOrigins : [[0, 0, 0] as Vector3];
-    const minimum: Vector3 = [...origins[0]];
-    const maximum: Vector3 = [...origins[0]];
-    for (const origin of origins.slice(1)) {
-      origin.forEach((value, index) => {
-        minimum[index] = Math.min(minimum[index], value);
-        maximum[index] = Math.max(maximum[index], value);
-      });
-    }
-    return minimum.map((value, index) => (value + maximum[index]) / 2) as Vector3;
+    return formationCenter(this.movementOrigins);
   }
 
   private cameraTarget(): Vector3 {
@@ -970,6 +980,163 @@ export class TacticalEngine {
     if (identity.includes("rocket")) return "rocket";
     if (identity.includes("pulse") || identity.includes("burst")) return "burst";
     return "missile";
+  }
+
+  private disabledShips(): ScenePoint[] {
+    const points = this.scene.points.flatMap((point) => point.members ?? [point]);
+    return points.filter((point) => ["ship", "observer"].includes(point.kind)
+      && String(point.condition || "").trim().toLowerCase() === "disabled");
+  }
+
+  private appendDisabledShipEffects(now: number, lines: number[], points: number[]): void {
+    const disabledShips = this.disabledShips();
+    this.disabledEffectsActive = disabledShips.length > 0;
+    const hash = (value: string): number => {
+      let result = 2166136261;
+      for (let index = 0; index < value.length; index += 1) {
+        result ^= value.charCodeAt(index);
+        result = Math.imul(result, 16777619);
+      }
+      return (result >>> 0) / 4294967295;
+    };
+
+    for (const ship of disabledShips) {
+      const modelScale = shipModelFor(ship.shipCategory).scale;
+      const shipSeed = hash(ship.id || ship.name);
+      const fireSites = modelScale >= 3 ? 3 : modelScale >= 1.5 ? 2 : 1;
+      for (let site = 0; site < fireSites; site += 1) {
+        const siteSeed = hash(`${ship.id}:${site}`);
+        const siteAngle = siteSeed * Math.PI * 2;
+        const siteRadius = modelScale * (0.18 + (site % 2) * 0.16);
+        const origin: Vector3 = [
+          ship.position3d[0] + Math.cos(siteAngle) * siteRadius,
+          ship.position3d[1] + modelScale * (0.08 + siteSeed * 0.12),
+          ship.position3d[2] + Math.sin(siteAngle) * siteRadius,
+        ];
+        const pulse = 0.72 + Math.sin(now * 0.014 + siteSeed * 19) * 0.28;
+        points.push(...this.interleavedVertex(origin, [0.28, 0.035, 0.005], 30 * pulse));
+        points.push(...this.interleavedVertex(origin, [1, 0.2, 0.015], 13 * pulse));
+        points.push(...this.interleavedVertex(
+          [origin[0], origin[1] + modelScale * 0.14, origin[2]],
+          [1, 0.72, 0.08], 7 * pulse,
+        ));
+
+        for (let ember = 0; ember < 7; ember += 1) {
+          const emberSeed = hash(`${ship.id}:${site}:${ember}`);
+          const speed = 0.42 + emberSeed * 0.55;
+          const progress = (now / 1000 * speed + emberSeed * 7.31 + shipSeed) % 1;
+          const angle = emberSeed * Math.PI * 8 + progress * 1.4;
+          const spread = modelScale * (0.08 + progress * 0.42);
+          const rise = modelScale * (0.18 + progress * 1.35);
+          const emberPoint: Vector3 = [
+            origin[0] + Math.cos(angle) * spread,
+            origin[1] + rise,
+            origin[2] + Math.sin(angle) * spread,
+          ];
+          const tail: Vector3 = [
+            emberPoint[0] - Math.cos(angle) * modelScale * 0.05,
+            emberPoint[1] - modelScale * (0.12 + progress * 0.12),
+            emberPoint[2] - Math.sin(angle) * modelScale * 0.05,
+          ];
+          const emberColor: Color3 = progress < 0.32
+            ? [1, 0.86, 0.2]
+            : progress < 0.72 ? [1, 0.28, 0.025] : [0.72, 0.055, 0.008];
+          lines.push(...this.interleavedVertex(tail, emberColor),
+            ...this.interleavedVertex(emberPoint, emberColor));
+          points.push(...this.interleavedVertex(emberPoint, emberColor,
+            Math.max(2, 8 * (1 - progress))));
+        }
+      }
+
+      // Intermittent white-blue arcs make the effect read as a systems failure,
+      // rather than an ordinary weapon impact that happens to linger.
+      const arcPhase = (now / 520 + shipSeed * 13) % 1;
+      if (arcPhase < 0.32) {
+        const arcColor: Color3 = [0.55, 0.86, 1];
+        const arcRadius = modelScale * 0.62;
+        const start: Vector3 = [
+          ship.position3d[0] - arcRadius,
+          ship.position3d[1] + modelScale * 0.2,
+          ship.position3d[2],
+        ];
+        const middle: Vector3 = [
+          ship.position3d[0] + modelScale * (arcPhase - 0.16),
+          ship.position3d[1] + modelScale * (0.42 + arcPhase),
+          ship.position3d[2] + modelScale * 0.22,
+        ];
+        const end: Vector3 = [
+          ship.position3d[0] + arcRadius,
+          ship.position3d[1] + modelScale * 0.12,
+          ship.position3d[2] - modelScale * 0.08,
+        ];
+        lines.push(
+          ...this.interleavedVertex(start, arcColor), ...this.interleavedVertex(middle, arcColor),
+          ...this.interleavedVertex(middle, arcColor), ...this.interleavedVertex(end, arcColor),
+        );
+      }
+    }
+  }
+
+  private rebuildSelectionBuffer(now: number): void {
+    const vertices: number[] = [];
+    const selected = this.findPointById(this.selectedId || undefined);
+    if (selected && ["ship", "observer"].includes(selected.kind)) {
+      const center = selected.position3d;
+      const modelScale = shipModelFor(selected.shipCategory).scale;
+      const radius = Math.max(modelScale * 1.85, this.camera.distance * 0.018);
+      const segments = 72;
+      const appendRing = (ringRadius: number, color: Color3, rotation = 0,
+          fromSegment = 0, toSegment = segments): void => {
+        for (let segment = fromSegment; segment < toSegment; segment += 1) {
+          const start = rotation + segment / segments * Math.PI * 2;
+          const end = rotation + (segment + 1) / segments * Math.PI * 2;
+          vertices.push(
+            ...this.interleavedVertex([
+              center[0] + Math.cos(start) * ringRadius,
+              center[1],
+              center[2] + Math.sin(start) * ringRadius,
+            ], color),
+            ...this.interleavedVertex([
+              center[0] + Math.cos(end) * ringRadius,
+              center[1],
+              center[2] + Math.sin(end) * ringRadius,
+            ], color),
+          );
+        }
+      };
+
+      // A doubled outer border stays crisp at strategic zoom. Successively
+      // dimmer inner rings create an additive glow that falls toward the hull.
+      appendRing(radius, [1, 0.67, 0.13]);
+      appendRing(radius * 0.975, [0.82, 0.39, 0.045]);
+      appendRing(radius * 0.86, [0.42, 0.17, 0.018]);
+      appendRing(radius * 0.72, [0.23, 0.075, 0.008]);
+
+      // Two opposed bright sweeps orbit the otherwise solid selection border.
+      const rotation = now / 1150 * Math.PI * 2;
+      const sweepLength = 10;
+      appendRing(radius * 1.035, [1, 0.9, 0.42], rotation, 0, sweepLength);
+      appendRing(radius * 1.035, [1, 0.9, 0.42], rotation + Math.PI, 0, sweepLength);
+
+      const bracketColor: Color3 = [1, 0.62, 0.1];
+      const bracketInner = radius * 1.08;
+      const bracketOuter = radius * 1.24;
+      for (let quarter = 0; quarter < 4; quarter += 1) {
+        const angle = rotation * 0.18 + quarter * Math.PI / 2;
+        vertices.push(
+          ...this.interleavedVertex([
+            center[0] + Math.cos(angle) * bracketInner, center[1],
+            center[2] + Math.sin(angle) * bracketInner,
+          ], bracketColor),
+          ...this.interleavedVertex([
+            center[0] + Math.cos(angle) * bracketOuter, center[1],
+            center[2] + Math.sin(angle) * bracketOuter,
+          ], bracketColor),
+        );
+      }
+    }
+    this.selectionCount = vertices.length / 11;
+    this.upload(this.selectionBuffer, vertices, this.gl.DYNAMIC_DRAW);
   }
 
   private rebuildCombatBuffers(now: number): void {
@@ -1106,6 +1273,7 @@ export class TacticalEngine {
       points.push(...this.interleavedVertex(point.position3d, glow, 30));
       points.push(...this.interleavedVertex(point.position3d, color, 13));
     }
+    this.appendDisabledShipEffects(now, lines, points);
     this.combatLineCount = lines.length / 11;
     this.combatPointCount = points.length / 11;
     this.upload(this.combatLineBuffer, lines, this.gl.DYNAMIC_DRAW);
@@ -1213,6 +1381,7 @@ export class TacticalEngine {
     this.rebuildPointBuffers();
     this.rebuildShipMeshBuffer();
     this.rebuildCombatBuffers(now);
+    this.rebuildSelectionBuffer(now);
     let heightGuideAlpha = 0;
     if (this.heightGuideShown) {
       const fadeProgress = this.heightGuideFadeStartedAt === null
@@ -1234,10 +1403,10 @@ export class TacticalEngine {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     const aspect = this.canvas.width / this.canvas.height;
     const movementReach = this.movementActive
-      ? Math.max(...this.movementOrigins.flatMap((origin) => [
-        Math.hypot(...origin),
-        Math.hypot(...origin.map((value, index) => value + this.movementVector[index]) as Vector3),
-      ]))
+      ? Math.max(
+        ...this.movementOrigins.map((origin) => Math.hypot(...origin)),
+        Math.hypot(...formationDestination(this.movementOrigins, this.movementVector)),
+      )
       : 0;
     const contentRadius = Math.max(
       this.scene.radius + Math.hypot(...this.cameraFocus),
@@ -1314,12 +1483,22 @@ export class TacticalEngine {
       gl.depthMask(true);
       gl.enable(gl.DEPTH_TEST);
     }
+    if (this.selectionCount > 0) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      gl.uniform1f(this.locations.markerScale, 1);
+      this.drawBuffer(this.selectionBuffer, this.selectionCount, gl.LINES, false, 0.96);
+      gl.depthMask(true);
+      gl.enable(gl.DEPTH_TEST);
+    }
     this.publishClusterLabels();
     this.publishCourseLabel();
     this.publishPlayerShipLabel();
     const focusMoving = this.cameraFocus.some((value, index) => Math.abs(cameraTarget[index] - value) > 0.05);
     if (this.interpolator.isAnimating(now) || this.camera.isMoving() || focusMoving
         || this.combatEffects.length > 0 || this.jumpEffects.length > 0
+        || this.disabledEffectsActive
+        || this.selectionCount > 0
         || this.heightGuideFadeStartedAt !== null) {
       this.scheduleActiveFrame();
     }

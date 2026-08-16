@@ -14,8 +14,20 @@ test("automatic polling derives proximity instead of issuing prox commands", asy
   assert.match(scraper, /entity\.distance = math\.floor\(math\.sqrt/);
   assert.match(scene, /distance: Math\.round\(Math\.hypot\(\.\.\.position3d\)\)/);
   assert.match(scraper, /proximity is derived from coordinates/);
-  assert.match(scraper, /COMBAT_RADAR_INTERVAL_SECONDS = 2/);
+  assert.match(scraper, /AUTOMATIC_COMMAND_DEDUP_SECONDS = 3/);
+  assert.match(scraper, /automaticCommandRepeatDelay\("radar projectiles"\)/);
+  assert.match(scraper, /COMBAT_RADAR_INTERVAL_SECONDS = 3/);
   assert.match(scraper, /FLEETRADAR_INTERVAL_SECONDS = 6/);
   assert.match(scraper, /COMBAT_FLEETRADAR_INTERVAL_SECONDS = 12/);
   assert.match(scraper, /RADAR_RECONCILE_INTERVAL_SECONDS = 60/);
+});
+
+test("sector arrivals queue a deduplicated full radar refresh", async () => {
+  const scraper = await readFile("mudlet/lotj_holocron_scraper.lua", "utf8");
+  assert.match(scraper, /function Scraper\.handleSectorArrival\(text\)/);
+  assert.match(scraper, /enters the starsystem, coming out of its hyperjump at/);
+  assert.match(scraper, /Scraper\.handleSectorArrival\(line or ""\)/);
+  assert.match(scraper, /if Scraper\.polling\.radarRefreshPending then\s+command = "radar"/);
+  assert.match(scraper, /radarRefreshIssuedGeneration/);
+  assert.match(scraper, /automaticCommandRepeatDelay\(command, now\)/);
 });

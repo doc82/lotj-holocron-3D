@@ -23,6 +23,7 @@ interface TacticalCanvasProps {
   originGridEnabled: boolean;
   combatEvents?: CombatEvent[];
   jumpEvents?: ShipJumpEvent[];
+  selectedId: string | null;
   onSelect(id: string | null): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
@@ -31,7 +32,7 @@ interface TacticalCanvasProps {
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
-  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, jumpEvents, onSelect, onMovementVector, onMovementCommit, onMovementCancel, onCameraModeChange }, ref) {
+  function TacticalCanvas({ snapshot, radarBubbleEnabled, originGridEnabled, combatEvents, jumpEvents, selectedId, onSelect, onMovementVector, onMovementCommit, onMovementCancel, onCameraModeChange }, ref) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const engineRef = useRef<TacticalEngine | null>(null);
     const [tooltip, setTooltip] = useState<TacticalTooltip | null>(null);
@@ -72,6 +73,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     useEffect(() => {
       engineRef.current?.setOriginGridEnabled(originGridEnabled);
     }, [originGridEnabled]);
+
+    useEffect(() => {
+      engineRef.current?.setSelectedId(selectedId);
+    }, [selectedId]);
 
     useEffect(() => {
       for (const event of combatEvents ?? []) engineRef.current?.pushCombatEvent(event);

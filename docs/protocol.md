@@ -60,16 +60,17 @@ remain in game/world units; projection belongs to the renderer.
 `radarRange` represents the maximum range at which the observer can issue
 remote `status` and `info` scans. It is always at least 500 units and grows as
 `500 + (10 × sensorArray)`. Sensor strength may also unlock details such as
-onboard lifeform counts. The `info` parser allow-lists safe capability fields,
-including sensors, maximum speed, and weapon counts; ship access codes and all
-raw `info` output are excluded from the protocol. An observer whose parsed
+onboard lifeform counts. The parser publishes structured `statusCard` and
+`infoCard` sections for the renderer's local ship dossier, including the access
+codes returned by LotJ. Raw `info` output is still excluded from capture
+diagnostics. An observer whose parsed
 offensive weapon and armed-launcher counts are all zero publishes
 `hasWeapons: false`, allowing both Mudlet and the renderer to block target orders.
 
 Ship entities may also contain `shipCategory` (`Starfighter`, `Transport`,
 `Frigate`, and so on), `disposition` (`neutral`, `ally`, or `enemy`), and safe
 fields obtained from targeted status scans such as `hull`, `shields`, `speed`,
-`target`, and `lifeformScan`. A lifeform scan that lacks sufficient sensors is
+`target`, `lifeformScan`, `statusCard`, and `infoCard`. A lifeform scan that lacks sufficient sensors is
 represented as unavailable with its required sensor count rather than as an
 empty ship.
 
@@ -202,6 +203,17 @@ name locally, interrupts only a hidden background capture, and issues LotJ's
 enemy in both the authoritative snapshot and the renderer's persistent local
 disposition store. Supplying a literal command or arbitrary target name is not
 supported.
+
+`scan_ship` info responses are identity-checked against the requested ship.
+Only canonical overview, weapons, access-code, and systems fields with valid
+value shapes are published. Unknown labels and Mudlet prompt fields are
+discarded, and wrapped descriptive prose is normalized into one paragraph.
+
+Target ownership is published in `system_snapshot.metadata.combatTargets`.
+Entries are keyed by command scope (`local`, `fleet`, `wings`, `squadron`, or
+`selected:<member id>`) and include the target name plus an owner label. The
+legacy `metadata.combatTarget` remains the local cockpit's weapon target, so a
+battlegroup target order cannot overwrite the player ship's independent lock.
 
 `set_autotrack` accepts a boolean `enabled`. Because LotJ's `autotrack` command
 is itself a toggle, Mudlet does not infer success from dispatch. It captures the

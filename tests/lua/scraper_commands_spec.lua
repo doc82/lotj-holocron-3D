@@ -66,6 +66,18 @@ describe("scraper renderer commands", function()
     equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
   end)
 
+  it("keeps Mudlet commands available while Holocron awaits a target lock", function()
+    local ok, failure = fixture.intentHandlers.target_ship({targetId = "wayfarer"}, {id = "target"})
+    assert(ok, failure)
+    equal(fixture.scraper.pendingCommandKind, "target")
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "clan Targeting now")
+    equal(fixture.deniedSends, 0)
+    equal(fixture.scraper.pendingCommandKind, "target")
+    assert(fixture:trigger("You must be in the gunners seat or turret of a ship to do that!"))
+    equal(fixture.scraper.pendingCommandKind, nil)
+    equal(fixture.intentAcks[#fixture.intentAcks].status, "rejected")
+  end)
+
   it("blocks hyperdrive when contacts are within 500 units", function()
     fixture.scraper.hyperspace.phase = "ready"
     fixture.scraper.state.metadata.lastSpatialFixAt = os.time()

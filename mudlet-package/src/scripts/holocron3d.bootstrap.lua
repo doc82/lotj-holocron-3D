@@ -1,7 +1,7 @@
 lotjHolocron3DPackage = lotjHolocron3DPackage or {}
 
 local Package = lotjHolocron3DPackage
-Package.VERSION = "0.1.5"
+Package.VERSION = "0.1.6"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
 Package.settingsPath = getMudletHomeDir() .. "/holocron3d-settings.txt"
@@ -301,6 +301,8 @@ local function showProfileReport(report)
   say("cyan", string.format("capture traffic: %d line checks, %d owned, %d deleted, %.1f KiB retained",
     counts.lineChecks or 0, counts.capturedLines or 0, counts.deletedLines or 0,
     (counts.capturedBytes or 0) / 1024))
+  say("cyan", string.format("automatic command duplicates suppressed: %d",
+    counts.automaticCommandsThrottled or 0))
 
   for _, name in ipairs({"line", "parse", "apply", "publish", "ship_gmcp"}) do
     local timingLine = profileTimingLine(name, report.timings and report.timings[name])

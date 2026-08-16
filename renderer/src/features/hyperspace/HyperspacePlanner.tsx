@@ -11,6 +11,8 @@ export interface EscapePlanDraft {
 
 interface Props {
   mode: "local" | "galactic";
+  recipientLabel: string;
+  escapeAllowed?: boolean;
   catalog: GalaxyCatalog | null;
   currentSystem?: string;
   currentGalaxy?: { x: number; y: number };
@@ -86,7 +88,7 @@ function Planet({ planet, selected, onClick }: { planet: GalaxyPlanet; selected?
     onClick={(event) => { event.stopPropagation(); onClick?.(); }} aria-label={`Select ${planet.name}`}><span /><em>{planet.name}</em></button>;
 }
 
-export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy, observer, destinations = [], onCancel, onPlot }: Props) {
+export function HyperspacePlanner({ mode, recipientLabel, escapeAllowed = true, catalog, currentSystem, currentGalaxy, observer, destinations = [], onCancel, onPlot }: Props) {
   const rangeDataPending = destinations.length === 0;
   const systems = useMemo(() => normalizeCatalog(catalog), [catalog]);
   const catalogPending = mode === "galactic" && systems.length === 0;
@@ -172,7 +174,7 @@ export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy,
     : { allowed: false, distance: 0, reason: "No reachable escape systems are available" };
 
   const buildEscape = (): EscapePlanDraft | undefined => {
-    if (!escapeEnabled) return undefined;
+    if (!escapeAllowed || !escapeEnabled) return undefined;
     if (!escapeSelection || !escapeReachability.allowed) return undefined;
     return {
       triggerGalaxy: primaryGalaxy,
@@ -198,7 +200,7 @@ export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy,
     : undefined;
 
   return <section className={styles.planner} aria-label={mode === "local" ? "Local hyperspace planner" : "Galactic route planner"}>
-    <header><div><p>NAV COMPUTER // {mode === "local" ? "LOCAL JUMP" : "GALACTIC ROUTE"}</p>
+    <header><div><p>NAV COMPUTER // {mode === "local" ? "LOCAL JUMP" : "GALACTIC ROUTE"} // FOR {recipientLabel.toUpperCase()}</p>
       <h2>{mode === "local" ? currentSystem || "CURRENT SYSTEM" : selectedSystem?.name || "GALAXY CATALOG"}</h2></div>
       <div className={styles.coordinates}>
         {[["X", x, setX], ["Y", y, setY], ["Z", z, setZ]].map(([label, value, setter]) =>
@@ -281,7 +283,7 @@ export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy,
           <div>{[500, 1000, 2500].map((distance) => <button key={distance} type="button" aria-pressed={arrivalDistance === distance}
             onClick={() => setArrivalDistance(distance)}>{distance.toLocaleString()} u</button>)}</div></div>}
 
-        <div className={styles.escape}>
+        {escapeAllowed && <div className={styles.escape}>
           <label className={styles.escapeToggle}><input type="checkbox" checked={escapeEnabled} onChange={(event) => setEscapeEnabled(event.target.checked)} />
             <span>ARM ESCAPE PLAN</span></label>
           {escapeEnabled && <><div className={styles.modeTabs}>{(["known", "exact", "random"] as const).map((value) =>
@@ -302,7 +304,7 @@ export function HyperspacePlanner({ mode, catalog, currentSystem, currentGalaxy,
                 : `ROUTE BLOCKED // ${escapeReachability.reason}`}
             </div>
             <small>CALCULATES ON CONFIRMED ARRIVAL. ENGAGEMENT IS ALWAYS MANUAL.</small></>}
-        </div>
+        </div>}
       </aside>
     </div>
     <footer><button type="button" className={styles.cancel} onClick={onCancel}>CANCEL</button>

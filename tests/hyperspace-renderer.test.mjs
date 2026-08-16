@@ -12,6 +12,12 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
 
   assert.match(app, /plot_hyperspace/);
   assert.match(app, /engage_hyperdrive/);
+  assert.match(app, /openHyperspacePlanner/);
+  assert.match(app, /routeScope/);
+  assert.match(app, /ROUTE APPLIES TO/);
+  assert.match(app, /activeRoute as unknown as Record<string, unknown>/);
+  assert.match(app, /recipientLabel=\{hyperspacePlanner\.routeScope\.recipientLabel/);
+  assert.match(planner, /FOR \{recipientLabel\.toUpperCase\(\)\}/);
   assert.match(app, /escape_hyperspace/);
   assert.match(app, /HyperspaceTransit/);
   assert.match(app, /escapePlan\.triggerGalaxy/);
@@ -63,6 +69,9 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);
   assert.match(scraper, /checkHyperspaceClearance/);
+  assert.match(scraper, /scopedHyperspaceCommands/);
+  assert.match(scraper, /battlegroup nav " \.\. selector \.\. " " \.\. localCommand/);
+  assert.match(scraper, /routeIncludesLocalShip/);
   assert.match(scraper, /MIN_HYPERSPACE_CLEARANCE = 500/);
   assert.match(await readFile("mudlet/lotj_holocron_parsers.lua", "utf8"), /\[%dsmh%s\]\+/);
 });

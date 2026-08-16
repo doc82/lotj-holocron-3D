@@ -78,6 +78,23 @@ describe("scraper combat telemetry", function()
     assert(fixture.scraper.active and fixture.scraper.active.sentCommand == "radar projectiles")
   end)
 
+  it("deduplicates forced projectile reconciliation during impact bursts", function()
+    fixture.scraper.combat.projectileRadarRequestedAt = 0
+    assert(fixture.scraper.handleProjectileSummary(
+      "50 projectiles, 0 incoming (See radar projectiles)"))
+    local commandCount = #fixture.commands
+    fixture.scraper.finishCapture("fixture")
+    assert(fixture.scraper.handleCombatLine(
+      "Your ship's rocket hits Mark-I Assault Frigate 'Wayfarer' dead on!"))
+    local reconcileTimer = fixture.scraper.combat.projectileReconcileTimerId
+    assert(reconcileTimer and fixture.timers[reconcileTimer])
+    assert(fixture.scraper.handleCombatLine(
+      "Your ship's rocket hits Mark-I Assault Frigate 'Wayfarer' dead on!"))
+    equal(fixture.scraper.combat.projectileReconcileTimerId, reconcileTimer)
+    fixture:tick(reconcileTimer)
+    equal(#fixture.commands, commandCount)
+  end)
+
   it("tracks identical projectiles with stable distinct identities", function()
     assert(fixture.scraper.applyResult(assert(fixture.parsers.parse("radar projectiles", [[
 Corellian System

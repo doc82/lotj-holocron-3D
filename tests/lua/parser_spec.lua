@@ -85,9 +85,17 @@ Autopilot Status: Offline
     equal(remote.lifeformScan.available, false)
     equal(remote.lifeformScan.requiredSensors, 50)
     equal(remote.autopilot, false)
+    equal(remote.statusCard.sections[1].title, "FLIGHT")
+    equal(remote.statusCard.sections[1].rows[1].label, "Lifeforms detected")
+    local disabled = assert(parsers.parseStatus([[
+Readout for Victory-II Class Star Destroyer 'TeeHee2':
+Hull: 1286/4200 [30%]        Ship Condition: Disabled
+Shields: 1400/4200 [33%]     Energy(fuel): 35926/37500 [95%]
+]]))
+    equal(disabled.condition, "Disabled")
   end)
 
-  it("parses safe info telemetry without access codes", function()
+  it("parses complete info cards including access codes", function()
     local result = assert(parsers.parseInfo([[
 [Class: Transport] : Rojan-class Patrol Craft 'Forrestal'
 Autoblasters: 0  Laser cannons: 0  Turbolasers: 0
@@ -101,6 +109,79 @@ Maximum Speed: 200  Sensor Array: 7
     equal(result.hasWeapons, false)
     equal(result.hatchway, nil)
     equal(result.name, "Forrestal")
+    local hatchway
+    for _, section in ipairs(result.infoCard.sections) do
+      for _, row in ipairs(section.rows) do
+        if row.label == "Hatchway" then hatchway = row.value end
+      end
+    end
+    equal(hatchway, "94599")
+  end)
+
+  it("builds info cards only from validated static fields and one prose paragraph", function()
+    local result = assert(parsers.parseInfo([[
+[Class: Battleship] : Victory-II Class Star Destroyer 'TeeHee2'
+The Victory-class Star Destroyer, also known simply as the
+Victory-class Destroyer, is a direct predecessor to the feared Imperial-class
+Star Destroyers of the Galactic Empire. At just under a
+1 kilometre in length,
+the ship is ideal for deep space combat.
+Kill Markers:
+Quota: 0.00/2770.00    Value: 4109300 credit(s)
+Owner: [Blipee       ] Pilot: [              ]  Copilot: [              ]
+Crew:  [ ]
+--Weapons----------------------------------------------------------------
+Autoblasters:    0     Laser cannons:    0      Turbolasers:       27
+Ion cannons:     35    Maximum Missiles: 0      Maximum Torpedoes: 80
+Maximum Rockets: 40    Maximum Pulses:   0      Maximum Chaff:     0
+Missile Tubes:   15    Tractorbeams:     1      Escape Pods:       30
+--Access Codes-----------------------------------------------------------
+Hatchway: 42156        Hangar Bays:  56748      Docking: 30950
+--------: 31223        Selfdestruct: 44883      -------: 65555
+--Systems----------------------------------------------------------------
+Max Hull:      4200    Max Shields:     4200    Max Energy(fuel): 37500
+Maximum Speed: 55      Hyperspeed:      70      Maneuver:         40
+Sensor Array:  50      Shield Boosters: 40      Communications:   55
+Cloaking Device: Not Installed
+{Tone: none } {Time: dawn } {Ambience: quiet }
+{Health: 1100/1100} {OOC:||||||} [ ] {Movement: 1990/1990} []
+]]))
+    equal(result.name, "TeeHee2")
+    equal(result.shipCategory, "Battleship")
+    equal(result.infoCard.title, "SHIP INFORMATION")
+    equal(result.infoCard.description,
+      "The Victory-class Star Destroyer, also known simply as the Victory-class Destroyer, is a direct predecessor to the feared Imperial-class Star Destroyers of the Galactic Empire. At just under a kilometre in length, the ship is ideal for deep space combat.")
+    equal(result.maximumSpeed, 55)
+    equal(result.sensorArray, 50)
+    equal(result.weapons.turbolasers, 27)
+    equal(result.weapons.maximumTorpedoes, 80)
+
+    local rows = {}
+    for _, section in ipairs(result.infoCard.sections) do
+      for _, row in ipairs(section.rows) do
+        rows[row.label] = row.value
+        assert(not row.label:match("^%d"))
+        assert(not row.label:find("Tone", 1, true))
+        assert(not row.value:find("Health", 1, true))
+      end
+    end
+    equal(rows["Laser Cannons"], "0")
+    equal(rows["Maximum Hull"], "4200")
+    equal(rows["Maximum Shields"], "4200")
+    equal(rows["Maximum Energy (fuel)"], "37500")
+    equal(rows["Pilot"], "UNASSIGNED")
+    equal(rows["Copilot"], "UNASSIGNED")
+    equal(rows["Cloaking Device"], "Not Installed")
+  end)
+
+  it("rejects info output that has only a header and Mudlet prompt fields", function()
+    local result, failure = parsers.parseInfo([[
+[Class: Battleship] : Victory-II Class Star Destroyer 'TeeHee2'
+{Tone: none } {Time: dawn } {Ambience: quiet }
+{Health: 1100/1100} {OOC:||||||} [ ] {Movement: 1990/1990} []
+]])
+    equal(result, nil)
+    assert(failure:find("validated ship header and body", 1, true))
   end)
 
   it("parses tabular, piped, and grouped fleet radar", function()

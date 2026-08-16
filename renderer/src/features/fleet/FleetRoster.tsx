@@ -1,5 +1,5 @@
 import type { FleetMember, FleetOrderStatus, FleetStatus } from "../../types/telemetry";
-import { canCommandFormation } from "../../domain/fleet";
+import type { ShipDossierMode } from "../telemetry/ShipDossierPanel";
 import styles from "./FleetRoster.module.css";
 
 function percent(member: FleetMember, field: "hull" | "shields" | "energy"): number | null {
@@ -28,45 +28,55 @@ function roleLabel(member: FleetMember): string {
   return "WING";
 }
 
+function isDisabled(member: FleetMember): boolean {
+  return String(member.condition || "").trim().toLowerCase() === "disabled";
+}
+
 export type FleetScope = "local" | "all" | "wings" | "selected";
 
-export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, onScopeChange,
-  onSelectMember, onSelectLocal }: {
+export function FleetRoster({ fleet, fleetOrder, localName, scope, onOpenDossier }: {
   fleet?: FleetStatus;
   fleetOrder?: FleetOrderStatus;
   localName: string;
-  selectedId: string;
   scope: FleetScope;
-  onScopeChange(scope: FleetScope): void;
-  onSelectMember(member: FleetMember): void;
-  onSelectLocal(): void;
+  onOpenDossier(member: FleetMember, mode: ShipDossierMode): void;
 }) {
   if (!fleet?.active || fleet.members.length === 0) return <>
-    <p className={styles.eyebrow}>FORMATION // ROSTER</p>
+    <p className={styles.eyebrow}>YOUR SHIP // ROSTER</p>
     <div className={styles.status}><span className={styles.light} /><strong>NOT ASSIGNED</strong></div>
-    <button type="button" className={styles.member} aria-label={`Select ${localName}`}
-      aria-pressed={selectedId === "player-ship"} onClick={onSelectLocal}>
-      <span className={styles.memberTop}><em>LOCAL ELEMENT</em></span>
+    <article className={`${styles.member} ${styles.activeMember}`}>
+      <span className={styles.memberTop}><em>LOCAL ELEMENT</em><span className={styles.cardActions}>
+        <button type="button" aria-label={`Show status card for ${localName}`}
+          onClick={() => onOpenDossier({ id: "player-ship", name: localName }, "status")}>S</button>
+        <button type="button" aria-label={`Show info card for ${localName}`}
+          onClick={() => onOpenDossier({ id: "player-ship", name: localName }, "info")}>I</button>
+      </span></span>
       <strong>{localName}</strong>
-    </button>
+    </article>
   </>;
 
-  const weakestHull = fleet.members.reduce<number | null>((lowest, member) => {
+  const localMember = fleet.members.find((member) => member.name.trim().toLowerCase() === localName.trim().toLowerCase());
+  const visibleMembers = scope === "local" ? localMember ? [localMember] : []
+    : scope === "wings" ? fleet.members.filter((member) => !member.leader)
+      : scope === "selected" ? fleet.members.filter((member) => member.id === localMember?.id)
+        : fleet.members;
+  const weakestHull = visibleMembers.reduce<number | null>((lowest, member) => {
     const value = percent(member, "hull");
     return value === null ? lowest : lowest === null ? value : Math.min(lowest, value);
   }, null);
-  const weakestShield = fleet.members.reduce<number | null>((lowest, member) => {
+  const weakestShield = visibleMembers.reduce<number | null>((lowest, member) => {
     const value = percent(member, "shields");
     return value === null ? lowest : lowest === null ? value : Math.min(lowest, value);
   }, null);
-  const title = fleet.kind === "battlegroup" ? "BATTLEGROUP" : "SQUADRON";
-  const formationCommandsEnabled = canCommandFormation(fleet, localName);
+  const title = scope === "local" ? "YOUR SHIP"
+    : fleet.kind === "squadron" ? "SQUADRON"
+      : scope === "wings" ? "BATTLEGROUP // WINGS" : "BATTLEGROUP // FLEET";
 
   return <>
     <p className={styles.eyebrow}>FORMATION // {title}</p>
     <div className={styles.status}>
       <span className={`${styles.light} ${styles.active}`} />
-      <strong>{fleet.members.length} CRAFT</strong>
+      <strong>{visibleMembers.length} CRAFT</strong>
       {weakestShield !== null && <small>LOW S {Math.round(weakestShield)}%</small>}
       {weakestHull !== null && <small>H {Math.round(weakestHull)}%</small>}
     </div>
@@ -74,19 +84,9 @@ export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, o
       ASSIST {fleet.assist === undefined ? "UNKNOWN" : fleet.assist ? "ACTIVE" : "OFF"}
       {" // "}AIM {(fleet.aimSystem || "NONE").toUpperCase()}
     </div>}
-    <div className={styles.scopes} aria-label="Formation command scope">
-      {(fleet.kind === "squadron" ? ["local", "all"] as const : ["local", "all", "wings"] as const)
-        .map((value) => <button key={value}
-        type="button" disabled={value !== "local" && !formationCommandsEnabled}
-        aria-pressed={scope === value} onClick={() => onScopeChange(value)}>
-        {value === "local" ? "LOCAL" : value === "all"
-          ? fleet.kind === "squadron" ? "SQUADRON" : "ALL FLEET" : "WINGS"}
-      </button>)}
-      {fleet.kind !== "squadron" && scope === "selected"
-        && <button type="button" aria-pressed="true">SELECTED</button>}
-    </div>
     <div className={styles.list}>
-      {fleet.members.map((member) => {
+      {visibleMembers.map((member) => {
+        const disabled = isDisabled(member);
         const location = member.system || member.location || "Location unknown";
         const orderResult = fleetOrder?.results?.[member.name];
         const autopilotOrder = fleet.kind === "battlegroup" && fleetOrder?.order === "autopilot"
@@ -97,15 +97,23 @@ export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, o
         const autopilotLabel = autopilotOrder?.status === "awaiting" ? "AWAITING"
           : `${autopilot === undefined ? "UNKNOWN" : autopilot ? "ON" : "OFF"}`
             + (autopilotOrder?.status === "rejected" ? " // REJECTED" : "");
-        return <button key={member.id} type="button" className={styles.member}
-          aria-label={`Select ${member.name}`} aria-pressed={selectedId === member.id}
-          onClick={() => onSelectMember(member)}>
+        return <article key={member.id} className={styles.member} aria-label={member.name}
+          data-disabled={disabled}>
           <span className={styles.memberTop}>
             <em>{roleLabel(member)}{member.position ? ` // ${member.position.toUpperCase()}` : ""}</em>
-            {member.crew !== undefined && <em>CREW {member.crew}</em>}
+            <span className={styles.memberTools}>
+              {member.crew !== undefined && <em>CREW {member.crew}</em>}
+              <span className={styles.cardActions}>
+                <button type="button" aria-label={`Show status card for ${member.name}`}
+                  onClick={() => onOpenDossier(member, "status")}>S</button>
+                <button type="button" aria-label={`Show info card for ${member.name}`}
+                  onClick={() => onOpenDossier(member, "info")}>I</button>
+              </span>
+            </span>
           </span>
           <strong>{member.name}</strong>
           <small>{member.shipCategory || member.class || "UNKNOWN CLASS"} // {location}</small>
+          {disabled && <small className={styles.disabledState}>DISABLED // SYSTEMS FAILURE</small>}
           {(autopilot !== undefined || autopilotOrder) && <small className={styles.autopilotState}
             data-enabled={autopilot} data-status={autopilotOrder?.status}
             title={autopilotOrder?.reason}>AUTOPILOT // {autopilotLabel}</small>}
@@ -119,7 +127,7 @@ export function FleetRoster({ fleet, fleetOrder, localName, selectedId, scope, o
             <FleetMeter label="Shield" value={percent(member, "shields")} tone="shield" />
             <FleetMeter label="Energy" value={percent(member, "energy")} tone="energy" />
           </span>
-        </button>;
+        </article>;
       })}
     </div>
   </>;

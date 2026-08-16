@@ -20,8 +20,12 @@ import {
 import {
   elevationFromPointer,
   elevationFromWheel,
+  formationCenter,
+  formationDestination,
 } from "../renderer/src/domain/coursePlot.ts";
 import { canCommandFormation, localFormationRole } from "../renderer/src/domain/fleet.ts";
+import { buildTacticalTargetShortcuts } from "../renderer/src/domain/tacticalTargets.ts";
+import { normalizeShipDescription, validatedInfoSections } from "../renderer/src/domain/shipDossier.ts";
 
 test("squadron leadership is inferred from the local roster member", () => {
   const fleet = {
@@ -33,6 +37,13 @@ test("squadron leadership is inferred from the local roster member", () => {
   assert.equal(localFormationRole(fleet, "heehee"), "lead");
   assert.equal(canCommandFormation(fleet, "HeeHee"), true);
   assert.equal(canCommandFormation(fleet, "Hhee2"), false);
+});
+
+test("formation movement lines share one destination", () => {
+  const origins = [[-120, 10, 40], [40, -30, 80], [80, 20, -20]];
+  assert.deepEqual(formationCenter(origins), [-20, -5, 30]);
+  assert.deepEqual(formationDestination(origins, [100, 25, -50]), [80, 20, -20]);
+  assert.deepEqual(formationDestination([[15, 5, -10]], [100, 25, -50]), [115, 30, -60]);
 });
 
 test("remote scan range always includes the 500-unit base", () => {
@@ -63,10 +74,98 @@ test("every ship category has a unique military marker and experimental pixel wi
   assert.equal(new Set(markers.map((marker) => marker.markerShape)).size, 11);
   assert.equal(scene.points[0].pointSize, 8);
   assert.equal(scene.points[0].markerShape, 8);
-  assert.deepEqual(scene.points[0].color, [0.5, 0.96, 1]);
+  assert.deepEqual(scene.points[0].color, [0.68, 0.3, 1]);
   assert.deepEqual(markers[0].color, [0.16, 0.58, 1]);
   assert.deepEqual(markers[1].color, [1, 0.16, 0.2]);
   assert.deepEqual(markers[2].color, [1, 0.76, 0.12]);
+});
+
+test("formation purple overrides disposition until that ship is the combat target", () => {
+  const scene = buildScene({
+    observer: { id: "player-ship", x: 0, y: 0, z: 0 },
+    entities: [
+      { id: "wing", name: "Wing", kind: "ship", x: 10, y: 0, z: 0,
+        disposition: "enemy", formationMember: true },
+      { id: "targeted-wing", name: "Targeted Wing", kind: "ship", x: 20, y: 0, z: 0,
+        disposition: "ally", formationMember: true, combatTarget: true },
+    ],
+  });
+  assert.deepEqual(findScenePoint(scene, "wing")?.color, [0.68, 0.3, 1]);
+  assert.deepEqual(findScenePoint(scene, "targeted-wing")?.color, [1, 0.13, 0.18]);
+});
+
+test("target shortcuts group shared targets and retain scope ownership", () => {
+  const shortcuts = buildTacticalTargetShortcuts({
+    observerName: "TeeHee",
+    combatTargets: {
+      local: { key: "local", scope: "local", targetName: "Wayfarer" },
+      wings: { key: "wings", scope: "wings", targetName: "wayfarer" },
+      fleet: { key: "fleet", scope: "all", targetName: "Unknown Contact" },
+    },
+    scenePoints: [{
+      id: "wayfarer", name: "Wayfarer", kind: "ship", condition: "Disabled",
+      x: 100, y: 0, z: 0,
+    }],
+  });
+  assert.equal(shortcuts.length, 2);
+  assert.deepEqual(shortcuts[0].ownerLabels, ["YOUR SHIP'S TARGET", "WING TARGET"]);
+  assert.equal(shortcuts[0].targetName, "Wayfarer");
+  assert.equal(shortcuts[0].ship?.condition, "Disabled");
+  assert.equal(shortcuts[1].targetName, "Unknown Contact");
+  assert.equal(shortcuts[1].ship, undefined);
+});
+
+test("target shortcuts recover a legacy local target without duplicating scoped local telemetry", () => {
+  const legacy = buildTacticalTargetShortcuts({
+    localTarget: "Wayfarer",
+    observerName: "TeeHee",
+    fleetMembers: [{ id: "wayfarer", name: "Wayfarer" }],
+  });
+  assert.equal(legacy.length, 1);
+  assert.deepEqual(legacy[0].ownerLabels, ["YOUR SHIP'S TARGET"]);
+  assert.equal(legacy[0].ship?.id, "wayfarer");
+
+  const scoped = buildTacticalTargetShortcuts({
+    localTarget: "Stale Target",
+    combatTargets: {
+      local: { key: "local", scope: "local", targetName: "Wayfarer" },
+    },
+  });
+  assert.deepEqual(scoped.map((target) => target.targetName), ["Wayfarer"]);
+});
+
+test("ship dossiers keep only static validated info fields in canonical order", () => {
+  const sections = validatedInfoSections([
+    { title: "SYSTEMS", rows: [
+      { label: "Sensor Array", value: "  50  " },
+      { label: "4200 Max Shields", value: "4200" },
+      { label: "Maximum Speed", value: "55" },
+      { label: "Communications", value: "{Tone: none}" },
+    ] },
+    { title: "WEAPONS", rows: [
+      { label: "Maximum Torpedoes", value: "80" },
+      { label: "Turbolasers", value: "27" },
+      { label: "Unknown Weapon", value: "999" },
+    ] },
+  ]);
+  assert.deepEqual(sections, [
+    { title: "WEAPONS", rows: [
+      { label: "Turbolasers", value: "27" },
+      { label: "Maximum Torpedoes", value: "80" },
+    ] },
+    { title: "SYSTEMS", rows: [
+      { label: "Maximum Speed", value: "55" },
+      { label: "Sensor Array", value: "50" },
+    ] },
+  ]);
+});
+
+test("ship dossier descriptions collapse into one paragraph and remove prompt blocks", () => {
+  assert.equal(normalizeShipDescription([
+    "The Victory-class Destroyer is a direct predecessor",
+    "to the Imperial-class.   ",
+    "{Tone: none } {Time: dawn }",
+  ]), "The Victory-class Destroyer is a direct predecessor to the Imperial-class.");
 });
 
 test("missiles, torpedoes, and rockets have distinct tactical signatures", () => {
@@ -173,6 +272,15 @@ test("renderer scene stays centered on the observer", () => {
   assert.deepEqual(scene.points[1].position3d, [30, 10, -5]);
   assert.equal(scene.system, "Esstran Sector");
   assert.equal(scene.sequence, 12);
+});
+
+test("disabled ship condition survives scene construction", () => {
+  const scene = buildScene({
+    observer: { id: "player-ship", x: 0, y: 0, z: 0 },
+    entities: [{ id: "disabled", name: "TeeHee2", kind: "ship",
+      x: 10, y: 0, z: 0, condition: "Disabled" }],
+  });
+  assert.equal(findScenePoint(scene, "disabled")?.condition, "Disabled");
 });
 
 test("orbit camera cannot detach from the player focus", () => {
