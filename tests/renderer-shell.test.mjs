@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile as readTextFile } from "node:fs/promises";
 import test from "node:test";
+
+async function readFile(path, encoding) {
+  const source = await readTextFile(path, encoding);
+  if (path !== "renderer/src/app/App.tsx") return source;
+  const composedViews = await Promise.all(
+    [
+      "renderer/src/app/CommandActionPanel.tsx",
+      "renderer/src/app/WorkspacePanels.tsx",
+      "renderer/src/app/TacticalChrome.tsx",
+      "renderer/src/app/TacticalIcons.tsx",
+      "renderer/src/features/tactical/useTacticalInteractionController.ts",
+    ].map((viewPath) => readTextFile(viewPath, encoding)),
+  );
+  return [source, ...composedViews].join("\n");
+}
 
 test("renderer includes the cinematic startup and disconnected uplink states", async () => {
   const [
@@ -62,7 +77,7 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.match(telemetry, /connectionLabel/);
   assert.match(uplink, /Waiting for uplink to your Ship, Captain/);
   assert.match(uplink, /styles\.uplink/);
-  assert.match(app, /telemetry\.connected && \(\s*<div className=\{styles\.controlStack\}>/);
+  assert.match(app, /connected && \(\s*<div className=\{styles\.controlStack\}>/);
   assert.match(app, /telemetry\.connected && \(\s*<div className=\{styles\.commandDeckFrame\}>/);
   assert.match(startupStyles, /\.title/);
   assert.match(startupStyles, /\.lotjTitle/);
@@ -107,6 +122,28 @@ test("tactical rendering sleeps while the scene is idle", async () => {
   );
 });
 
+test("camera mode and radar visibility survive React callback churn and telemetry refreshes", async () => {
+  const [app, canvas] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+  ]);
+  const engineLifecycle = canvas.slice(
+    canvas.indexOf("useEffect(() => {\n      if (!canvasRef.current)"),
+    canvas.indexOf("useEffect(() => {\n      if (snapshot)"),
+  );
+  const tacticalViewActivation = app.slice(
+    app.indexOf("const activeTacticalViewReady"),
+    app.indexOf("const observerSpeed"),
+  );
+
+  assert.match(canvas, /const callbacksRef = useLatestRef/);
+  assert.match(canvas, /onSelect: \(id\) => callbacksRef\.current\.onSelect\(id\)/);
+  assert.match(engineLifecycle, /}, \[\]\);/);
+  assert.doesNotMatch(engineLifecycle, /onCameraModeChange, onMovementCancel/);
+  assert.match(tacticalViewActivation, /activatedViewpointRef\.current === viewpointMemberKey/);
+  assert.doesNotMatch(tacticalViewActivation, /setCameraMode\("player"\)/);
+});
+
 test("tactical renderer uses a toggleable sensor-range bubble instead of a floor grid", async () => {
   const [engine, app] = await Promise.all([
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
@@ -135,18 +172,18 @@ test("fleet hyperspace departures render as ship-specific tactical effects", asy
   assert.match(canvas, /pushJumpEvent/);
   assert.match(
     app,
-    /jumpEvents=\{viewpointMemberId \? \[\] : telemetry\.snapshot\?\.metadata\?\.shipJumpEvents\}/,
+    /jumpEvents=\{viewpointMemberKey \? \[\] : telemetry\.snapshot\?\.metadata\?\.shipJumpEvents\}/,
   );
 });
 
 test("scoped hyperspace aborts close without waiting for a local terminal echo", async () => {
-  const [app, scraper] = await Promise.all([
-    readFile("renderer/src/app/App.tsx", "utf8"),
+  const [controller, scraper] = await Promise.all([
+    readFile("renderer/src/features/hyperspace/useHyperspaceController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
   assert.match(
-    app,
-    /const stopHyperspace[\s\S]*?sendIntent\([\s\S]*?"stop_hyperspace"[\s\S]*?setActiveRoute\(null\)/,
+    controller,
+    /const stop[\s\S]*?sendIntent\([\s\S]*?"stop_hyperspace"[\s\S]*?setActiveRoute\(null\)/,
   );
   assert.match(scraper, /local function completeHyperspaceAbort/);
   assert.match(
@@ -186,24 +223,26 @@ test("colocated contact clusters expose counts and an expandable member grid", a
   assert.match(canvas, /tooltip\.groupSummary \|\| tooltip\.name/);
   assert.match(app, /COLOCATED CONTACTS/);
   assert.match(app, /styles\.memberGrid/);
-  assert.match(app, /onMouseEnter=.*setHoveredMemberId/);
+  assert.match(app, /onMouseEnter=\{\(\) => onHover\(member\.id\)\}/);
+  assert.match(app, /onHover=\{setHoveredMemberId\}/);
   assert.match(
     app,
-    /onClick=\{\(\) => \{[\s\S]*?setSelectedId\(member\.id\);[\s\S]*?setExpandedClusterId\(null\);/,
+    /onSelect=\{\(id\) => \{[\s\S]*?setSelectedId\(id\);[\s\S]*?setExpandedClusterId\(null\);/,
   );
 });
 
 test("contacts expose persistent disposition controls, shaped markers, and rich health hover cards", async () => {
-  const [app, engine, canvas, rangeMeter] = await Promise.all([
+  const [app, engine, canvas, rangeMeter, dispositions] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
     readFile("renderer/src/features/telemetry/RangeMeter.tsx", "utf8"),
+    readFile("renderer/src/features/telemetry/useShipDispositions.ts", "utf8"),
   ]);
-  assert.match(app, /holocron3d\.ship-dispositions\.v1/);
-  assert.match(app, /set_ship_disposition/);
-  assert.match(app, /entity\.disposition === "enemy"/);
-  assert.match(app, /hostileNames/);
+  assert.match(dispositions, /holocron3d\.ship-dispositions\.v1/);
+  assert.match(dispositions, /set_ship_disposition/);
+  assert.match(dispositions, /entity\.disposition === "enemy"/);
+  assert.match(dispositions, /hostileNames/);
   assert.match(engine, /a_shape/);
   assert.match(engine, /a_heading/);
   assert.match(engine, /headingPosition/);
@@ -231,15 +270,16 @@ test("contacts expose persistent disposition controls, shaped markers, and rich 
 });
 
 test("selected ships receive a gold planar ring while formation colors use purple and target red", async () => {
-  const [app, canvas, engine, scene] = await Promise.all([
+  const [app, canvas, engine, scene, workspace] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("renderer/src/domain/scene.ts", "utf8"),
+    readFile("renderer/src/domain/tacticalWorkspace.ts", "utf8"),
   ]);
   assert.match(app, /selectedId=\{selectedId\}/);
-  assert.match(app, /formationMember: entity\.kind === "ship" && formationNames\.has\(key\)/);
-  assert.match(app, /combatTarget: entity\.kind === "ship" && activeTargetKeys\.has\(key\)/);
+  assert.match(workspace, /formationMember: entity\.kind === "ship" && formationNames\.has\(key\)/);
+  assert.match(workspace, /combatTarget: entity\.kind === "ship" && activeTargetKeys\.has\(key\)/);
   assert.match(canvas, /engineRef\.current\?\.setSelectedId\(selectedId\)/);
   assert.match(engine, /private readonly selectionBuffer/);
   assert.match(engine, /private rebuildSelectionBuffer\(now: number\)/);
@@ -295,6 +335,9 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     scopeRailCss,
     fleetCommands,
     squadronCommands,
+    commandFeedback,
+    fleetSelection,
+    shipCommands,
   ] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
@@ -305,6 +348,9 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     readFile("renderer/src/features/fleet/CommandScopeRail.module.css", "utf8"),
     readFile("renderer/src/features/fleet/FleetCommandPanel.tsx", "utf8"),
     readFile("renderer/src/features/fleet/SquadronCommandPanel.tsx", "utf8"),
+    readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
+    readFile("renderer/src/features/fleet/useFleetSelection.ts", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
   ]);
   assert.match(app, /styles\.issuerBank/);
   assert.match(app, /styles\.commandBank/);
@@ -312,6 +358,10 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   assert.match(
     app,
     /commandToasts\.length > 0 && \(\s*<div className=\{styles\.commandToasts\} role="log"/,
+  );
+  assert.match(
+    app,
+    /commandAlert && \([\s\S]*?className=\{styles\.commandAlert\}[\s\S]*?role="status"/,
   );
   assert.match(app, /styles\.selectedVessel/);
   assert.match(app, /styles\.vesselRanges/);
@@ -330,7 +380,8 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   );
   assert.doesNotMatch(app, /styles\.fleetBank/);
   assert.match(app, /ACTIONS \/\/ \{commandIssuerLabel\.toUpperCase\(\)\}/);
-  assert.match(app, /scopeDrawerOpen && \(\s*<aside/);
+  assert.match(app, /scopeDrawerOpen && \(\s*<FleetScopeDrawer/);
+  assert.match(app, /<aside\s+className=\{`\$\{styles\.scopeDrawer\}/);
   assert.match(app, /<FleetRoster\s+fleet=\{fleet\}/);
   assert.match(fleetRoster, /visibleMembers\.map/);
   assert.match(fleetRoster, /LOW S/);
@@ -345,11 +396,11 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   assert.match(fleetRoster, /orderResult\.status\.toUpperCase/);
   assert.match(fleetRoster, /fleetOrder\?\.order !== "autopilot"/);
   assert.match(fleetRoster, /AUTOPILOT \/\/ \{autopilotLabel\}/);
-  assert.match(app, /fleetOrder\.rejectedCount/);
+  assert.match(commandFeedback, /fleetOrder\.rejectedCount/);
   assert.match(fleetCommands, /autopilotState/);
   assert.match(fleetCommands, /data-state=\{state\}/);
   assert.match(fleetRoster, /AUTOPILOT \/\/ \{autopilotLabel\}/);
-  assert.match(app, /sendIntent\("fleet_order"/);
+  assert.match(shipCommands, /sendIntent\("fleet_order"/);
   assert.match(fleetCommands, /SYNCHRONIZE TARGET/);
   assert.match(fleetCommands, /RECHARGE SHIELDS/);
   assert.doesNotMatch(fleetCommands, /TOGGLE FIRE ASSIST|AIM ION|SQUADRON MIRRORS/);
@@ -362,12 +413,12 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     "formation weapons should be the bottom command group, matching the player ship layout",
   );
   assert.match(fleetRoster, /scope === "wings"/);
-  assert.match(app, /payload\.memberIds = selectedFleetMembers\.map/);
-  assert.match(app, /setSelectedFleetMemberIds/);
+  assert.match(shipCommands, /payload\.memberIds = selectedFleetMembers\.map/);
+  assert.match(fleetSelection, /setSelectedMemberKeys/);
   assert.match(app, /onToggleMember=\{toggleFleetMember\}/);
   assert.match(app, /aria-label="Select all fleet craft"/);
   assert.match(fleetRoster, /role=\{selectable \? "checkbox"/);
-  assert.match(fleetRoster, /selectedMemberIds\?\.has\(member\.id\)/);
+  assert.match(fleetRoster, /selectedMemberKeys\?\.has\(fleetMemberSelectionKey\(member\)\)/);
   assert.match(fleetRoster, /RosterActionIcon type="view"/);
   assert.match(fleetRoster, /RosterActionIcon type="status"/);
   assert.match(fleetRoster, /RosterActionIcon type="info"/);
@@ -412,7 +463,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     css,
     /\.commandToasts \{[^}]*flex-direction: column;[^}]*gap: 5px;[^}]*transform: translateY\(calc\(-100% - 5px\)\)/s,
   );
-  assert.match(app, /\[\.\.\.current, \{ id, message, tone \}\]\.slice\(-4\)/);
+  assert.match(commandFeedback, /\[\.\.\.current, \{ id, message, tone \}\]\.slice\(-4\)/);
   assert.match(css, /\.compactReadouts dt,[^}]*font-size: 11px/s);
   assert.match(speedControl, /type="range"/);
   assert.match(css, /\.orderActions button \{[^}]*font:\s*700 10px/s);
@@ -446,48 +497,77 @@ test("ship resource meters share palettes, values, and overflow-safe card layout
 });
 
 test("battlegroup members can open isolated remote tactical views", async () => {
-  const [app, roster, telemetry, scraper] = await Promise.all([
+  const [app, roster, telemetry, scraper, interactions, fleetSelection] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/fleet/FleetRoster.tsx", "utf8"),
     readFile("renderer/src/types/telemetry.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+    readFile("renderer/src/features/tactical/useTacticalInteractionController.ts", "utf8"),
+    readFile("renderer/src/features/fleet/useFleetSelection.ts", "utf8"),
   ]);
   assert.match(telemetry, /tacticalViews\?: Record<string, TacticalView>/);
   assert.match(roster, /Camera lock/);
   assert.match(roster, /onViewMember\?\(member: FleetMember\)/);
   assert.match(roster, /onToggleMember\?\(member: FleetMember\)/);
-  assert.match(app, /sendIntent\("request_tactical_view"/);
-  assert.match(app, /viewpointMemberId/);
-  assert.match(app, /observerLabel=\{viewpointMemberId \? "REMOTE VIEW" : "YOUR SHIP"\}/);
+  assert.match(roster, /fleetMemberSelectionKey\(member\) === viewpointMemberKey/);
+  assert.match(interactions, /sendIntent\("request_tactical_view"/);
+  assert.match(interactions, /selectFleetMember\(member\);\s*selectViewpoint\(memberKey\)/);
+  assert.match(
+    interactions,
+    /selectFleetScope\("local"\);\s*selectViewpoint\(null\);\s*closeFleetDrawer\(\)/,
+  );
+  assert.match(
+    fleetSelection,
+    /setSelectedMemberKeys\(new Set\(\[fleetMemberSelectionKey\(member\)\]\)\);\s*setScope\("selected"\)/,
+  );
+  assert.match(app, /viewpointMemberKey/);
+  assert.match(app, /observerLabel=\{viewpointMemberKey \? "REMOTE VIEW" : "YOUR SHIP"\}/);
   assert.match(scraper, /registerIntentHandler\("request_tactical_view"/);
-  assert.match(scraper, /remoteViewMemberId/);
-  assert.match(scraper, /metadata\.tacticalViews\[memberId\]/);
+  assert.match(scraper, /remoteViewMemberKey/);
+  assert.match(scraper, /metadata\.tacticalViews\[memberKey\]/);
 });
 
 test("player navigation supports vector, target, away, and speed orders", async () => {
-  const [app, engine, scraper, drawer, drawerCss, speedControl] = await Promise.all([
+  const [
+    app,
+    navigation,
+    reducer,
+    engine,
+    scraper,
+    drawer,
+    drawerCss,
+    speedControl,
+    commandFeedback,
+    polling,
+    shipCommands,
+  ] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/commands/useNavigationController.ts", "utf8"),
+    readFile("renderer/src/features/commands/navigationReducer.ts", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
     readFile("renderer/src/features/commands/NavigationDrawer.tsx", "utf8"),
     readFile("renderer/src/features/commands/NavigationDrawer.module.css", "utf8"),
     readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
+    readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
+    readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
   ]);
-  assert.match(app, /event\.key\.toLowerCase\(\) === "m"/);
+  assert.match(navigation, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
   assert.match(app, /\{navigableTarget \? \(\s*<>/);
   assert.match(app, /SELECT TO OR AWAY \/\/ \{navigableTarget\.name\.toUpperCase\(\)\}/);
   assert.match(speedControl, /type="range"/);
-  assert.match(app, /navigationFleetScope \? "fleet_order" : "navigate_ship"/);
-  assert.match(app, /sendIntent\("set_ship_speed"/);
-  assert.match(app, /sendIntent\("probe_space"/);
-  assert.match(app, /payload\.departureSpeed = requestedSpeed/);
+  assert.match(navigation, /state\.fleetScope \? "fleet_order" : "navigate_ship"/);
+  assert.match(navigation, /sendIntent\("set_ship_speed"/);
+  assert.match(polling, /sendIntent\("probe_space"/);
+  assert.match(navigation, /payload\.departureSpeed = state\.requestedSpeed/);
   assert.match(app, /navigationMode !== "idle"/);
   assert.match(drawer, /DEPARTURE SPEED REQUIRED/);
-  assert.match(app, /knownMaximumSpeed/);
+  assert.match(reducer, /knownMaximumSpeed/);
   assert.match(speedControl, /AWAITING STATUS \/ INFO FOR SPEED LIMIT/);
-  assert.match(app, /setNavigationTargetId\(navigableTarget\.id\)/);
-  assert.match(app, /setNavigationTargetId\(null\)/);
+  assert.match(navigation, /targetId: navigableTarget\.id/);
+  assert.match(reducer, /targetId: null/);
   assert.match(app, /WAITING FOR CONFIRMATION/);
   assert.match(app, /CANCEL COMMAND/);
   assert.match(drawer, /aria-label="Navigation command wizard"/);
@@ -499,13 +579,14 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(drawer, /onClick=\{needsVectorLock \? onStageVector : onConfirm\}/);
   assert.match(drawer, /onClick=\{onCancel\}/);
   assert.match(drawerCss, /animation: drawer-enter/);
-  assert.match(app, /onIntentAck/);
+  assert.match(navigation, /onIntentAck/);
   assert.match(app, /styles\.commandToasts/);
   assert.match(
-    app,
-    /if \(!commandAlert\) return;\s*const timer = setTimeout\(\(\) => setCommandAlert\(""\), 5_000\)/,
+    commandFeedback,
+    /if \(!alert\) return;\s*const timer = setTimeout\(\(\) => setAlertValue\(""\), 5_000\)/,
   );
-  assert.match(app, /setNavigationStatus\(""\);[\s\S]{0,120}setCommandAlert\(""\)/);
+  assert.match(navigation, /dispatch\(\{\s*type: "reset"/);
+  assert.match(navigation, /setAlert\(""\)/);
   assert.match(app, /label=\{`PLAYER SPEED \/\/ \$\{localName\.toUpperCase\(\)\}`\}/);
   assert.match(app, /observerStopped=\{observerSpeed === 0\}/);
   assert.match(engine, /rebuildCourseBuffer/);
@@ -532,11 +613,11 @@ test("player navigation supports vector, target, away, and speed orders", async 
     "middle-mouse camera orbit should take priority over course-vector updates",
   );
   assert.match(engine, /!this\.movementInteractive && button === 0 && !moved/);
-  assert.match(app, /SHIFT ELEVATION \/\/ MMB ORBIT/);
+  assert.match(reducer, /SHIFT ELEVATION \/\/ MMB ORBIT/);
   assert.match(engine, /onMovementCommit/);
   assert.match(engine, /publishCourseLabel/);
   assert.match(engine, /value - this\.originOffset\[index\]/);
-  assert.match(app, /SHIFT ELEVATION \/\/ MMB ORBIT/);
+  assert.match(reducer, /SHIFT ELEVATION \/\/ MMB ORBIT/);
   const canvas = await readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8");
   assert.match(canvas, /className=\{styles\.courseLabel\}/);
   assert.match(canvas, /X \{formatCoordinate\(courseLabel\.worldPosition\[0\]\)\}/);
@@ -548,7 +629,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(scraper, /registerIntentHandler\("set_autotrack"/);
   assert.match(scraper, /autotracking%s\+on/);
   assert.match(scraper, /autotracking%s\+off/);
-  assert.match(app, /sendIntent\("set_autotrack"/);
+  assert.match(shipCommands, /sendIntent\("set_autotrack"/);
   assert.match(app, /data-tooltip=\{`AUTOTRACK/);
   assert.match(
     scraper,
@@ -559,16 +640,16 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(scraper, /Maneuver complete\./);
   assert.match(scraper, /publishIntentAck\(intentId, status, reason\)/);
   assert.match(scraper, /resolvePendingCommand\("rejected"/);
-  assert.match(app, /ack\.status === "completed"/);
-  assert.match(app, /MANEUVER IN PROGRESS/);
+  assert.match(navigation, /ack\.status === "completed"/);
+  assert.match(navigation, /MANEUVER IN PROGRESS/);
   assert.match(app, /CameraIcon type="player"/);
   assert.match(app, /CameraIcon type="rts"/);
   assert.match(app, /CameraIcon type="selection"/);
-  assert.match(app, /beginMovementPlanning/);
-  assert.match(app, /finishMovementPlanning/);
-  assert.match(app, /movementOriginsForScope/);
+  assert.match(navigation, /beginMovementPlanning/);
+  assert.match(navigation, /finishMovementPlanning/);
+  assert.match(navigation, /movementOriginsForScope/);
   assert.match(app, /resolveFormationOrigins/);
-  assert.match(app, /formationCenter\(origins\)/);
+  assert.match(navigation, /formationCenter\(origins\)/);
   assert.match(engine, /export type TacticalCameraMode = "player" \| "rts" \| "selection"/);
   assert.match(engine, /savedCameraState/);
   assert.match(engine, /this\.cameraMode === "rts" && \["w", "a", "s", "d", "q", "e"\]/);
@@ -580,34 +661,40 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(engine, /pushLine\(origin, destination\)/);
   assert.doesNotMatch(engine, /origins\.length > 0 \? origins :/);
   assert.match(engine, /this\.callbacks\.onCameraModeChange\(saved\.mode\)/);
-  assert.match(app, /event\.key === "Escape" && navigationMode !== "idle"\) cancelNavigation\(\)/);
+  assert.match(
+    navigation,
+    /event\.key === "Escape" && current\.mode !== "idle"\) current\.cancel\(\)/,
+  );
   assert.match(scraper, /course relative %d %d %d/);
   assert.match(scraper, /"course away " \.\. name/);
   assert.match(scraper, /send\("speed " \.\. tostring\(math\.floor\(requestedSpeed \+ 0\.5\)\)\)/);
 });
 
 test("selected ships can be manually scanned without waiting for the poller", async () => {
-  const [app, scraper] = await Promise.all([
+  const [app, dossierController, dispositions, shipCommands, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/telemetry/useShipDossierController.ts", "utf8"),
+    readFile("renderer/src/features/telemetry/useShipDispositions.ts", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
-  assert.match(app, /sendIntent\("scan_ship"/);
+  assert.match(dossierController, /sendIntent\("scan_ship"/);
   assert.match(app, /data-tooltip="STATUS CARD"[\s\S]*?<CommandIcon type="scan"/);
   assert.match(app, /data-tooltip="INFO CARD"[\s\S]*?<CommandIcon type="info"/);
-  assert.match(app, /TELEMETRY UPDATED/);
+  assert.match(dossierController, /TELEMETRY UPDATED/);
   assert.match(scraper, /registerIntentHandler\("scan_ship"/);
   assert.match(app, /ACTIONS \/\/ \{commandIssuerLabel\.toUpperCase\(\)\}/);
-  assert.match(app, /sendIntent\("target_ship"/);
+  assert.match(shipCommands, /sendIntent\("target_ship"/);
   assert.match(app, /observerHasNoWeapons\s*\?\s*"This ship has no weapons"/);
   assert.match(app, /TARGET \/\/ WEAPON LOCK IS AN AGGRESSIVE ACT/);
-  assert.match(app, /targetIntentShipsRef/);
+  assert.match(shipCommands, /targetIntentShipsRef/);
   assert.match(scraper, /registerIntentHandler\("target_ship"/);
   assert.match(scraper, /pendingCommandKind == "target"/);
   assert.match(scraper, /tempTrigger\("Target Locked\."/);
   assert.match(scraper, /You are being targeted by/);
   assert.match(scraper, /handleIncomingTargeting/);
-  assert.match(app, /entity\.disposition === "enemy"/);
-  assert.match(app, /localStorage\.setItem\(DISPOSITION_STORAGE_KEY/);
+  assert.match(dispositions, /entity\.disposition === "enemy"/);
+  assert.match(dispositions, /localStorage\.setItem\(STORAGE_KEY/);
   assert.match(scraper, /Your concentration is broken\. You fail to lock on to your target\./);
   assert.doesNotMatch(scraper, /denyCurrentSend/);
   assert.match(scraper, /You must be in the gunners seat or turret of a ship to do that!/);
@@ -621,10 +708,11 @@ test("selected ships can be manually scanned without waiting for the poller", as
 });
 
 test("fleet and target ships open a shared right-side status and info dossier", async () => {
-  const [app, roster, dossier, dossierCss, parser, scraper] = await Promise.all([
+  const [app, roster, dossier, dossierController, dossierCss, parser, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/fleet/FleetRoster.tsx", "utf8"),
     readFile("renderer/src/features/telemetry/ShipDossierPanel.tsx", "utf8"),
+    readFile("renderer/src/features/telemetry/useShipDossierController.ts", "utf8"),
     readFile("renderer/src/features/telemetry/ShipDossierPanel.module.css", "utf8"),
     readFile("mudlet/lotj_holocron_parsers.lua", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
@@ -633,7 +721,7 @@ test("fleet and target ships open a shared right-side status and info dossier", 
   assert.match(roster, /Show info card for/);
   assert.match(app, /className=\{styles\.dossierLaunchers\}/);
   assert.match(app, /<ShipDossierPanel/);
-  assert.match(app, /targetName: shipName/);
+  assert.match(dossierController, /targetName: shipName/);
   assert.match(dossier, /SHIP DOSSIER \/\/ \{mode\.toUpperCase\(\)\}/);
   assert.match(dossier, /NO LIVE CARD CACHED/);
   assert.match(dossierCss, /right: 22px/);
@@ -649,26 +737,28 @@ test("fleet and target ships open a shared right-side status and info dossier", 
 });
 
 test("combat exposes installed weapon controls and telemetry-driven projectile effects", async () => {
-  const [app, panel, panelCss, canvas, engine, combatPlan, scraper] = await Promise.all([
-    readFile("renderer/src/app/App.tsx", "utf8"),
-    readFile("renderer/src/features/weapons/WeaponsPanel.tsx", "utf8"),
-    readFile("renderer/src/features/weapons/WeaponsPanel.module.css", "utf8"),
-    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
-    readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
-    readFile("renderer/src/domain/combat.ts", "utf8"),
-    readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
-  ]);
+  const [app, panel, panelCss, canvas, engine, combatPlan, shipCommands, scraper] =
+    await Promise.all([
+      readFile("renderer/src/app/App.tsx", "utf8"),
+      readFile("renderer/src/features/weapons/WeaponsPanel.tsx", "utf8"),
+      readFile("renderer/src/features/weapons/WeaponsPanel.module.css", "utf8"),
+      readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+      readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
+      readFile("renderer/src/domain/combat.ts", "utf8"),
+      readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
+      readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+    ]);
   assert.match(app, /<WeaponsPanel/);
   assert.doesNotMatch(app, /M \/\/ SET COURSE VECTOR/);
   assert.match(app, /combatTargetName \? \(\s*<WeaponsPanel/);
-  assert.match(app, /sendIntent\("fire_weapon"/);
+  assert.match(shipCommands, /sendIntent\("fire_weapon"/);
   assert.match(panel, /FIRE ALL/);
   assert.match(panel, /\{WEAPONS\.map\(\(weapon\) =>/);
   assert.match(panel, /INSTALLATION UNCONFIRMED \/\/ LOTJ WILL VALIDATE/);
   assert.match(panel, /<button\s+type="button"[\s\S]{0,100}disabled=\{disabled\}/);
   assert.doesNotMatch(panel, /disabled=\{disabled \|\| installed\.length === 0\}/);
   assert.doesNotMatch(panel, /disabled=\{disabled \|\| !available \|\| recharging \|\| depleted\}/);
-  assert.match(app, /disabled=\{landed\}\s+onFire=\{fireWeapon\}/);
+  assert.match(app, /disabled=\{landed\}\s+onFire=\{onFire\}/);
   for (const weapon of [
     "autoblaster",
     "laser",
@@ -826,13 +916,13 @@ test("scope-owned targets are pinned to a right-side tactical shortcut rail", as
 });
 
 test("reconnecting hydrates missing player telemetry before combat polling", async () => {
-  const [app, scraper] = await Promise.all([
-    readFile("renderer/src/app/App.tsx", "utf8"),
+  const [polling, scraper] = await Promise.all([
+    readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
-  assert.match(app, /sendIntent\("probe_space"\)/);
-  assert.match(app, /scheduleSpaceProbeRetry/);
-  assert.match(app, /reason\.includes\("target lock"\)/);
+  assert.match(polling, /sendIntent\("probe_space"\)/);
+  assert.match(polling, /scheduleProbeRetry/);
+  assert.match(polling, /reason\.includes\("target lock"\)/);
   assert.match(scraper, /hydrationQueue = \{\}/);
   assert.match(scraper, /table\.insert\(queue, "status"\)/);
   assert.match(scraper, /table\.insert\(queue, "info"\)/);
@@ -843,14 +933,15 @@ test("reconnecting hydrates missing player telemetry before combat polling", asy
 });
 
 test("polling can be paused from the tactical UI with a prominent stale-telemetry warning", async () => {
-  const [app, appCss, telemetry, scraper] = await Promise.all([
+  const [app, appCss, polling, telemetry, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
+    readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
     readFile("renderer/src/types/telemetry.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
   assert.match(telemetry, /paused\?: boolean/);
-  assert.match(app, /sendIntent\("set_polling_paused"/);
+  assert.match(polling, /sendIntent\("set_polling_paused"/);
   assert.match(app, /AUTOMATIC COMMAND OUTPUT SUSPENDED/);
   assert.match(app, /POLLING PAUSED/);
   assert.match(appCss, /\.pollingPausedOverlay/);
@@ -859,12 +950,13 @@ test("polling can be paused from the tactical UI with a prominent stale-telemetr
 });
 
 test("shield automation activates on launch and safely recharges to full", async () => {
-  const [app, scraper] = await Promise.all([
+  const [app, shipCommands, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
-  assert.match(app, /sendIntent\("recharge_shields"/);
-  assert.match(app, /sendIntent\("set_auto_recharge"/);
+  assert.match(shipCommands, /sendIntent\("recharge_shields"/);
+  assert.match(shipCommands, /sendIntent\("set_auto_recharge"/);
   assert.match(app, /SHIELDS AT PEAK POWER/);
   assert.match(app, /AUTO RECHARGE/);
   assert.match(scraper, /send, "shields on", false/);

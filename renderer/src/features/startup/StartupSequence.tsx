@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useLatestRef } from "../../hooks/useLatestRef";
 import { HyperspaceField } from "../hyperspace/HyperspaceField";
 import styles from "./StartupSequence.module.css";
 
@@ -11,6 +12,7 @@ export function StartupSequence({ onComplete }: StartupSequenceProps) {
   const [phase, setPhase] = useState<
     "lotj" | "lotjDeparting" | "intro" | "jumping" | "departing" | "skipping"
   >("lotj");
+  const onCompleteRef = useLatestRef(onComplete);
 
   useEffect(() => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -19,7 +21,7 @@ export function StartupSequence({ onComplete }: StartupSequenceProps) {
     const complete = () => {
       if (completed) return;
       completed = true;
-      onComplete();
+      onCompleteRef.current();
     };
     const schedule = (callback: () => void, delay: number) => {
       timers.push(setTimeout(callback, delay));
@@ -49,7 +51,7 @@ export function StartupSequence({ onComplete }: StartupSequenceProps) {
       window.removeEventListener("keydown", skip);
       timers.forEach(clearTimeout);
     };
-  }, [onComplete]);
+  }, []);
 
   const jumping = phase === "jumping" || phase === "departing";
   return (

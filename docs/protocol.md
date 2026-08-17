@@ -258,22 +258,25 @@ Only canonical overview, weapons, access-code, and systems fields with valid
 value shapes are published. Unknown labels and Mudlet prompt fields are
 discarded, and wrapped descriptive prose is normalized into one paragraph.
 
-`request_tactical_view` accepts the stable ID and current roster name of one
+`request_tactical_view` accepts the stable member key, transport ID, current
+roster name, and optional slot of one
 non-flagship battlegroup member. Mudlet resolves that member from the active
-formation and issues `battlegroup nav <member> radar`; it never accepts a raw
-command or arbitrary ship name. The `Sending command to ...` response must name
-the requested member. Parsed radar is stored under
-`system_snapshot.metadata.tacticalViews[memberId]` with its own observer,
+formation by exact name first, then slot, and finally transport ID, and issues
+`battlegroup nav <member> radar`; it never accepts a raw command or arbitrary
+ship name. The `Sending command to ...` response must name the requested member.
+Parsed radar is stored under
+`system_snapshot.metadata.tacticalViews[memberKey]` with its own observer,
 system, contacts, and observation time, leaving the flagship's top-level
 observer and entities unchanged. Contact-targeted `fleet_order` payloads may
-include `viewpointMemberId`, allowing Mudlet to resolve the target only from
+include `viewpointMemberKey`, allowing Mudlet to resolve the target only from
 that validated remote view.
 
 For battlegroup scope `selected`, `fleet_order` and hyperspace route payloads
-may include `memberIds`, an array of stable roster IDs. Mudlet resolves every ID
-against the current authoritative formation, rejects a missing or invalid member,
-deduplicates the set, and emits one native command per resolved craft. The legacy
-single-member `memberId` and `memberName` fields remain supported. A speed response
+include parallel `memberNames`, `memberSlots`, and `memberIds` arrays. Mudlet
+resolves every exact name against the current authoritative formation before
+using the slot or transport ID fallbacks, rejects a missing or invalid member,
+deduplicates by canonical member name, and emits one native command per resolved
+craft. The legacy single-member `memberId` and `memberName` fields remain supported. A speed response
 of `You're already traveling that speed.` is terminal success and clears the
 member's awaiting order state.
 

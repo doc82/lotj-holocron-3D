@@ -24,13 +24,22 @@ import {
   formationDestination,
   resolveFormationOrigins,
 } from "../renderer/src/domain/coursePlot.ts";
-import { canCommandFormation, localFormationRole } from "../renderer/src/domain/fleet.ts";
+import {
+  canCommandFormation,
+  fleetMemberSelectionKey,
+  fleetMembersMatchingSelection,
+  localFormationRole,
+  toggleFleetMemberSelection,
+} from "../renderer/src/domain/fleet.ts";
 import {
   combatVisualStyle,
   planCombatEvent,
   planDestructionEvent,
 } from "../renderer/src/domain/combat.ts";
-import { buildTacticalTargetShortcuts } from "../renderer/src/domain/tacticalTargets.ts";
+import {
+  buildTacticalTargetShortcuts,
+  reconcileDismissedTargetNames,
+} from "../renderer/src/domain/tacticalTargets.ts";
 import {
   normalizeShipDescription,
   sanitizedStatusSections,
@@ -49,6 +58,46 @@ test("squadron leadership is inferred from the local roster member", () => {
   assert.equal(localFormationRole(fleet, "heehee"), "lead");
   assert.equal(canCommandFormation(fleet, "HeeHee"), true);
   assert.equal(canCommandFormation(fleet, "Hhee2"), false);
+});
+
+test("fleet selection treats ships with colliding transport ids as separate cards", () => {
+  const members = [
+    { id: "unknown", name: "TeeHee1" },
+    { id: "unknown", name: "TeeHee2" },
+    { id: "teehee3", name: "TeeHee3" },
+  ];
+  const allSelected = new Set(members.map(fleetMemberSelectionKey));
+
+  const next = toggleFleetMemberSelection(allSelected, members[0]);
+
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, next).map((member) => member.name),
+    ["TeeHee2", "TeeHee3"],
+  );
+  assert.equal(next.size, 2, "one card click should deselect exactly one ship");
+});
+
+test("target dismissals survive transient polling gaps and reset after confirmed absence", () => {
+  const dismissed = new Set(["isd45"]);
+  const firstGap = reconcileDismissedTargetNames(dismissed, new Map(), []);
+  assert.deepEqual([...firstGap.dismissedNames], ["isd45"]);
+  assert.equal(firstGap.absentSnapshots.get("isd45"), 1);
+
+  const restored = reconcileDismissedTargetNames(
+    firstGap.dismissedNames,
+    firstGap.absentSnapshots,
+    ["ISD45"],
+  );
+  assert.deepEqual([...restored.dismissedNames], ["isd45"]);
+  assert.equal(restored.absentSnapshots.size, 0);
+
+  const absentOnce = reconcileDismissedTargetNames(restored.dismissedNames, new Map(), []);
+  const absentTwice = reconcileDismissedTargetNames(
+    absentOnce.dismissedNames,
+    absentOnce.absentSnapshots,
+    [],
+  );
+  assert.equal(absentTwice.dismissedNames.size, 0);
 });
 
 test("formation movement lines share one destination", () => {
@@ -696,6 +745,35 @@ test("exactly colocated ships and celestial bodies share a stable selectable clu
     false,
     "the celestial contact should remain selectable inside the cluster rather than overlap it",
   );
+});
+
+test("the observer participates in a colocated contact cluster without losing its camera anchor", () => {
+  const scene = buildScene({
+    observer: { id: "player-ship", name: "TeeHee1", x: 0, y: 0, z: 0 },
+    entities: [
+      { id: "teehee3", name: "TeeHee3", kind: "ship", x: 0, y: 0, z: 0 },
+      { id: "korriban", name: "Korriban", kind: "planet", x: 0, y: 0, z: 0 },
+      { id: "nearby", name: "Nearby", kind: "ship", x: 0, y: 0, z: 1 },
+    ],
+  });
+
+  assert.equal(scene.points[0].kind, "observer", "the camera anchor remains a top-level point");
+  assert.equal(scene.points[0].id, "player-ship");
+  const cluster = scene.points.find((point) => point.kind === "cluster");
+  assert.ok(cluster, "the orbital position should expose a contact picker");
+  assert.equal(cluster.memberCount, 3);
+  assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.deepEqual(
+    cluster.members.map((member) => member.id),
+    ["korriban", "player-ship", "teehee3"],
+  );
+  assert.equal(
+    scene.points.some((point) => point.id === "teehee3"),
+    false,
+    "the other ship should be selected through the cluster instead of hiding under the observer",
+  );
+  assert.equal(findScenePoint(scene, "teehee3").name, "TeeHee3");
+  assert.equal(findScenePoint(scene, "korriban").kind, "planet");
 });
 
 test("camera reports motion only while it is converging", () => {

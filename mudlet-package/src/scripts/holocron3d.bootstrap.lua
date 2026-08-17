@@ -1,7 +1,7 @@
 lotjHolocron3DPackage = lotjHolocron3DPackage or {}
 
 local Package = lotjHolocron3DPackage
-Package.VERSION = "0.1.7"
+Package.VERSION = "0.1.8"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
 Package.settingsPath = getMudletHomeDir() .. "/holocron3d-settings.txt"

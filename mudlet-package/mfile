@@ -2,7 +2,7 @@
   "package": "Holocron3D",
   "title": "LotJ Holocron 3D",
   "description": "Streams Legends of the Jedi space telemetry to the Holocron3D desktop renderer on Windows and macOS.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "author": "Veska",
   "icon": "",
   "dependencies": "",

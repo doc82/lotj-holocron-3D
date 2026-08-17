@@ -3,7 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("hyperspace planners expose local, galactic, fuel-safety, and escape flows", async () => {
-  const app = await readFile("renderer/src/app/App.tsx", "utf8");
+  const app = [
+    await readFile("renderer/src/app/App.tsx", "utf8"),
+    await readFile("renderer/src/app/WorkspacePanels.tsx", "utf8"),
+  ].join("\n");
+  const controller = await readFile(
+    "renderer/src/features/hyperspace/useHyperspaceController.ts",
+    "utf8",
+  );
   const planner = await readFile("renderer/src/features/hyperspace/HyperspacePlanner.tsx", "utf8");
   const computer = await readFile(
     "renderer/src/features/hyperspace/NavigationComputer.tsx",
@@ -13,25 +20,25 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   const field = await readFile("renderer/src/features/hyperspace/HyperspaceField.tsx", "utf8");
   const scraper = await readFile("mudlet/lotj_holocron_scraper.lua", "utf8");
 
-  assert.match(app, /plot_hyperspace/);
-  assert.match(app, /engage_hyperdrive/);
+  assert.match(controller, /plot_hyperspace/);
+  assert.match(controller, /engage_hyperdrive/);
   assert.match(app, /openHyperspacePlanner/);
-  assert.match(app, /routeScope/);
+  assert.match(controller, /routeScope/);
   assert.match(app, /ROUTE APPLIES TO/);
-  assert.match(app, /activeRoute as unknown as Record<string, unknown>/);
+  assert.match(controller, /activeRoute as unknown as Record<string, unknown>/);
   assert.match(app, /recipientLabel=\{hyperspacePlanner\.routeScope\.recipientLabel/);
   assert.match(planner, /FOR\{" "\}\s*\{recipientLabel\.toUpperCase\(\)\}/);
-  assert.match(app, /escape_hyperspace/);
+  assert.match(controller, /escape_hyperspace/);
   assert.match(app, /HyperspaceTransit/);
-  assert.match(app, /escapePlan\.triggerGalaxy/);
-  assert.match(app, /needsCatalog/);
-  assert.match(app, /needsPosition/);
-  assert.match(app, /command: "navstat"/);
-  assert.match(app, /refreshMissingNavigationData/);
-  assert.match(app, /followupRadar: true/);
-  assert.match(app, /setActiveRoute\(null\)/);
+  assert.match(controller, /escapePlan\.triggerGalaxy/);
+  assert.match(controller, /needsCatalog/);
+  assert.match(controller, /needsPosition/);
+  assert.match(controller, /command: "navstat"/);
+  assert.match(controller, /refreshMissingNavigationData/);
+  assert.match(controller, /followupRadar: true/);
+  assert.match(controller, /setActiveRoute\(null\)/);
   assert.match(app, /\["hyperspace", "reentry"\]\.includes/);
-  assert.match(app, /2_500/);
+  assert.match(controller, /2_500/);
   assert.match(planner, /-50_000/);
   assert.match(planner, /ARM ESCAPE PLAN/);
   assert.doesNotMatch(planner, /mode === "galactic" && <div className=\{styles\.escape\}/);
@@ -67,7 +74,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /galaxyCatalogRequestAt/);
   assert.match(scraper, /another telemetry refresh is active/);
   assert.match(scraper, /must be at a nav computer/);
-  assert.match(app, /navigationRefreshBlocked/);
+  assert.match(controller, /navigationRefreshBlocked/);
   assert.match(scraper, /capture\.followupRadar/);
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);

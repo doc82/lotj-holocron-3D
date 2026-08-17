@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useLatestRef } from "../../hooks/useLatestRef";
+import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
 import { escapeDestinationInRange } from "../../domain/hyperspace";
 import type {
   GalaxyCatalog,
@@ -160,6 +162,8 @@ export function HyperspacePlanner({
   onCancel,
   onPlot,
 }: Props) {
+  const onCancelRef = useLatestRef(onCancel);
+  const scheduleTimeout = useTimeoutRegistry();
   const rangeDataPending = destinations.length === 0;
   const systems = useMemo(() => normalizeCatalog(catalog), [catalog]);
   const catalogPending = mode === "galactic" && systems.length === 0;
@@ -211,7 +215,7 @@ export function HyperspacePlanner({
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") return onCancel();
+      if (event.key === "Escape") return onCancelRef.current();
       const amount = event.shiftKey ? 5_000 : 2_000;
       if (event.key.toLowerCase() === "w")
         setPan((value) => ({ ...value, z: clamp(value.z - amount) }));
@@ -226,7 +230,7 @@ export function HyperspacePlanner({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onCancel]);
+  }, []);
 
   useEffect(() => {
     if (!selectedPlanet) return;
@@ -378,7 +382,7 @@ export function HyperspacePlanner({
                   if (elevationDragRef.current?.pointerId !== event.pointerId) return;
                   elevationDragRef.current = null;
                   setElevationDragging(false);
-                  setTimeout(() => {
+                  scheduleTimeout(() => {
                     suppressMapClickRef.current = false;
                   }, 0);
                 }

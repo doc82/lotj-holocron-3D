@@ -139,7 +139,7 @@ Command sent.]]
     end
     assert(fixture.scraper.finishCapture("fixture"))
 
-    local view = fixture.scraper.state.metadata.tacticalViews.teehee3
+    local view = fixture.scraper.state.metadata.tacticalViews["name:teehee3"]
     assert(view)
     equal(view.memberName, "TeeHee3")
     equal(view.system, "Esstran Sector")
@@ -158,11 +158,25 @@ Command sent.]]
       order = "target",
       scope = "selected",
       memberId = "teehee3",
-      viewpointMemberId = "teehee3",
+      viewpointMemberKey = "name:teehee3",
       targetId = "vsd21",
     }, { id = "remote-target" })
     assert(targeted, targetFailure)
     equal(fixture:lastCommand().command, "battlegroup target TeeHee3 VSD21")
+  end)
+
+  it("uses the requested ship name when remote-view transport ids collide", function()
+    local fleet = battlegroup()
+    fleet.members[1].id = "shared-id"
+    fleet.members[2].id = "shared-id"
+
+    local requested, failure = fixture.intentHandlers.request_tactical_view({
+      memberId = "shared-id",
+      memberName = "ReeHeeHee",
+      memberSlot = 1,
+    }, { id = "duplicate-id-remote-radar" })
+    assert(requested, failure)
+    equal(fixture:lastCommand().command, "battlegroup nav ReeHeeHee radar")
   end)
 
   it("rejects a remote radar wrapper from the wrong wing ship", function()
@@ -178,7 +192,7 @@ Command sent.]]
       )
     )
     equal(fixture.scraper.active, nil)
-    equal(fixture.scraper.state.metadata.tacticalViews.reeheehee, nil)
+    equal(fixture.scraper.state.metadata.tacticalViews["name:reeheehee"], nil)
     equal(fixture.intentAcks[#fixture.intentAcks].status, "rejected")
   end)
 
@@ -378,6 +392,55 @@ Hull: 712/1000 Shields: 400/500
     equal(#fixture.commands, before + 2)
     equal(fixture.commands[before + 1].command, "battlegroup nav ReeHeeHee speed 420")
     equal(fixture.commands[before + 2].command, "battlegroup nav MeeHee speed 420")
+  end)
+
+  it("commands every named selection when transport ids collide", function()
+    local fleet = battlegroup()
+    fleet.members[1].id = "shared-id"
+    fleet.members[2].id = "shared-id"
+    table.insert(fleet.members, {
+      id = "shared-id",
+      name = "MeeHee",
+      leader = false,
+      role = "wing",
+      slot = 2,
+    })
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "speed",
+      scope = "selected",
+      speed = 420,
+      memberIds = { "shared-id", "shared-id" },
+      memberNames = { "ReeHeeHee", "MeeHee" },
+      memberSlots = { 1, 2 },
+    }, { id = "duplicate-id-selected-speed" })
+    assert(ok, failure)
+    equal(#fixture.commands, before + 2)
+    equal(fixture.commands[before + 1].command, "battlegroup nav ReeHeeHee speed 420")
+    equal(fixture.commands[before + 2].command, "battlegroup nav MeeHee speed 420")
+  end)
+
+  it("targets and clears only the named ship when transport ids collide", function()
+    local fleet = battlegroup()
+    fleet.members[1].id = "shared-id"
+    fleet.members[2].id = "shared-id"
+    local before = #fixture.commands
+    local targeted, targetFailure = fixture.intentHandlers.fleet_order({
+      order = "target",
+      scope = "selected",
+      memberIds = { "shared-id" },
+      memberNames = { "ReeHeeHee" },
+      memberSlots = { 1 },
+      targetId = "wayfarer",
+    })
+    assert(targeted, targetFailure)
+    equal(fixture.commands[before + 1].command, "battlegroup target ReeHeeHee Wayfarer")
+
+    local cleared, clearFailure = fixture.intentHandlers.clear_combat_target({
+      targetKeys = { "selected:reeheehee" },
+    })
+    assert(cleared, clearFailure)
+    equal(fixture.commands[before + 2].command, "bg target ReeHeeHee none")
   end)
 
   it("accepts an already-matched fleet speed instead of leaving it awaiting", function()
