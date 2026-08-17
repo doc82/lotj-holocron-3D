@@ -21,6 +21,7 @@ import {
 import { NavigationDrawer } from "../features/commands/NavigationDrawer";
 import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
 import { useNavigationController } from "../features/commands/useNavigationController";
+import { useShipCommandController } from "../features/commands/useShipCommandController";
 import { UplinkNotice } from "../features/connection/UplinkNotice";
 import { FleetCommandPanel } from "../features/fleet/FleetCommandPanel";
 import { FleetRoster } from "../features/fleet/FleetRoster";
@@ -52,7 +53,6 @@ import type {
   SystemSnapshot,
   TelemetryEntity,
   Vector3,
-  WeaponType,
 } from "../types/telemetry";
 
 function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
@@ -253,10 +253,6 @@ export function App() {
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
   const [commandLocked, setCommandLocked] = useState(false);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
-  const pendingIntentIdsRef = useRef(new Set<string>());
-  const autotrackIntentIdsRef = useRef(new Set<string>());
-  const targetIntentShipsRef = useRef(new Map<string, { name: string }>());
-  const targetLockTokenRef = useRef(0);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const {
     alert: commandAlert,
@@ -551,6 +547,35 @@ export function App() {
   const shieldRecharging = telemetry.snapshot?.metadata?.shieldRecharging === true;
   const shieldStatusPending = telemetry.snapshot?.metadata?.shieldStatusPending === true;
   const autoRechargeEnabled = telemetry.snapshot?.metadata?.autoRechargeEnabled !== false;
+  const restoreTarget = useCallback((name: string) => {
+    setDismissedTargetNames((current) => {
+      const key = dispositionKey(name);
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+  const shipCommands = useShipCommandController({
+    connected: telemetry.connected,
+    landed,
+    commandLocked,
+    setCommandLocked,
+    setAlert: setCommandAlert,
+    setNavigationStatus,
+    selectedShip,
+    fleet,
+    fleetScope,
+    selectedFleetMembers,
+    viewpointMemberId,
+    autotrackDesired,
+    autotrackPending,
+    shieldRecharging,
+    shieldsFull,
+    autoRechargeEnabled,
+    restoreTarget,
+    markShipEnemy,
+  });
   const viewpointGalaxy = viewpointMember?.galaxy;
   const hyperspace = useHyperspaceController({
     connected: telemetry.connected,
@@ -669,199 +694,13 @@ export function App() {
   const openShipDossier = dossier.open;
   const changeDossierMode = dossier.changeMode;
 
-  const targetSelectedShip = useCallback(async () => {
-    if (!selectedShip || !telemetry.connected || landed || commandLocked) return;
-    setCommandAlert(`TARGETING ${selectedShip.name.toUpperCase()} // AGGRESSIVE ACT`);
-    const result = await window.holocron?.sendIntent("target_ship", { targetId: selectedShip.id });
-    if (result?.accepted === false) {
-      setCommandAlert(`TARGET ORDER REJECTED // ${result.reason || "UNKNOWN"}`);
-      return;
-    }
-    if (result?.id) {
-      const lockToken = targetLockTokenRef.current + 1;
-      targetLockTokenRef.current = lockToken;
-      setCommandLocked(true);
-      setCommandAlert(`TRACKING ${selectedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`);
-      pendingIntentIdsRef.current.add(result.id);
-      targetIntentShipsRef.current.set(result.id, { name: selectedShip.name });
-      setTimeout(() => {
-        if (targetLockTokenRef.current !== lockToken) return;
-        targetLockTokenRef.current += 1;
-        pendingIntentIdsRef.current.delete(result.id!);
-        targetIntentShipsRef.current.delete(result.id!);
-        setCommandLocked(false);
-        setCommandAlert("TARGET LOCK TIMED OUT // CONTROLS RELEASED");
-      }, 50_000);
-    }
-  }, [commandLocked, landed, selectedShip, telemetry.connected]);
+  const targetSelectedShip = shipCommands.targetSelectedShip;
+  const toggleAutotrack = shipCommands.toggleAutotrack;
+  const fireWeapon = shipCommands.fireWeapon;
 
-  const toggleAutotrack = useCallback(async () => {
-    if (!telemetry.connected || landed || autotrackPending) return;
-    const enabled = !autotrackDesired;
-    setCommandAlert(`AUTOTRACK ${enabled ? "ON" : "OFF"} // AWAITING SHIP CONFIRMATION`);
-    const result = await window.holocron?.sendIntent("set_autotrack", { enabled });
-    if (result?.accepted === false) {
-      setCommandAlert(`AUTOTRACK REJECTED // ${result.reason || "UNKNOWN"}`);
-      return;
-    }
-    if (result?.id) {
-      pendingIntentIdsRef.current.add(result.id);
-      autotrackIntentIdsRef.current.add(result.id);
-      setTimeout(() => {
-        pendingIntentIdsRef.current.delete(result.id!);
-        autotrackIntentIdsRef.current.delete(result.id!);
-      }, 12_000);
-    }
-  }, [autotrackDesired, autotrackPending, landed, telemetry.connected]);
-
-  const fireWeapon = useCallback(
-    async (weapon: WeaponType | "all") => {
-      if (!telemetry.connected || landed) return "weapons controls unavailable";
-      const result = await window.holocron?.sendIntent("fire_weapon", { weapon });
-      return result?.accepted === false ? result.reason || "fire order rejected" : null;
-    },
-    [landed, telemetry.connected],
-  );
-
-  const sendFleetOrder = useCallback(
-    async (order: string, extra: Record<string, unknown> = {}) => {
-      if (
-        !fleet?.active ||
-        fleetScope === "local" ||
-        !telemetry.connected ||
-        landed ||
-        commandLocked
-      )
-        return;
-      const payload: Record<string, unknown> = { order, scope: fleetScope, ...extra };
-      if (fleetScope === "selected") {
-        if (selectedFleetMembers.length === 0) {
-          setCommandAlert("FLEET ORDER REQUIRES AT LEAST ONE SELECTED CRAFT");
-          return;
-        }
-        payload.memberIds = selectedFleetMembers.map((member) => member.id);
-        payload.memberNames = selectedFleetMembers.map((member) => member.name);
-        payload.memberSlots = selectedFleetMembers.flatMap((member) =>
-          member.slot === undefined ? [] : [member.slot],
-        );
-        if (selectedFleetMembers.length === 1) {
-          payload.memberId = selectedFleetMembers[0].id;
-          payload.memberName = selectedFleetMembers[0].name;
-          payload.memberSlot = selectedFleetMembers[0].slot;
-        }
-      }
-      if (viewpointMemberId) payload.viewpointMemberId = viewpointMemberId;
-      if (order === "target") {
-        if (!selectedShip) {
-          setCommandAlert("FLEET TARGET ORDER REQUIRES A SELECTED SHIP");
-          return;
-        }
-        payload.targetId = selectedShip.id;
-      }
-      const formationLabel = fleet.kind === "squadron" ? "SQUADRON" : "FLEET";
-      setCommandAlert(
-        `TRANSMITTING ${order.replaceAll("_", " ").toUpperCase()} // ${formationLabel}`,
-      );
-      const result = await window.holocron?.sendIntent("fleet_order", payload);
-      if (result?.accepted === false) {
-        setCommandAlert(
-          `${formationLabel} ORDER REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`,
-        );
-        return;
-      }
-      if (result?.id) {
-        pendingIntentIdsRef.current.add(result.id);
-        setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 15_000);
-      }
-      setCommandAlert(
-        `${order.replaceAll("_", " ").toUpperCase()} TRANSMITTED // ${formationLabel}`,
-      );
-    },
-    [
-      commandLocked,
-      fleet,
-      fleetScope,
-      landed,
-      selectedFleetMembers,
-      selectedShip,
-      telemetry.connected,
-      viewpointMemberId,
-    ],
-  );
-
-  const rechargeShields = useCallback(async () => {
-    if (!telemetry.connected || landed || commandLocked || shieldRecharging || shieldsFull) return;
-    const result = await window.holocron?.sendIntent("recharge_shields");
-    if (result?.accepted === false) {
-      setCommandAlert(`SHIELD RECHARGE REJECTED // ${(result.reason || "UNKNOWN").toUpperCase()}`);
-      return;
-    }
-    if (result?.id) pendingIntentIdsRef.current.add(result.id);
-  }, [commandLocked, landed, shieldRecharging, shieldsFull, telemetry.connected]);
-
-  const toggleAutoRecharge = useCallback(async () => {
-    const enabled = !autoRechargeEnabled;
-    const result = await window.holocron?.sendIntent("set_auto_recharge", { enabled });
-    if (result?.accepted === false) {
-      setCommandAlert(`AUTO RECHARGE REJECTED // ${(result.reason || "UNKNOWN").toUpperCase()}`);
-    }
-  }, [autoRechargeEnabled]);
-
-  useEffect(
-    () =>
-      window.holocron?.onIntentAck((ack) => {
-        if (!ack.id || !pendingIntentIdsRef.current.has(ack.id)) return;
-        const autotrackIntent = autotrackIntentIdsRef.current.has(ack.id);
-        if (autotrackIntent && ack.status !== "accepted") {
-          pendingIntentIdsRef.current.delete(ack.id);
-          autotrackIntentIdsRef.current.delete(ack.id);
-          setCommandAlert(
-            ack.status === "completed"
-              ? String(ack.reason || "AUTOTRACK UPDATED").toUpperCase()
-              : `AUTOTRACK REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`,
-          );
-          return;
-        }
-        const targetedShip = targetIntentShipsRef.current.get(ack.id);
-        if (ack.status === "accepted" && targetedShip) {
-          setCommandAlert(`TRACKING ${targetedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`);
-          return;
-        }
-        if (ack.status === "completed") {
-          pendingIntentIdsRef.current.delete(ack.id);
-          const completedTarget = targetIntentShipsRef.current.get(ack.id);
-          targetIntentShipsRef.current.delete(ack.id);
-          if (completedTarget) {
-            targetLockTokenRef.current += 1;
-            setDismissedTargetNames((current) => {
-              const key = dispositionKey(completedTarget.name);
-              if (!current.has(key)) return current;
-              const next = new Set(current);
-              next.delete(key);
-              return next;
-            });
-            markShipEnemy(completedTarget.name);
-          }
-          setCommandLocked(false);
-          const completion = String(ack.reason || "COMMAND COMPLETE").toUpperCase();
-          setNavigationStatus(completion);
-          if (completedTarget)
-            setCommandAlert(`${completion} // ${completedTarget.name.toUpperCase()}`);
-          return;
-        }
-        if (ack.status !== "rejected") return;
-        pendingIntentIdsRef.current.delete(ack.id);
-        const rejectedTarget = targetIntentShipsRef.current.get(ack.id);
-        targetIntentShipsRef.current.delete(ack.id);
-        if (rejectedTarget) targetLockTokenRef.current += 1;
-        const message = String(ack.reason || "COMMAND REJECTED").toUpperCase();
-        setCommandAlert(message);
-        setNavigationStatus(message);
-        setCommandLocked(false);
-        setTimeout(() => setCommandAlert(""), 5_000);
-      }),
-    [markShipEnemy],
-  );
+  const sendFleetOrder = shipCommands.sendFleetOrder;
+  const rechargeShields = shipCommands.rechargeShields;
+  const toggleAutoRecharge = shipCommands.toggleAutoRecharge;
 
   if (!spaceTelemetryActive)
     return (

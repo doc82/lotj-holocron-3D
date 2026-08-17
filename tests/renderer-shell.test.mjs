@@ -299,6 +299,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     squadronCommands,
     commandFeedback,
     fleetSelection,
+    shipCommands,
   ] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
@@ -311,6 +312,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     readFile("renderer/src/features/fleet/SquadronCommandPanel.tsx", "utf8"),
     readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
     readFile("renderer/src/features/fleet/useFleetSelection.ts", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
   ]);
   assert.match(app, /styles\.issuerBank/);
   assert.match(app, /styles\.commandBank/);
@@ -355,7 +357,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   assert.match(fleetCommands, /autopilotState/);
   assert.match(fleetCommands, /data-state=\{state\}/);
   assert.match(fleetRoster, /AUTOPILOT \/\/ \{autopilotLabel\}/);
-  assert.match(app, /sendIntent\("fleet_order"/);
+  assert.match(shipCommands, /sendIntent\("fleet_order"/);
   assert.match(fleetCommands, /SYNCHRONIZE TARGET/);
   assert.match(fleetCommands, /RECHARGE SHIELDS/);
   assert.doesNotMatch(fleetCommands, /TOGGLE FIRE ASSIST|AIM ION|SQUADRON MIRRORS/);
@@ -368,7 +370,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     "formation weapons should be the bottom command group, matching the player ship layout",
   );
   assert.match(fleetRoster, /scope === "wings"/);
-  assert.match(app, /payload\.memberIds = selectedFleetMembers\.map/);
+  assert.match(shipCommands, /payload\.memberIds = selectedFleetMembers\.map/);
   assert.match(fleetSelection, /setSelectedMemberIds/);
   assert.match(app, /onToggleMember=\{toggleFleetMember\}/);
   assert.match(app, /aria-label="Select all fleet craft"/);
@@ -482,6 +484,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
     speedControl,
     commandFeedback,
     polling,
+    shipCommands,
   ] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/commands/useNavigationController.ts", "utf8"),
@@ -493,6 +496,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
     readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
     readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
     readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
   ]);
   assert.match(navigation, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
@@ -570,7 +574,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(scraper, /registerIntentHandler\("set_autotrack"/);
   assert.match(scraper, /autotracking%s\+on/);
   assert.match(scraper, /autotracking%s\+off/);
-  assert.match(app, /sendIntent\("set_autotrack"/);
+  assert.match(shipCommands, /sendIntent\("set_autotrack"/);
   assert.match(app, /data-tooltip=\{`AUTOTRACK/);
   assert.match(
     scraper,
@@ -609,10 +613,11 @@ test("player navigation supports vector, target, away, and speed orders", async 
 });
 
 test("selected ships can be manually scanned without waiting for the poller", async () => {
-  const [app, dossierController, dispositions, scraper] = await Promise.all([
+  const [app, dossierController, dispositions, shipCommands, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/telemetry/useShipDossierController.ts", "utf8"),
     readFile("renderer/src/features/telemetry/useShipDispositions.ts", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
   assert.match(dossierController, /sendIntent\("scan_ship"/);
@@ -621,10 +626,10 @@ test("selected ships can be manually scanned without waiting for the poller", as
   assert.match(dossierController, /TELEMETRY UPDATED/);
   assert.match(scraper, /registerIntentHandler\("scan_ship"/);
   assert.match(app, /ACTIONS \/\/ \{commandIssuerLabel\.toUpperCase\(\)\}/);
-  assert.match(app, /sendIntent\("target_ship"/);
+  assert.match(shipCommands, /sendIntent\("target_ship"/);
   assert.match(app, /observerHasNoWeapons\s*\?\s*"This ship has no weapons"/);
   assert.match(app, /TARGET \/\/ WEAPON LOCK IS AN AGGRESSIVE ACT/);
-  assert.match(app, /targetIntentShipsRef/);
+  assert.match(shipCommands, /targetIntentShipsRef/);
   assert.match(scraper, /registerIntentHandler\("target_ship"/);
   assert.match(scraper, /pendingCommandKind == "target"/);
   assert.match(scraper, /tempTrigger\("Target Locked\."/);
@@ -674,19 +679,21 @@ test("fleet and target ships open a shared right-side status and info dossier", 
 });
 
 test("combat exposes installed weapon controls and telemetry-driven projectile effects", async () => {
-  const [app, panel, panelCss, canvas, engine, combatPlan, scraper] = await Promise.all([
-    readFile("renderer/src/app/App.tsx", "utf8"),
-    readFile("renderer/src/features/weapons/WeaponsPanel.tsx", "utf8"),
-    readFile("renderer/src/features/weapons/WeaponsPanel.module.css", "utf8"),
-    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
-    readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
-    readFile("renderer/src/domain/combat.ts", "utf8"),
-    readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
-  ]);
+  const [app, panel, panelCss, canvas, engine, combatPlan, shipCommands, scraper] =
+    await Promise.all([
+      readFile("renderer/src/app/App.tsx", "utf8"),
+      readFile("renderer/src/features/weapons/WeaponsPanel.tsx", "utf8"),
+      readFile("renderer/src/features/weapons/WeaponsPanel.module.css", "utf8"),
+      readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+      readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
+      readFile("renderer/src/domain/combat.ts", "utf8"),
+      readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
+      readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+    ]);
   assert.match(app, /<WeaponsPanel/);
   assert.doesNotMatch(app, /M \/\/ SET COURSE VECTOR/);
   assert.match(app, /combatTargetName \? \(\s*<WeaponsPanel/);
-  assert.match(app, /sendIntent\("fire_weapon"/);
+  assert.match(shipCommands, /sendIntent\("fire_weapon"/);
   assert.match(panel, /FIRE ALL/);
   assert.match(panel, /\{WEAPONS\.map\(\(weapon\) =>/);
   assert.match(panel, /INSTALLATION UNCONFIRMED \/\/ LOTJ WILL VALIDATE/);
@@ -885,12 +892,13 @@ test("polling can be paused from the tactical UI with a prominent stale-telemetr
 });
 
 test("shield automation activates on launch and safely recharges to full", async () => {
-  const [app, scraper] = await Promise.all([
+  const [app, shipCommands, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/commands/useShipCommandController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
-  assert.match(app, /sendIntent\("recharge_shields"/);
-  assert.match(app, /sendIntent\("set_auto_recharge"/);
+  assert.match(shipCommands, /sendIntent\("recharge_shields"/);
+  assert.match(shipCommands, /sendIntent\("set_auto_recharge"/);
   assert.match(app, /SHIELDS AT PEAK POWER/);
   assert.match(app, /AUTO RECHARGE/);
   assert.match(scraper, /send, "shields on", false/);
