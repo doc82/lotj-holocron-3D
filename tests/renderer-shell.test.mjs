@@ -830,13 +830,13 @@ test("scope-owned targets are pinned to a right-side tactical shortcut rail", as
 });
 
 test("reconnecting hydrates missing player telemetry before combat polling", async () => {
-  const [app, scraper] = await Promise.all([
-    readFile("renderer/src/app/App.tsx", "utf8"),
+  const [polling, scraper] = await Promise.all([
+    readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
-  assert.match(app, /sendIntent\("probe_space"\)/);
-  assert.match(app, /scheduleSpaceProbeRetry/);
-  assert.match(app, /reason\.includes\("target lock"\)/);
+  assert.match(polling, /sendIntent\("probe_space"\)/);
+  assert.match(polling, /scheduleProbeRetry/);
+  assert.match(polling, /reason\.includes\("target lock"\)/);
   assert.match(scraper, /hydrationQueue = \{\}/);
   assert.match(scraper, /table\.insert\(queue, "status"\)/);
   assert.match(scraper, /table\.insert\(queue, "info"\)/);
@@ -847,14 +847,15 @@ test("reconnecting hydrates missing player telemetry before combat polling", asy
 });
 
 test("polling can be paused from the tactical UI with a prominent stale-telemetry warning", async () => {
-  const [app, appCss, telemetry, scraper] = await Promise.all([
+  const [app, appCss, polling, telemetry, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
+    readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
     readFile("renderer/src/types/telemetry.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
   assert.match(telemetry, /paused\?: boolean/);
-  assert.match(app, /sendIntent\("set_polling_paused"/);
+  assert.match(polling, /sendIntent\("set_polling_paused"/);
   assert.match(app, /AUTOMATIC COMMAND OUTPUT SUSPENDED/);
   assert.match(app, /POLLING PAUSED/);
   assert.match(appCss, /\.pollingPausedOverlay/);

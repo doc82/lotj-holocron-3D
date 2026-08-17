@@ -32,6 +32,7 @@ import { useCommandFeedback } from "../features/feedback/useCommandFeedback";
 import { HyperspacePlanner, type EscapePlanDraft } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
+import { usePollingController } from "../features/polling/usePollingController";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
 import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
@@ -301,11 +302,9 @@ export function App() {
   const [knownMaximumSpeed, setKnownMaximumSpeed] = useState(0);
   const [navigationStatus, setNavigationStatus] = useState("");
   const [commandLocked, setCommandLocked] = useState(false);
-  const [pollingPausePending, setPollingPausePending] = useState(false);
   const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
   const [manualScanStatus, setManualScanStatus] = useState("");
   const [shipDossier, setShipDossier] = useState<ShipDossierRequest | null>(null);
-  const [spaceProbeAttempt, setSpaceProbeAttempt] = useState(0);
   const [hyperspacePlanner, setHyperspacePlanner] = useState<HyperspacePlannerRequest | null>(null);
   const [navigationRefreshBlocked, setNavigationRefreshBlocked] = useState(false);
   const [activeRoute, setActiveRoute] = useState<HyperspaceRoutePayload | null>(null);
@@ -329,9 +328,6 @@ export function App() {
   const manualScanTargetIdRef = useRef<string | null>(null);
   const navigationLockTokenRef = useRef(0);
   const targetLockTokenRef = useRef(0);
-  const spaceProbeSentRef = useRef(false);
-  const spaceProbeIntentIdsRef = useRef(new Set<string>());
-  const spaceProbeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const escapeTriggeredRef = useRef(false);
   const arrivalRefreshAtRef = useRef<number | null>(null);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
@@ -340,20 +336,13 @@ export function App() {
     toasts: commandToasts,
     setAlert: setCommandAlert,
   } = useCommandFeedback(fleetOrder);
-  const changePollingPause = useCallback(
-    async (paused: boolean) => {
-      if (!telemetry.connected || pollingPausePending) return;
-      setPollingPausePending(true);
-      const result = await window.holocron?.sendIntent("set_polling_paused", { paused });
-      setPollingPausePending(false);
-      if (result?.accepted === false) {
-        setCommandAlert(`POLLING CONTROL REJECTED // ${result.reason || "UNKNOWN"}`);
-        return;
-      }
-      setCommandAlert(paused ? "AUTOMATIC POLLING PAUSED" : "AUTOMATIC POLLING RESUMED");
-    },
-    [pollingPausePending, setCommandAlert, telemetry.connected],
-  );
+  const { pausePending: pollingPausePending, changePause: changePollingPause } =
+    usePollingController({
+      connected: telemetry.connected,
+      paused: pollingPaused,
+      starting,
+      setAlert: setCommandAlert,
+    });
   const fleet = telemetry.snapshot?.metadata?.fleet;
   const viewpointMember = fleet?.members.find((member) => member.id === viewpointMemberId);
   const activeTacticalView = viewpointMemberId
@@ -371,38 +360,6 @@ export function App() {
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
   const finishStartup = useCallback(() => setStarting(false), []);
-
-  const scheduleSpaceProbeRetry = useCallback(() => {
-    if (spaceProbeRetryTimerRef.current) clearTimeout(spaceProbeRetryTimerRef.current);
-    spaceProbeRetryTimerRef.current = setTimeout(() => {
-      spaceProbeRetryTimerRef.current = null;
-      spaceProbeSentRef.current = false;
-      setSpaceProbeAttempt((attempt) => attempt + 1);
-    }, 1_500);
-  }, []);
-
-  useEffect(() => {
-    if (!telemetry.connected) {
-      spaceProbeSentRef.current = false;
-      spaceProbeIntentIdsRef.current.clear();
-      if (spaceProbeRetryTimerRef.current) clearTimeout(spaceProbeRetryTimerRef.current);
-      spaceProbeRetryTimerRef.current = null;
-      return;
-    }
-    if (starting || pollingPaused || spaceProbeSentRef.current) return;
-
-    spaceProbeSentRef.current = true;
-    void window.holocron?.sendIntent("probe_space").then((result) => {
-      if (result?.accepted === false) {
-        scheduleSpaceProbeRetry();
-        return;
-      }
-      if (result?.id) {
-        spaceProbeIntentIdsRef.current.add(result.id);
-        setTimeout(() => spaceProbeIntentIdsRef.current.delete(result.id!), 60_000);
-      }
-    });
-  }, [pollingPaused, scheduleSpaceProbeRetry, spaceProbeAttempt, starting, telemetry.connected]);
 
   const selectContact = useCallback((id: string | null) => {
     if (!id || id === "player-ship") {
@@ -1442,20 +1399,6 @@ export function App() {
           }
           return;
         }
-        if (ack.id && spaceProbeIntentIdsRef.current.has(ack.id)) {
-          if (ack.status === "accepted") return;
-          spaceProbeIntentIdsRef.current.delete(ack.id);
-          const reason = String(ack.reason || "").toLowerCase();
-          if (
-            ack.status === "rejected" &&
-            (reason.includes("target lock") ||
-              reason.includes("another ship command") ||
-              reason.includes("manual telemetry capture"))
-          ) {
-            scheduleSpaceProbeRetry();
-          }
-          return;
-        }
         if (ack.id && hyperspaceEscapeIntentIdsRef.current.has(ack.id)) {
           hyperspaceEscapeIntentIdsRef.current.delete(ack.id);
           if (ack.status === "rejected") {
@@ -1537,7 +1480,7 @@ export function App() {
         setCommandLocked(false);
         setTimeout(() => setCommandAlert(""), 5_000);
       }),
-    [scheduleSpaceProbeRetry],
+    [],
   );
 
   useEffect(() => {
