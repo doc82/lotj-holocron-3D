@@ -2,7 +2,7 @@
 -- Lua 5.1 / Mudlet with spawn() support
 
 local Proxy = {
-  VERSION = "0.1.6",
+  VERSION = "0.1.7",
   PROTOCOL_VERSION = 1,
   MAX_BUFFER_BYTES = 1024 * 1024,
   MAX_LINE_BYTES = 256 * 1024,
@@ -124,7 +124,9 @@ local function sendIntentAck(id, status, reason)
 end
 
 function Proxy.publishIntentAck(id, status, reason)
-  if type(id) ~= "string" or id == "" then return nil, "intent id is required" end
+  if type(id) ~= "string" or id == "" then
+    return nil, "intent id is required"
+  end
   if status ~= "accepted" and status ~= "rejected" and status ~= "completed" then
     return nil, "invalid intent status"
   end
@@ -175,7 +177,10 @@ local function handleIntent(message)
 
   local ok, accepted, reason = pcall(handler, message.payload or {}, message)
   if not ok then
-    diagnostic("error", "intent handler failed for " .. message.action .. ": " .. tostring(accepted))
+    diagnostic(
+      "error",
+      "intent handler failed for " .. message.action .. ": " .. tostring(accepted)
+    )
     sendIntentAck(message.id, "rejected", "local intent handler failed")
     return
   end
@@ -239,11 +244,12 @@ function Proxy.handleMessage(message)
   end
 
   if message.type == "space_state_received" then
-    diagnostic("info", "bridge received space state: "
-      .. (message.inSpace and "in space" or "landed"))
+    diagnostic(
+      "info",
+      "bridge received space state: " .. (message.inSpace and "in space" or "landed")
+    )
     return
   end
-
 
   if message.type == "bridge_diagnostic" then
     diagnostic(tostring(message.level or "info"), tostring(message.message or ""))
@@ -344,7 +350,7 @@ function Proxy.stop()
   end
 
   if Proxy.isRunning() then
-    Proxy.sendMessage({type = "shutdown"})
+    Proxy.sendMessage({ type = "shutdown" })
   end
   if type(Proxy.process.close) == "function" then
     pcall(Proxy.process.close)

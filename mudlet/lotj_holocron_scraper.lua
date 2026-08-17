@@ -8,7 +8,7 @@ local Scraper = {
   -- Radar and observer coordinates are sufficient to derive proximity. Keep
   -- prox parsers for visible/manual commands, but do not spend two captures
   -- per cycle asking LotJ to calculate data we already have.
-  POLL_COMMANDS = {"status", "info"},
+  POLL_COMMANDS = { "status", "info" },
   POLL_COMMAND_GAP_SECONDS = 1,
   POLL_CYCLE_DELAY_SECONDS = 5,
   HOSTILE_SCAN_INTERVAL_SECONDS = 4,
@@ -24,32 +24,75 @@ local Scraper = {
   MIN_HYPERSPACE_CLEARANCE = 500,
   HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS = 15,
   COMBAT_ACTIVITY_WINDOW_SECONDS = 10,
+  COMBAT_FRAGMENT_TIMEOUT_SECONDS = 1.5,
+  DESTRUCTION_TOMBSTONE_SECONDS = 10,
   USER_IDLE_POLL_DELAY_SECONDS = 2.5,
   SHIP_GMCP_STALE_SECONDS = 10,
+  TARGET_RECONCILE_SECONDS = 20,
   eventHandlerIds = {},
   stateTriggerIds = {},
   active = nil,
   proxy = nil,
   state = nil,
   lastCapture = nil,
-  polling = {enabled = false, resumeWhenInSpace = false, index = 1, timerId = nil, dispatching = false,
-    hydrationQueue = {}, lastFleetRadarAt = 0, lastBattlegroupAt = 0,
-    lastSquadronAt = 0, lastAutomaticCommandAt = {}, radarRefreshPending = false,
-    radarRefreshReason = nil, radarRefreshGeneration = 0,
-    radarRefreshIssuedGeneration = 0},
+  polling = {
+    enabled = false,
+    paused = false,
+    pausedAt = nil,
+    pauseReason = nil,
+    resumeWhenInSpace = false,
+    index = 1,
+    timerId = nil,
+    dispatching = false,
+    hydrationQueue = {},
+    lastFleetRadarAt = 0,
+    lastBattlegroupAt = 0,
+    lastSquadronAt = 0,
+    lastAutomaticCommandAt = {},
+    radarRefreshPending = false,
+    radarRefreshReason = nil,
+    radarRefreshGeneration = 0,
+    radarRefreshIssuedGeneration = 0,
+  },
   scanState = {},
   pendingCommandIntentId = nil,
   pendingCommandTimerId = nil,
   pendingCommandKind = nil,
-  combat = {targetName = nil, pendingTargetName = nil, pendingTargetContext = nil,
+  combat = {
+    targetName = nil,
+    pendingTargetName = nil,
+    pendingTargetContext = nil,
+    pendingTargetPreviousName = nil,
+    targetReconcileTimerId = nil,
     nextEventId = 0,
-    lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
-    lastActivityAt = 0, lastLaunchWeapon = nil, lastLaunchTarget = nil,
-    lastLaunchSource = nil, lastLaunchAt = 0, lastImpactWeapon = nil, lastImpactTarget = nil,
-    lastImpactSource = nil, lastImpactAt = 0, projectileReconcileTimerId = nil},
-  shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
-    damageTimerId = nil, actionTimerId = nil, statusPending = false,
-    manualIntentId = nil, activationPending = false},
+    lastFireWeapon = nil,
+    projectileRadarRequestedAt = 0,
+    lastRadarAt = 0,
+    lastActivityAt = 0,
+    lastLaunchWeapon = nil,
+    lastLaunchTarget = nil,
+    lastLaunchSource = nil,
+    lastLaunchAt = 0,
+    lastImpactWeapon = nil,
+    lastImpactTarget = nil,
+    lastImpactSource = nil,
+    lastImpactAt = 0,
+    projectileReconcileTimerId = nil,
+    pendingLine = nil,
+    pendingLineTimerId = nil,
+  },
+  destruction = { nextEventId = 0, destroyedNames = {} },
+  shields = {
+    auto = true,
+    recharging = false,
+    awaiting = false,
+    attempts = 0,
+    damageTimerId = nil,
+    actionTimerId = nil,
+    statusPending = false,
+    manualIntentId = nil,
+    activationPending = false,
+  },
   autotrack = {
     desired = true,
     observed = nil,
@@ -58,14 +101,25 @@ local Scraper = {
     retryCount = 0,
     timeoutTimerId = nil,
   },
-  shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil},
-  hyperspace = {phase = "idle", initiatedByHolocron = false, acknowledgedFuelRisk = false,
-    activeIntentId = nil, statusTimerId = nil, pendingLocalJumpUntil = 0,
-    fleetJumpQueue = {}, nextJumpEventId = 0},
-  fleetCommand = {nextOrderId = 0, currentMemberName = nil,
-    verificationTimerId = nil, holdUntil = 0},
-  projectileTracking = {nextId = 0, tracks = {}},
-  profiler = {enabled = false},
+  shipGmcp = { lastAt = 0, sequence = 0, damageSequence = nil },
+  hyperspace = {
+    phase = "idle",
+    initiatedByHolocron = false,
+    acknowledgedFuelRisk = false,
+    activeIntentId = nil,
+    statusTimerId = nil,
+    pendingLocalJumpUntil = 0,
+    fleetJumpQueue = {},
+    nextJumpEventId = 0,
+  },
+  fleetCommand = {
+    nextOrderId = 0,
+    currentMemberName = nil,
+    verificationTimerId = nil,
+    holdUntil = 0,
+  },
+  projectileTracking = { nextId = 0, tracks = {} },
+  profiler = { enabled = false },
 }
 
 local scheduleNextPoll
@@ -78,6 +132,8 @@ local queueObserverInfo
 local dispatchSpaceProbe
 local recountFleetOrder
 local requestProjectileRadarReconciliation
+local completeTargetLock
+local reconcileTargetFromStatus
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -85,6 +141,15 @@ end
 
 local function normalizedCommand(command)
   return trim(command):lower():gsub("%s+", " ")
+end
+
+local function responseNameMatchesRequest(requestedName, parsedName)
+  local requested = trim(requestedName):lower()
+  local parsed = trim(parsedName):lower()
+  if requested == "" or parsed == "" then
+    return false
+  end
+  return parsed == requested or parsed:sub(1, #requested) == requested
 end
 
 local function automaticCommandRepeatDelay(command, now)
@@ -108,14 +173,24 @@ local function markAutomaticCommandSent(command, now)
 end
 
 local function profileObjectCounts()
-  if type(getProfileStats) ~= "function" then return nil end
+  if type(getProfileStats) ~= "function" then
+    return nil
+  end
   local ok, stats = pcall(getProfileStats)
-  if not ok or type(stats) ~= "table" then return nil end
+  if not ok or type(stats) ~= "table" then
+    return nil
+  end
   local function active(group, child)
     local value = stats[group]
-    if type(value) ~= "table" then return nil end
-    if child then value = value[child] end
-    if type(value) == "table" then value = value.active end
+    if type(value) ~= "table" then
+      return nil
+    end
+    if child then
+      value = value[child]
+    end
+    if type(value) == "table" then
+      value = value.active
+    end
     return tonumber(value)
   end
   return {
@@ -129,22 +204,28 @@ end
 
 local function profileCount(name, amount)
   local profiler = Scraper.profiler
-  if not profiler.enabled then return end
+  if not profiler.enabled then
+    return
+  end
   profiler.counts[name] = (profiler.counts[name] or 0) + (amount or 1)
 end
 
 local function profileCommand(command)
   local profiler = Scraper.profiler
-  if not profiler.enabled then return end
+  if not profiler.enabled then
+    return
+  end
   local normalized = trim(command):lower():gsub("%s+", " ")
   profiler.commands[normalized] = (profiler.commands[normalized] or 0) + 1
 end
 
 local function profileTiming(name, startedAt)
   local profiler = Scraper.profiler
-  if not profiler.enabled or not startedAt then return end
+  if not profiler.enabled or not startedAt then
+    return
+  end
   local elapsed = math.max(0, os.clock() - startedAt)
-  local timing = profiler.timings[name] or {count = 0, totalSeconds = 0, maxSeconds = 0}
+  local timing = profiler.timings[name] or { count = 0, totalSeconds = 0, maxSeconds = 0 }
   timing.count = timing.count + 1
   timing.totalSeconds = timing.totalSeconds + elapsed
   timing.maxSeconds = math.max(timing.maxSeconds, elapsed)
@@ -152,9 +233,13 @@ local function profileTiming(name, startedAt)
 end
 
 local function profileCopy(value)
-  if type(value) ~= "table" then return value end
+  if type(value) ~= "table" then
+    return value
+  end
   local result = {}
-  for key, child in pairs(value) do result[key] = profileCopy(child) end
+  for key, child in pairs(value) do
+    result[key] = profileCopy(child)
+  end
   return result
 end
 
@@ -171,8 +256,10 @@ function Scraper.startProfiler()
 end
 
 function Scraper.getProfilerReport()
-  local profiler = Scraper.profiler or {enabled = false}
-  if not profiler.startedAt then return nil, "the profiler has not been started" end
+  local profiler = Scraper.profiler or { enabled = false }
+  if not profiler.startedAt then
+    return nil, "the profiler has not been started"
+  end
   local report = {
     enabled = profiler.enabled == true,
     elapsedSeconds = math.max(0, os.time() - profiler.startedAt),
@@ -187,7 +274,9 @@ end
 
 function Scraper.stopProfiler()
   local report, reportError = Scraper.getProfilerReport()
-  if not report then return nil, reportError end
+  if not report then
+    return nil, reportError
+  end
   Scraper.profiler.enabled = false
   report.enabled = false
   return report
@@ -196,11 +285,19 @@ end
 local function radarSystemName(value)
   value = trim(value)
   local explicit = value:match("^[Ss]tarsystem:%s*(.-)%s*$")
-  if explicit and explicit ~= "" then return explicit end
-  if value:find(":", 1, true) or not value:match("^[%w][%w%s'%-]+$") then return nil end
+  if explicit and explicit ~= "" then
+    return explicit
+  end
+  if value:find(":", 1, true) or not value:match("^[%w][%w%s'%-]+$") then
+    return nil
+  end
   local lower = value:lower()
-  if lower == "uncharted space" or lower == "unknown space" then return value end
-  if lower:match("%ssector$") or lower:match("%ssystem$") then return value end
+  if lower == "uncharted space" or lower == "unknown space" then
+    return value
+  end
+  if lower:match("%ssector$") or lower:match("%ssystem$") then
+    return value
+  end
   return nil
 end
 
@@ -208,8 +305,10 @@ local function isCommunicationLine(value)
   value = trim(value)
   local parenthesizedChannel = value:match("^%(([%u]+)%)%s")
   local knownParenthesizedChannel = parenthesizedChannel == "OOC"
-    or parenthesizedChannel == "IMM" or parenthesizedChannel == "RPC"
-    or parenthesizedChannel == "NEWBIE" or parenthesizedChannel == "OSAY"
+    or parenthesizedChannel == "IMM"
+    or parenthesizedChannel == "RPC"
+    or parenthesizedChannel == "NEWBIE"
+    or parenthesizedChannel == "OSAY"
   local lower = value:lower()
   return knownParenthesizedChannel
     or value:match("^CommNet%s+%d+%s+%[") ~= nil
@@ -245,16 +344,29 @@ end
 
 local function isAsynchronousVisibleLine(value)
   value = trim(value)
-  if isCommunicationLine(value) then return true end
+  if isCommunicationLine(value) then
+    return true
+  end
   local lower = value:lower()
   return lower:match("^you are hit by ") ~= nil
     or lower:match("^.- fire from .- at you") ~= nil
+    or lower:match("^.- fire from .-'[^']+' hits ") ~= nil
+    or lower:match("^an? .- from .-'[^']+' hits ") ~= nil
+    or lower:match("^.- fire from .-'[^']+' barely misses ") ~= nil
+    or lower:match("^an? .- from .-'[^']+' barely misses ") ~= nil
+    or lower:match("^.-'[^']+' fires an? .- towards? ") ~= nil
+    or lower:find(" explodes in a", 1, true) ~= nil
+    or (Scraper.combat and Scraper.combat.pendingLine ~= nil and (lower == "blinding flash of light!" or lower == "flash of light!" or lower == "of light!" or lower == "light!"))
+    or (Scraper.combat and Scraper.combat.pendingLine ~= nil and (value:match("'[^']+'%.%s*$") ~= nil or value:match(
+      "'[^']+'%.%s*%[x%d+%]%s*$"
+    ) ~= nil))
     or lower:match("^you are being targeted by ") ~= nil
     or lower:match("^you see a large explosion as ") ~= nil
     or lower:match("^%[warning%]:") ~= nil
     or lower:match("^proximity alert:") ~= nil
     or lower == "target locked."
     or lower == "maneuver complete."
+    or lower == "that ship is currently being protected by other ships."
     or lower == "your concentration is broken. you fail to lock on to your target."
 end
 
@@ -264,46 +376,97 @@ local function markResponseStarted(capture)
 end
 
 local STATUS_MARKERS = {
-  "current coordinates:", "current heading:", "current speed:",
-  "lifeforms detected:", "hull:", "shields:", "energy(fuel):",
-  "ship condition:", "autopilot status:", "cloaking device:",
-  "security program:", "comm system:", "autolaunch status:",
-  "selfdestruct status:", "autorecharge status:", "tractor beam condition:",
-  "primary target:", "blasters ready:", "lasers ready:",
-  "turbolasers ready:", "ion cannons ready:", "laser condition:",
-  "ion condition:", "launcher condition:", "missiles:", "total turrets:",
-  "escape pods:", "hangar ",
+  "current coordinates:",
+  "current heading:",
+  "current speed:",
+  "lifeforms detected:",
+  "hull:",
+  "shields:",
+  "energy(fuel):",
+  "ship condition:",
+  "autopilot status:",
+  "cloaking device:",
+  "security program:",
+  "comm system:",
+  "autolaunch status:",
+  "selfdestruct status:",
+  "autorecharge status:",
+  "tractor beam condition:",
+  "primary target:",
+  "blasters ready:",
+  "lasers ready:",
+  "turbolasers ready:",
+  "ion cannons ready:",
+  "laser condition:",
+  "ion condition:",
+  "launcher condition:",
+  "missiles:",
+  "total turrets:",
+  "escape pods:",
+  "hangar ",
 }
 
 local INFO_MARKERS = {
-  "quota:", "owner:", "crew:", "kill markers:", "autoblasters:",
-  "laser cannons:", "turbolasers:", "ion cannons:", "maximum missiles:",
-  "maximum torpedoes:", "maximum rockets:", "maximum pulses:",
-  "maximum chaff:", "missile tubes:", "tractorbeams:", "escape pods:",
-  "max hull:", "max shields:", "max energy(fuel):", "maximum speed:",
-  "hyperspeed:", "maneuver:", "sensor array:", "shield boosters:",
-  "communications:", "cloaking device:", "hatchway:", "hangar bays:",
-  "docking:", "selfdestruct:",
+  "quota:",
+  "owner:",
+  "crew:",
+  "kill markers:",
+  "autoblasters:",
+  "laser cannons:",
+  "turbolasers:",
+  "ion cannons:",
+  "maximum missiles:",
+  "maximum torpedoes:",
+  "maximum rockets:",
+  "maximum pulses:",
+  "maximum chaff:",
+  "missile tubes:",
+  "tractorbeams:",
+  "escape pods:",
+  "max hull:",
+  "max shields:",
+  "max energy(fuel):",
+  "maximum speed:",
+  "hyperspeed:",
+  "maneuver:",
+  "sensor array:",
+  "shield boosters:",
+  "communications:",
+  "cloaking device:",
+  "hatchway:",
+  "hangar bays:",
+  "docking:",
+  "selfdestruct:",
 }
 
 local function containsMarker(lower, markers)
   for _, marker in ipairs(markers) do
-    if lower:find(marker, 1, true) then return true end
+    if lower:find(marker, 1, true) then
+      return true
+    end
   end
   return false
 end
 
 local function captureOwnsLine(capture, value)
   value = trim(value)
-  if isAsynchronousVisibleLine(value) then return false end
+  if isAsynchronousVisibleLine(value) then
+    return false
+  end
   -- Hidden commands commonly begin and end with blank lines. Those blanks are
   -- part of the private response even before its first recognizable heading.
-  if value == "" then return capture.polled == true end
-  if isKnownCaptureFailure(value) then return markResponseStarted(capture) end
+  if value == "" then
+    return capture.polled == true
+  end
+  if isKnownCaptureFailure(value) then
+    return markResponseStarted(capture)
+  end
 
   local lower = value:lower()
   local command = trim(capture.sentCommand):lower():gsub("%s+", " ")
-  if lower == command then return markResponseStarted(capture) end
+  if lower == command then
+    return markResponseStarted(capture)
+  end
 
   if capture.parserCommand == "radar" then
     if isCoordinateRow(value) or radarSystemName(value) ~= nil then
@@ -312,15 +475,23 @@ local function captureOwnsLine(capture, value)
   end
 
   if capture.parserCommand == "prox" or capture.parserCommand == "prox_velocity" then
-    if lower:match("^your%s+coordinates%s*:") then return markResponseStarted(capture) end
-    if lower:match("^proximity") or lower:match("^object%s+")
-        or lower:match("^name%s+") or radarSystemName(value:gsub(":$", "")) then
+    if lower:match("^your%s+coordinates%s*:") then
+      return markResponseStarted(capture)
+    end
+    if
+      lower:match("^proximity")
+      or lower:match("^object%s+")
+      or lower:match("^name%s+")
+      or radarSystemName(value:gsub(":$", ""))
+    then
       return markResponseStarted(capture)
     end
     local owned = value:match("^.-%s+[Pp][Rr][Oo][Xx]%s*:%s*[+-]?[%d,]+%.?%d*%s*$") ~= nil
       or value:match("^.-%s%s+[+-]?[%d,]+%.?%d*%s*$") ~= nil
       or value:match("^.-%s+is%s+now%s+[%d,]+%.?%d*%s+units?%s+away%.?$") ~= nil
-    if owned then return markResponseStarted(capture) end
+    if owned then
+      return markResponseStarted(capture)
+    end
   end
 
   if capture.parserCommand == "status" then
@@ -360,60 +531,87 @@ local function captureOwnsLine(capture, value)
   end
 
   if capture.parserCommand == "fleetradar" then
-    if radarSystemName(value) ~= nil or isCoordinateRow(value)
-        or lower:match("battlegroup:%s*$") then
+    if
+      radarSystemName(value) ~= nil
+      or isCoordinateRow(value)
+      or lower:match("battlegroup:%s*$")
+    then
       return markResponseStarted(capture)
     end
     if lower:find("ship", 1, true) and lower:find("position", 1, true) then
       capture.fleetHeaderSeen = true
       return markResponseStarted(capture)
     end
-    if lower:match("^fleet%s*radar") then return markResponseStarted(capture) end
-    if value:find("|", 1, true) then return markResponseStarted(capture) end
+    if lower:match("^fleet%s*radar") then
+      return markResponseStarted(capture)
+    end
+    if value:find("|", 1, true) then
+      return markResponseStarted(capture)
+    end
     if capture.fleetHeaderSeen == true and value:match("%s%s+") then
       return markResponseStarted(capture)
     end
   end
 
   if capture.parserCommand == "battlegroup" then
-    if value:match("^%[%s*[^%]]-%s*%].-:<*.-[Pp]os:")
-        or (capture.responseStarted and (lower:match("^energy:")
-          or lower:find("battlegroup", 1, true)))
-        or (lower:find("battlegroup", 1, true) and (lower:find("not ", 1, true)
-          or lower:find("no ", 1, true) or lower:find("aren't", 1, true))) then
+    if
+      value:match("^%[%s*[^%]]-%s*%].-:<*.-[Pp]os:")
+      or (capture.responseStarted and (lower:match("^energy:") or lower:find("battlegroup", 1, true)))
+      or (
+        lower:find("battlegroup", 1, true)
+        and (
+          lower:find("not ", 1, true)
+          or lower:find("no ", 1, true)
+          or lower:find("aren't", 1, true)
+        )
+      )
+    then
       return markResponseStarted(capture)
     end
   end
 
   if capture.parserCommand == "squadron status" then
-    if lower:match("^lead:%s+.-'.-'$")
-        or lower:match("^squadron%s+fire%s+assist:")
-        or (capture.responseStarted and (lower:match("^energy:")
-          or value:match("^.-%s+'.-'$")))
-        or (lower:find("squadron", 1, true) and (lower:find("not ", 1, true)
-          or lower:find("no ", 1, true) or lower:find("aren't", 1, true))) then
+    if
+      lower:match("^lead:%s+.-'.-'$")
+      or lower:match("^squadron%s+fire%s+assist:")
+      or (capture.responseStarted and (lower:match("^energy:") or value:match("^.-%s+'.-'$")))
+      or (
+        lower:find("squadron", 1, true)
+        and (
+          lower:find("not ", 1, true)
+          or lower:find("no ", 1, true)
+          or lower:find("aren't", 1, true)
+        )
+      )
+    then
       return markResponseStarted(capture)
     end
   end
 
   if capture.parserCommand == "navstat" then
-    if lower:match("^readout%s+for%s+.-:$")
-        or lower:match("^current%s+coordinates:")
-        or lower:match("^current%s+system:")
-        or lower:match("^current%s+system%s+x/y:")
-        or lower:match("^jump%s+")
-        or lower:find("standard sectors", 1, true) then
+    if
+      lower:match("^readout%s+for%s+.-:$")
+      or lower:match("^current%s+coordinates:")
+      or lower:match("^current%s+system:")
+      or lower:match("^current%s+system%s+x/y:")
+      or lower:match("^jump%s+")
+      or lower:find("standard sectors", 1, true)
+    then
       return markResponseStarted(capture)
     end
   end
 
   if capture.parserCommand == "calculate" then
-    if lower == "possible destinations:"
-        or lower:match("^starsystem%s+parsecs")
-        or lower:match("^calculating%s+hyperspace%s+trajectory:") then
+    if
+      lower == "possible destinations:"
+      or lower:match("^starsystem%s+parsecs")
+      or lower:match("^calculating%s+hyperspace%s+trajectory:")
+    then
       return markResponseStarted(capture)
     end
-    if capture.responseStarted and value:match("%s%s+") then return true end
+    if capture.responseStarted and value:match("%s%s+") then
+      return true
+    end
   end
 
   -- Once a hidden response has positively begun, its prose, decorations,
@@ -425,7 +623,9 @@ end
 local function diagnostic(level, message)
   if Scraper.proxy and type(Scraper.proxy.onDiagnostic) == "function" then
     local ok = pcall(Scraper.proxy.onDiagnostic, level, message)
-    if ok then return end
+    if ok then
+      return
+    end
   end
   if type(debugc) == "function" then
     debugc("[Holocron3D/scraper/" .. level .. "] " .. message)
@@ -433,7 +633,9 @@ local function diagnostic(level, message)
 end
 
 local function safeKill(functionName, id)
-  if not id then return end
+  if not id then
+    return
+  end
   local fn = _G[functionName]
   if type(fn) == "function" then
     pcall(fn, id)
@@ -465,7 +667,7 @@ local function freshState()
     and type(_G.lotj.chat) == "table"
     and type(_G.lotj.systemMap) == "table"
   return {
-    observer = {id = "player-ship", kind = "ship", name = "Player Ship"},
+    observer = { id = "player-ship", kind = "ship", name = "Player Ship" },
     entities = {},
     metadata = {
       sources = {},
@@ -476,16 +678,19 @@ local function freshState()
       shieldRecharging = false,
       shieldRechargeAttempts = 0,
       shieldStatusPending = false,
-      mudletCompatibility = {lotjUiDetected = hasLotjUi},
-      hyperspace = {phase = "idle"},
+      mudletCompatibility = { lotjUiDetected = hasLotjUi },
+      hyperspace = { phase = "idle" },
       formations = {},
+      tacticalViews = {},
       combatTargets = {},
     },
   }
 end
 
 local function rememberCombatTarget(key, targetName, details)
-  if not Scraper.state or not Scraper.state.metadata then return end
+  if not Scraper.state or not Scraper.state.metadata then
+    return
+  end
   local targets = Scraper.state.metadata.combatTargets
   if type(targets) ~= "table" then
     targets = {}
@@ -493,7 +698,9 @@ local function rememberCombatTarget(key, targetName, details)
   end
   key = trim(key):lower()
   targetName = trim(targetName)
-  if key == "" then return end
+  if key == "" then
+    return
+  end
   if targetName == "" or targetName:lower() == "none" then
     targets[key] = nil
     return
@@ -518,13 +725,45 @@ local function findEntity(entity)
   local wantedId = entity.id and tostring(entity.id):lower() or nil
   local wantedName = entity.name and tostring(entity.name):lower() or nil
   for key, current in pairs(Scraper.state.entities) do
-    if (wantedId and tostring(current.id or ""):lower() == wantedId)
-        or (not wantedId and wantedName
-          and tostring(current.name or ""):lower() == wantedName) then
+    if
+      (wantedId and tostring(current.id or ""):lower() == wantedId)
+      or (not wantedId and wantedName and tostring(current.name or ""):lower() == wantedName)
+    then
       return current, key
     end
   end
   return nil
+end
+
+local function findTacticalViewEntity(viewpointMemberId, entity)
+  local wantedView = trim(viewpointMemberId):lower()
+  if wantedView == "" then
+    return nil
+  end
+  local views = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.tacticalViews
+    or {}
+  local view = views[wantedView]
+  if type(view) ~= "table" then
+    return nil
+  end
+  local wantedId = entity.id and tostring(entity.id):lower() or nil
+  local wantedName = entity.name and tostring(entity.name):lower() or nil
+  for _, current in ipairs(view.entities or {}) do
+    if
+      (wantedId and tostring(current.id or ""):lower() == wantedId)
+      or (not wantedId and wantedName and tostring(current.name or ""):lower() == wantedName)
+    then
+      return current
+    end
+  end
+  return nil
+end
+
+local function findPayloadTarget(payload)
+  if trim(payload.viewpointMemberId) ~= "" then
+    return findTacticalViewEntity(payload.viewpointMemberId, { id = trim(payload.targetId) })
+  end
+  return findEntity({ id = trim(payload.targetId) })
 end
 
 local function mergeEntity(entity, preserveIdentity)
@@ -546,15 +785,20 @@ end
 
 local function projectileTrackKey(entity)
   return (tostring(entity.class or "") .. " " .. tostring(entity.name or ""))
-    :lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+    :lower()
+    :gsub("^%s+", "")
+    :gsub("%s+$", "")
+    :gsub("%s+", " ")
 end
 
 local function assignProjectileTrackIds(entities)
-  local tracking = Scraper.projectileTracking or {nextId = 0, tracks = {}}
+  local tracking = Scraper.projectileTracking or { nextId = 0, tracks = {} }
   local previous = tracking.tracks or {}
   local incoming = {}
   for _, entity in ipairs(entities or {}) do
-    if entity.kind == "projectile" then table.insert(incoming, entity) end
+    if entity.kind == "projectile" then
+      table.insert(incoming, entity)
+    end
   end
 
   -- LotJ exposes projectile type and coordinates, but no durable identifier.
@@ -606,7 +850,9 @@ local function assignProjectileTrackIds(entities)
     entity.id = trackId
     nextTracks[trackId] = {
       key = projectileTrackKey(entity),
-      x = x, y = y, z = z,
+      x = x,
+      y = y,
+      z = z,
       vx = old and x - (tonumber(old.x) or x) or 0,
       vy = old and y - (tonumber(old.y) or y) or 0,
       vz = old and z - (tonumber(old.z) or z) or 0,
@@ -616,6 +862,22 @@ local function assignProjectileTrackIds(entities)
   Scraper.projectileTracking = tracking
 end
 
+local function recentlyDestroyed(name)
+  local key = trim(name):lower()
+  if key == "" then
+    return false
+  end
+  local destroyedAt = tonumber(Scraper.destruction.destroyedNames[key])
+  if not destroyedAt then
+    return false
+  end
+  if os.time() - destroyedAt <= Scraper.DESTRUCTION_TOMBSTONE_SECONDS then
+    return true
+  end
+  Scraper.destruction.destroyedNames[key] = nil
+  return false
+end
+
 local function replaceRadarEntities(entities)
   assignProjectileTrackIds(entities)
   local previous = Scraper.state.entities
@@ -623,15 +885,19 @@ local function replaceRadarEntities(entities)
   Scraper.state.entities = previous
 
   for _, entity in ipairs(entities) do
-    local old = findEntity(entity)
-    local stored = copyTable(entity)
-    if old then mergeMissing(stored, old) end
-    if not old then
-      -- A contact that has newly appeared (or re-entered after disappearing)
-      -- must not inherit stale scan timestamps from an earlier radar pass.
-      Scraper.scanState[entityKey(stored)] = nil
+    if not recentlyDestroyed(entity.name) then
+      local old = findEntity(entity)
+      local stored = copyTable(entity)
+      if old then
+        mergeMissing(stored, old)
+      end
+      if not old then
+        -- A contact that has newly appeared (or re-entered after disappearing)
+        -- must not inherit stale scan timestamps from an earlier radar pass.
+        Scraper.scanState[entityKey(stored)] = nil
+      end
+      replacement[entityKey(stored)] = stored
     end
-    replacement[entityKey(stored)] = stored
   end
 
   Scraper.state.entities = replacement
@@ -649,25 +915,31 @@ local function arrayOfEntities()
 end
 
 local function refreshDerivedDistances()
-  if not Scraper.state then return end
+  if not Scraper.state then
+    return
+  end
   local observer = Scraper.state.observer or {}
   local ox, oy, oz = tonumber(observer.x), tonumber(observer.y), tonumber(observer.z)
-  if not ox or not oy or not oz then return end
+  if not ox or not oy or not oz then
+    return
+  end
   for _, entity in pairs(Scraper.state.entities or {}) do
     local x, y, z = tonumber(entity.x), tonumber(entity.y), tonumber(entity.z)
     if x and y and z then
-      entity.distance = math.floor(math.sqrt(
-        (x - ox) ^ 2 + (y - oy) ^ 2 + (z - oz) ^ 2
-      ) + 0.5)
+      entity.distance = math.floor(math.sqrt((x - ox) ^ 2 + (y - oy) ^ 2 + (z - oz) ^ 2) + 0.5)
     end
   end
 end
 
 local function checkHyperspaceClearance()
-  if not Scraper.state then return false, "fresh radar clearance is required" end
+  if not Scraper.state then
+    return false, "fresh radar clearance is required"
+  end
   local observer = Scraper.state.observer or {}
   local ox, oy, oz = tonumber(observer.x), tonumber(observer.y), tonumber(observer.z)
-  if not ox or not oy or not oz then return false, "observer coordinates are unavailable" end
+  if not ox or not oy or not oz then
+    return false, "observer coordinates are unavailable"
+  end
   local sources = Scraper.state.metadata and Scraper.state.metadata.sources or {}
   local spatialAt = math.max(tonumber(sources.radar) or 0, tonumber(sources.fleetradar) or 0)
   if spatialAt <= 0 or os.time() - spatialAt > Scraper.HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS then
@@ -676,8 +948,12 @@ local function checkHyperspaceClearance()
 
   local nearest, nearestName
   for _, entity in pairs(Scraper.state.entities or {}) do
-    if entity.kind == "ship" or entity.kind == "planet"
-        or entity.kind == "celestial" or entity.kind == "star" then
+    if
+      entity.kind == "ship"
+      or entity.kind == "planet"
+      or entity.kind == "celestial"
+      or entity.kind == "star"
+    then
       local x, y, z = tonumber(entity.x), tonumber(entity.y), tonumber(entity.z)
       if x and y and z and entity.id ~= "player-ship" then
         local distance = math.sqrt((x - ox) ^ 2 + (y - oy) ^ 2 + (z - oz) ^ 2)
@@ -688,27 +964,30 @@ local function checkHyperspaceClearance()
     end
   end
   if nearest and nearest < Scraper.MIN_HYPERSPACE_CLEARANCE then
-    return false, string.format("%s is only %d units away; 500 units are required",
-      tostring(nearestName or "an object"), math.floor(nearest + 0.5))
+    return false,
+      string.format(
+        "%s is only %d units away; 500 units are required",
+        tostring(nearestName or "an object"),
+        math.floor(nearest + 0.5)
+      )
   end
   return true
 end
 
 local function refreshFormationRoles()
   local metadata = Scraper.state and Scraper.state.metadata or {}
-  local observerName = trim(Scraper.state and Scraper.state.observer
-    and Scraper.state.observer.name):lower()
+  local observerName =
+    trim(Scraper.state and Scraper.state.observer and Scraper.state.observer.name):lower()
   for kind, fleet in pairs(metadata.formations or {}) do
     if type(fleet) == "table" then
       fleet.role = nil
       for _, member in ipairs(fleet.members or {}) do
         if trim(member.name):lower() == observerName then
           if kind == "battlegroup" then
-            fleet.role = (member.leader == true or member.role == "leader")
-              and "commander" or "member"
+            fleet.role = (member.leader == true or member.role == "leader") and "commander"
+              or "member"
           else
-            fleet.role = (member.leader == true or member.role == "lead")
-              and "lead" or "wing"
+            fleet.role = (member.leader == true or member.role == "lead") and "lead" or "wing"
           end
           break
         end
@@ -716,24 +995,30 @@ local function refreshFormationRoles()
     end
   end
   local active = metadata.fleet
-  local canonical = type(active) == "table" and metadata.formations
+  local canonical = type(active) == "table"
+    and metadata.formations
     and metadata.formations[active.kind]
-  if canonical then metadata.fleet = canonical end
+  if canonical then
+    metadata.fleet = canonical
+  end
 end
 
 local function mergeFormationMemberTelemetry(name, result)
   local wanted = trim(name):lower()
-  if wanted == "" then return end
+  if wanted == "" then
+    return
+  end
   local visited = {}
   local metadata = Scraper.state and Scraper.state.metadata or {}
   local function updateFleet(fleet)
-    if type(fleet) ~= "table" or visited[fleet] then return end
+    if type(fleet) ~= "table" or visited[fleet] then
+      return
+    end
     visited[fleet] = true
     for _, member in ipairs(fleet.members or {}) do
       if trim(member.name):lower() == wanted then
         for key, value in pairs(result or {}) do
-          if key ~= "source" and key ~= "recognizedLines" and key ~= "id"
-              and value ~= nil then
+          if key ~= "source" and key ~= "recognizedLines" and key ~= "id" and value ~= nil then
             member[key] = type(value) == "table" and copyTable(value) or value
           end
         end
@@ -741,17 +1026,25 @@ local function mergeFormationMemberTelemetry(name, result)
     end
   end
   updateFleet(metadata.fleet)
-  for _, fleet in pairs(metadata.formations or {}) do updateFleet(fleet) end
+  for _, fleet in pairs(metadata.formations or {}) do
+    updateFleet(fleet)
+  end
 end
 
 local function applyStatus(result, sentCommand)
   local isObserver = trim(sentCommand):lower() == "status"
   local requestedName = trim(sentCommand):match("^%S+%s+(.+)$")
   local parsedName = trim(result.name)
-  if not isObserver and requestedName
-      and (parsedName == "" or parsedName:lower() ~= trim(requestedName):lower()) then
-    return false, "status response identity mismatch; expected " .. requestedName
-      .. " but received " .. (parsedName ~= "" and parsedName or "an unnamed ship")
+  if
+    not isObserver
+    and requestedName
+    and not responseNameMatchesRequest(requestedName, parsedName)
+  then
+    return false,
+      "status response identity mismatch; expected "
+        .. requestedName
+        .. " but received "
+        .. (parsedName ~= "" and parsedName or "an unnamed ship")
   end
   local destination
   if isObserver then
@@ -769,7 +1062,9 @@ local function applyStatus(result, sentCommand)
       destination[key] = type(value) == "table" and copyTable(value) or value
     end
   end
-  if result.id and not isObserver then destination.id = result.id end
+  if result.id and not isObserver then
+    destination.id = result.id
+  end
   if result.coordinates then
     destination.x = result.coordinates.x
     destination.y = result.coordinates.y
@@ -788,10 +1083,11 @@ local function applyStatus(result, sentCommand)
       end
     end
     updateFleet(metadata.fleet)
-    for _, fleet in pairs(metadata.formations or {}) do updateFleet(fleet) end
+    for _, fleet in pairs(metadata.formations or {}) do
+      updateFleet(fleet)
+    end
     local order = metadata.fleetOrder
-    if type(order) == "table" and order.order == "autopilot"
-        and type(order.results) == "table" then
+    if type(order) == "table" and order.order == "autopilot" and type(order.results) == "table" then
       for name, memberResult in pairs(order.results) do
         if trim(name):lower() == memberName then
           memberResult.status = "accepted"
@@ -800,22 +1096,34 @@ local function applyStatus(result, sentCommand)
           memberResult.observedAt = os.time()
         end
       end
-      if recountFleetOrder then recountFleetOrder(order) end
+      if recountFleetOrder then
+        recountFleetOrder(order)
+      end
     end
   end
   mergeFormationMemberTelemetry(result.name or destination.name, result)
   if isObserver and result.target then
     local target = trim(result.target)
-    Scraper.combat.targetName = target:lower() == "none" and nil or target
+    target = target:lower() == "none" and target or target:match("'([^']+)'") or target
+    if target:lower() == "none" then
+      Scraper.combat.targetName = nil
+    else
+      Scraper.combat.targetName = target
+    end
     Scraper.state.metadata.combatTarget = Scraper.combat.targetName
     rememberCombatTarget("local", target, {
-      scope = "local", ownerId = "player-ship",
+      scope = "local",
+      ownerId = "player-ship",
       ownerName = trim(Scraper.state.observer and Scraper.state.observer.name),
       ownerLabel = "YOUR SHIP'S TARGET",
     })
   end
-  if isObserver and result.name then refreshFormationRoles() end
-  if isObserver and clearObserverHydration then clearObserverHydration("status") end
+  if isObserver and result.name then
+    refreshFormationRoles()
+  end
+  if isObserver and clearObserverHydration then
+    clearObserverHydration("status")
+  end
   return true
 end
 
@@ -824,29 +1132,42 @@ local function applyInfo(result, sentCommand)
   local requestedName = trim(sentCommand):match("^%S+%s+(.+)$")
   local parsedName = trim(result.name)
   local observerName = trim(Scraper.state.observer and Scraper.state.observer.name)
-  if requestedName and parsedName:lower() ~= trim(requestedName):lower() then
-    return false, "info response identity mismatch; expected " .. requestedName
-      .. " but received " .. (parsedName ~= "" and parsedName or "an unnamed ship")
+  if requestedName and not responseNameMatchesRequest(requestedName, parsedName) then
+    return false,
+      "info response identity mismatch; expected "
+        .. requestedName
+        .. " but received "
+        .. (parsedName ~= "" and parsedName or "an unnamed ship")
   end
-  if isObserver and observerName ~= "" and observerName:lower() ~= "player ship"
-      and parsedName:lower() ~= observerName:lower() then
-    return false, "info response identity mismatch; expected " .. observerName
-      .. " but received " .. (parsedName ~= "" and parsedName or "an unnamed ship")
+  if
+    isObserver
+    and observerName ~= ""
+    and observerName:lower() ~= "player ship"
+    and parsedName:lower() ~= observerName:lower()
+  then
+    return false,
+      "info response identity mismatch; expected "
+        .. observerName
+        .. " but received "
+        .. (parsedName ~= "" and parsedName or "an unnamed ship")
   end
   local scannedName = parsedName ~= "" and parsedName or requestedName
-  local destination = isObserver and Scraper.state.observer or findEntity({name = scannedName})
+  local destination = isObserver and Scraper.state.observer or findEntity({ name = scannedName })
   if not destination and not isObserver then
-    destination = mergeEntity({id = result.id, name = scannedName, kind = "ship"})
+    destination = mergeEntity({ id = result.id, name = scannedName, kind = "ship" })
   end
-  if not destination then return false, "validated info response has no matching telemetry entity" end
+  if not destination then
+    return false, "validated info response has no matching telemetry entity"
+  end
   for key, value in pairs(result) do
-    if key ~= "source" and key ~= "recognizedLines" and key ~= "id"
-        and value ~= nil then
+    if key ~= "source" and key ~= "recognizedLines" and key ~= "id" and value ~= nil then
       destination[key] = type(value) == "table" and copyTable(value) or value
     end
   end
   mergeFormationMemberTelemetry(result.name or destination.name, result)
-  if isObserver and clearObserverHydration then clearObserverHydration("info") end
+  if isObserver and clearObserverHydration then
+    clearObserverHydration("info")
+  end
   return true
 end
 
@@ -862,7 +1183,8 @@ function Scraper.applyResult(result, sentCommand)
   if source == "radar" then
     Scraper.combat.lastRadarAt = os.time()
     local fullRadar = normalizedCommand(sentCommand) == "radar"
-    local refreshSatisfied = fullRadar and Scraper.polling.radarRefreshPending == true
+    local refreshSatisfied = fullRadar
+      and Scraper.polling.radarRefreshPending == true
       and tonumber(Scraper.polling.radarRefreshIssuedGeneration or 0)
         >= tonumber(Scraper.polling.radarRefreshGeneration or 0)
     if refreshSatisfied then
@@ -871,35 +1193,60 @@ function Scraper.applyResult(result, sentCommand)
       Scraper.state.metadata.radarRefreshPending = false
       Scraper.state.metadata.radarRefreshReason = nil
     end
-    if result.system then Scraper.state.metadata.system = result.system end
+    if result.system then
+      Scraper.state.metadata.system = result.system
+    end
     if result.observer then
       Scraper.state.observer.x = result.observer.x
       Scraper.state.observer.y = result.observer.y
       Scraper.state.observer.z = result.observer.z
     end
     replaceRadarEntities(result.entities or {})
+    for _, entity in ipairs(result.entities or {}) do
+      mergeFormationMemberTelemetry(entity.name, entity)
+    end
   elseif source == "status" then
     local applied, applyError = applyStatus(result, sentCommand)
-    if not applied then return nil, applyError end
+    if not applied then
+      return nil, applyError
+    end
   elseif source == "info" then
     local applied, applyError = applyInfo(result, sentCommand)
-    if not applied then return nil, applyError end
+    if not applied then
+      return nil, applyError
+    end
   elseif source == "navstat" then
     if result.coordinates then
       Scraper.state.observer.x, Scraper.state.observer.y, Scraper.state.observer.z =
         result.coordinates.x, result.coordinates.y, result.coordinates.z
     end
-    if result.heading then Scraper.state.observer.heading = copyTable(result.heading) end
-    if result.speed then Scraper.state.observer.speed = copyTable(result.speed) end
-    if result.system then Scraper.state.metadata.system = result.system end
+    if result.heading then
+      Scraper.state.observer.heading = copyTable(result.heading)
+    end
+    if result.speed then
+      Scraper.state.observer.speed = copyTable(result.speed)
+    end
+    if result.system then
+      Scraper.state.metadata.system = result.system
+    end
     Scraper.state.metadata.navigation = Scraper.state.metadata.navigation or {}
-    if Scraper.state.metadata.hyperspace
-        and Scraper.state.metadata.hyperspace.phase == "arrived" then
+    if
+      Scraper.state.metadata.hyperspace
+      and Scraper.state.metadata.hyperspace.phase == "arrived"
+    then
       Scraper.state.metadata.navigation.arrivalRefreshedAt = os.time()
     end
-    for _, key in ipairs({"galaxy", "jumpSystem", "jumpDistanceParsecs", "jumpTime",
-        "jumpTimeSeconds", "standardSectorsAvailable"}) do
-      if result[key] ~= nil then Scraper.state.metadata.navigation[key] = copyTable(result[key]) end
+    for _, key in ipairs({
+      "galaxy",
+      "jumpSystem",
+      "jumpDistanceParsecs",
+      "jumpTime",
+      "jumpTimeSeconds",
+      "standardSectorsAvailable",
+    }) do
+      if result[key] ~= nil then
+        Scraper.state.metadata.navigation[key] = copyTable(result[key])
+      end
     end
   elseif source == "calculate" then
     Scraper.state.metadata.navigation = Scraper.state.metadata.navigation or {}
@@ -913,7 +1260,7 @@ function Scraper.applyResult(result, sentCommand)
     end
   elseif source == "battlegroup" or source == "squadron" then
     Scraper.state.metadata.formations = Scraper.state.metadata.formations or {}
-    local fleet = copyTable(result.fleet or {kind = source, active = false, members = {}})
+    local fleet = copyTable(result.fleet or { kind = source, active = false, members = {} })
     local previous = Scraper.state.metadata.formations[source]
     for _, member in ipairs(fleet.members or {}) do
       for _, oldMember in ipairs(type(previous) == "table" and previous.members or {}) do
@@ -922,8 +1269,10 @@ function Scraper.applyResult(result, sentCommand)
           break
         end
       end
-      local entity = findEntity({name = member.name})
-      if entity then mergeMissing(member, entity) end
+      local entity = findEntity({ name = member.name })
+      if entity then
+        mergeMissing(member, entity)
+      end
     end
     fleet.observedAt = os.time()
     Scraper.state.metadata.formations[source] = fleet
@@ -931,16 +1280,19 @@ function Scraper.applyResult(result, sentCommand)
     local otherFleet = Scraper.state.metadata.formations[other]
     if fleet.active == true then
       Scraper.state.metadata.fleet = fleet
-    elseif Scraper.state.metadata.fleet
-        and Scraper.state.metadata.fleet.kind == source then
-      Scraper.state.metadata.fleet = otherFleet and otherFleet.active == true
-        and copyTable(otherFleet) or nil
+    elseif Scraper.state.metadata.fleet and Scraper.state.metadata.fleet.kind == source then
+      Scraper.state.metadata.fleet = otherFleet
+          and otherFleet.active == true
+          and copyTable(otherFleet)
+        or nil
     end
     refreshFormationRoles()
   else
     if source == "fleetradar" then
       Scraper.polling.lastFleetRadarAt = os.time()
-      if result.system then Scraper.state.metadata.system = result.system end
+      if result.system then
+        Scraper.state.metadata.system = result.system
+      end
     end
     if result.observer then
       Scraper.state.observer.x = result.observer.x
@@ -948,22 +1300,34 @@ function Scraper.applyResult(result, sentCommand)
       Scraper.state.observer.z = result.observer.z
     end
     for _, entity in ipairs(result.entities or {}) do
-      local isObserver = entity.name and Scraper.state.observer.name
+      local isObserver = entity.name
+        and Scraper.state.observer.name
         and entity.name:lower() == Scraper.state.observer.name:lower()
       if source == "fleetradar" and isObserver then
         for key, value in pairs(entity) do
-          if key ~= "id" and key ~= "name" and key ~= "class" and key ~= "kind"
-              and value ~= nil then
-            if key == "speed" and type(Scraper.state.observer.speed) == "table"
-                and type(value) == "number" then
+          if
+            key ~= "id"
+            and key ~= "name"
+            and key ~= "class"
+            and key ~= "kind"
+            and value ~= nil
+          then
+            if
+              key == "speed"
+              and type(Scraper.state.observer.speed) == "table"
+              and type(value) == "number"
+            then
               Scraper.state.observer.speed.current = value
             else
               Scraper.state.observer[key] = type(value) == "table" and copyTable(value) or value
             end
           end
         end
-      else
+      elseif not recentlyDestroyed(entity.name) then
         mergeEntity(entity, source == "prox" or source == "prox_velocity")
+        if source == "fleetradar" then
+          mergeFormationMemberTelemetry(entity.name, entity)
+        end
       end
     end
   end
@@ -974,10 +1338,75 @@ function Scraper.applyResult(result, sentCommand)
   return true
 end
 
+local function applyRemoteRadarResult(result, capture)
+  if type(result) ~= "table" or result.source ~= "radar" then
+    return nil, "a remote tactical view requires radar telemetry"
+  end
+  local memberId = trim(capture.remoteViewMemberId):lower()
+  local memberName = trim(capture.remoteViewMemberName)
+  if memberId == "" or memberName == "" then
+    return nil, "remote tactical view capture is missing its formation member"
+  end
+  local responseName = trim(capture.remoteResponseMemberName)
+  if responseName ~= "" and responseName:lower() ~= memberName:lower() then
+    return nil, "remote radar response belonged to " .. responseName .. " instead of " .. memberName
+  end
+  if type(result.observer) ~= "table" then
+    return nil, "remote radar did not report observer coordinates"
+  end
+
+  local metadata = Scraper.state.metadata or {}
+  metadata.tacticalViews = metadata.tacticalViews or {}
+  Scraper.state.metadata = metadata
+  local previous = metadata.tacticalViews[memberId]
+  local observer = copyTable(capture.remoteViewMember or {})
+  if type(previous) == "table" and type(previous.observer) == "table" then
+    mergeMissing(observer, previous.observer)
+  end
+  observer.id = memberId
+  observer.name = memberName
+  observer.kind = "ship"
+  observer.x = result.observer.x
+  observer.y = result.observer.y
+  observer.z = result.observer.z
+
+  local previousEntities = {}
+  for _, entity in ipairs(type(previous) == "table" and previous.entities or {}) do
+    previousEntities[tostring(entity.id or entity.name or ""):lower()] = entity
+  end
+  local entities = {}
+  for _, entity in ipairs(result.entities or {}) do
+    if not recentlyDestroyed(entity.name) then
+      local stored = copyTable(entity)
+      local old = previousEntities[tostring(stored.id or stored.name or ""):lower()]
+      if old then
+        mergeMissing(stored, old)
+      end
+      table.insert(entities, stored)
+    end
+  end
+
+  metadata.tacticalViews[memberId] = {
+    memberId = memberId,
+    memberName = memberName,
+    memberSlot = capture.remoteViewMemberSlot,
+    system = result.system or observer.system,
+    observedAt = os.time(),
+    observer = observer,
+    entities = entities,
+    stale = false,
+  }
+  metadata.lastRemoteViewMemberId = memberId
+  metadata.lastRemoteViewObservedAt = os.time()
+  return true
+end
+
 function Scraper.publish()
   local profiling = Scraper.profiler.enabled == true
   local profileStarted = profiling and os.clock() or nil
-  if profiling then profileCount("snapshotPublishes") end
+  if profiling then
+    profileCount("snapshotPublishes")
+  end
   if not Scraper.proxy or type(Scraper.proxy.publishSnapshot) ~= "function" then
     if profiling then
       profileCount("snapshotFailures")
@@ -991,7 +1420,9 @@ function Scraper.publish()
     copyTable(Scraper.state.metadata)
   )
   if profiling then
-    if not published then profileCount("snapshotFailures") end
+    if not published then
+      profileCount("snapshotFailures")
+    end
     profileTiming("publish", profileStarted)
   end
   return published, publishError
@@ -1008,14 +1439,16 @@ end
 
 local function captureRecordLines(capture)
   if capture.parserCommand == "info" then
-    return {"[info output redacted from capture diagnostics; structured card telemetry retained]"}
+    return { "[info output redacted from capture diagnostics; structured card telemetry retained]" }
   end
   return copyTable(capture.lines)
 end
 
 local function abandonCapture(reason)
   local capture = Scraper.active
-  if not capture then return end
+  if not capture then
+    return
+  end
   Scraper.active = nil
   clearCaptureHandles(capture)
   profileCount("capturesAbandoned")
@@ -1042,7 +1475,9 @@ end
 clearObserverHydration = function(source)
   local queue = Scraper.polling.hydrationQueue or {}
   for index = #queue, 1, -1 do
-    if queue[index] == source then table.remove(queue, index) end
+    if queue[index] == source then
+      table.remove(queue, index)
+    end
   end
   Scraper.polling.hydrationQueue = queue
   if Scraper.state and Scraper.state.metadata.polling then
@@ -1056,24 +1491,35 @@ queueObserverHydration = function()
   local hasStatus = observer.speed ~= nil
     and (observer.hull ~= nil or observer.shields ~= nil or observer.condition ~= nil)
   local hasInfo = type(observer.weapons) == "table"
-    and observer.hasWeapons ~= nil and observer.shipCategory ~= nil
-  if not hasStatus then table.insert(queue, "status") end
-  if not hasInfo then table.insert(queue, "info") end
+    and observer.hasWeapons ~= nil
+    and observer.shipCategory ~= nil
+  if not hasStatus then
+    table.insert(queue, "status")
+  end
+  if not hasInfo then
+    table.insert(queue, "info")
+  end
   Scraper.polling.hydrationQueue = queue
 end
 
 queueObserverInfo = function()
   local queue = Scraper.polling.hydrationQueue or {}
   for index = #queue, 1, -1 do
-    if queue[index] == "info" then table.remove(queue, index) end
+    if queue[index] == "info" then
+      table.remove(queue, index)
+    end
   end
   table.insert(queue, 1, "info")
   Scraper.polling.hydrationQueue = queue
   if Scraper.state and Scraper.state.metadata.polling then
     Scraper.state.metadata.polling.hydratingObserver = true
   end
-  if Scraper.polling.enabled and Scraper.state
-      and Scraper.state.metadata.inSpace == true and scheduleNextPoll then
+  if
+    Scraper.polling.enabled
+    and Scraper.state
+    and Scraper.state.metadata.inSpace == true
+    and scheduleNextPoll
+  then
     scheduleNextPoll(0.1)
   end
 end
@@ -1087,7 +1533,9 @@ function Scraper.setInSpace(inSpace, reason)
   Scraper.state.metadata.spaceStateChangedAt = os.time()
 
   if not inSpace then
-    if Scraper.polling.enabled then Scraper.polling.resumeWhenInSpace = true end
+    if Scraper.polling.enabled then
+      Scraper.polling.resumeWhenInSpace = true
+    end
     Scraper.polling.enabled = false
     abandonCapture(reason or "not in space")
     cancelPollTimer()
@@ -1107,9 +1555,14 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.state.metadata.combatTargets = {}
     Scraper.state.metadata.combatEvent = nil
     Scraper.state.metadata.combatEvents = nil
+    Scraper.state.metadata.shipDestructionEvents = nil
+    Scraper.destruction = { nextEventId = 0, destroyedNames = {} }
     Scraper.combat.targetName = nil
     Scraper.combat.pendingTargetName = nil
     Scraper.combat.pendingTargetContext = nil
+    Scraper.combat.pendingTargetPreviousName = nil
+    safeKill("killTimer", Scraper.combat.targetReconcileTimerId)
+    Scraper.combat.targetReconcileTimerId = nil
     Scraper.combat.lastActivityAt = 0
     Scraper.combat.lastRadarAt = 0
     Scraper.polling.lastFleetRadarAt = 0
@@ -1123,6 +1576,7 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.state.metadata.radarRefreshReason = nil
     Scraper.state.metadata.formations = {}
     Scraper.state.metadata.fleet = nil
+    Scraper.state.metadata.tacticalViews = {}
     Scraper.combat.lastLaunchWeapon = nil
     Scraper.combat.lastLaunchTarget = nil
     Scraper.combat.lastLaunchSource = nil
@@ -1150,35 +1604,44 @@ function Scraper.setInSpace(inSpace, reason)
       Scraper.polling.enabled = true
       Scraper.polling.resumeWhenInSpace = false
     end
-    if Scraper.polling.enabled and scheduleNextPoll then scheduleNextPoll(0.25) end
+    if Scraper.polling.enabled and scheduleNextPoll then
+      scheduleNextPoll(0.25)
+    end
   end
 
   if Scraper.state.metadata.polling then
     Scraper.state.metadata.polling.enabled = Scraper.polling.enabled
-    Scraper.state.metadata.polling.active = Scraper.polling.enabled and inSpace
+    Scraper.state.metadata.polling.active = Scraper.polling.enabled
+      and not Scraper.polling.paused
+      and inSpace
   end
 
-  if not changed then return true end
+  if not changed then
+    return true
+  end
 
   if Scraper.proxy and type(Scraper.proxy.publishSpaceState) == "function" then
     local sent, sendError = Scraper.proxy.publishSpaceState(inSpace, reason)
     if not sent then
-      diagnostic("warn", "could not notify the bridge about space state: "
-        .. tostring(sendError))
+      diagnostic("warn", "could not notify the bridge about space state: " .. tostring(sendError))
     end
   end
 
   if not inSpace and Scraper.proxy and type(Scraper.proxy.publishSnapshot) == "function" then
     local sent, sendError = Scraper.publish()
     if not sent then
-      diagnostic("warn", "could not clear the bridge snapshot after landing: "
-        .. tostring(sendError))
+      diagnostic(
+        "warn",
+        "could not clear the bridge snapshot after landing: " .. tostring(sendError)
+      )
     end
   end
 
-  diagnostic("info", inSpace
-    and ("space scraping enabled: " .. tostring(reason or "ship launched"))
-    or ("space scraping disabled: " .. tostring(reason or "ship is landed")))
+  diagnostic(
+    "info",
+    inSpace and ("space scraping enabled: " .. tostring(reason or "ship launched"))
+      or ("space scraping disabled: " .. tostring(reason or "ship is landed"))
+  )
   if inSpace and changed and ensureShieldsOn then
     tempTimer(0.1, ensureShieldsOn)
   end
@@ -1187,7 +1650,9 @@ end
 
 function Scraper.finishCapture(reason)
   local capture = Scraper.active
-  if not capture then return nil, "no capture is active" end
+  if not capture then
+    return nil, "no capture is active"
+  end
   Scraper.active = nil
   clearCaptureHandles(capture)
   profileCount("capturesFinished")
@@ -1220,74 +1685,120 @@ function Scraper.finishCapture(reason)
     end
   end
   if commandFailure then
-    if capture.intentId and Scraper.proxy
-        and type(Scraper.proxy.publishIntentAck) == "function" then
+    if capture.targetReconciliation and reconcileTargetFromStatus then
+      reconcileTargetFromStatus(nil, commandFailure)
+    end
+    if
+      capture.intentId
+      and Scraper.proxy
+      and type(Scraper.proxy.publishIntentAck) == "function"
+    then
       Scraper.proxy.publishIntentAck(capture.intentId, "rejected", commandFailure)
     end
     return nil, commandFailure
   end
 
   local parseStarted = Scraper.profiler.enabled and os.clock() or nil
-  local parsed, parseError = Scraper.proxy.parseGameOutput(
-    capture.parserCommand,
-    capture.lines
-  )
+  local parsed, parseError = Scraper.proxy.parseGameOutput(capture.parserCommand, capture.lines)
   profileTiming("parse", parseStarted)
   if not parsed then
     profileCount("parseFailures")
     if capture.spaceProbe then
       Scraper.setInSpace(false, "startup radar did not return space data")
     end
-    if capture.intentId and Scraper.proxy
-        and type(Scraper.proxy.publishIntentAck) == "function" then
-      Scraper.proxy.publishIntentAck(capture.intentId, "rejected",
-        capture.spaceProbe
-          and "Radar did not confirm that the player is in space."
-          or "The ship scan returned no usable telemetry.")
+    if
+      capture.intentId
+      and Scraper.proxy
+      and type(Scraper.proxy.publishIntentAck) == "function"
+    then
+      Scraper.proxy.publishIntentAck(
+        capture.intentId,
+        "rejected",
+        capture.spaceProbe and "Radar did not confirm that the player is in space."
+          or "The ship scan returned no usable telemetry."
+      )
     end
     local emptyProjectilePoll = capture.polled == true
       and trim(capture.sentCommand):lower() == "radar projectiles"
     if emptyProjectilePoll then
       Scraper.state.metadata.lastEmptyProjectileRadarAt = os.time()
     elseif not capture.polled then
-      diagnostic("warn", "could not parse " .. capture.sentCommand .. " output: "
-        .. tostring(parseError) .. "; run lotjHolocron3D.scraper.showLastCapture()")
+      diagnostic(
+        "warn",
+        "could not parse "
+          .. capture.sentCommand
+          .. " output: "
+          .. tostring(parseError)
+          .. "; run lotjHolocron3D.scraper.showLastCapture()"
+      )
+    end
+    if capture.targetReconciliation and reconcileTargetFromStatus then
+      reconcileTargetFromStatus(nil, parseError)
     end
     return nil, parseError
   end
 
-
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+  if
+    not capture.remoteViewMemberId
+    and (not Scraper.state or Scraper.state.metadata.inSpace ~= true)
+  then
     Scraper.setInSpace(true, capture.sentCommand .. " returned space data")
   end
 
   local applyStarted = Scraper.profiler.enabled and os.clock() or nil
-  local applied, applyError = Scraper.applyResult(parsed, capture.sentCommand)
+  local applied, applyError
+  if capture.remoteViewMemberId then
+    applied, applyError = applyRemoteRadarResult(parsed, capture)
+  else
+    applied, applyError = Scraper.applyResult(parsed, capture.sentCommand)
+  end
   profileTiming("apply", applyStarted)
   if not applied then
     profileCount("applyFailures")
-    diagnostic("error", "could not merge " .. capture.sentCommand .. " output: "
-      .. tostring(applyError))
-    if capture.intentId and Scraper.proxy
-        and type(Scraper.proxy.publishIntentAck) == "function" then
-      Scraper.proxy.publishIntentAck(capture.intentId, "rejected",
-        "Ship telemetry rejected: " .. tostring(applyError))
+    diagnostic(
+      "error",
+      "could not merge " .. capture.sentCommand .. " output: " .. tostring(applyError)
+    )
+    if
+      capture.intentId
+      and Scraper.proxy
+      and type(Scraper.proxy.publishIntentAck) == "function"
+    then
+      Scraper.proxy.publishIntentAck(
+        capture.intentId,
+        "rejected",
+        "Ship telemetry rejected: " .. tostring(applyError)
+      )
+    end
+    if capture.targetReconciliation and reconcileTargetFromStatus then
+      reconcileTargetFromStatus(nil, applyError)
     end
     return nil, applyError
+  end
+  if capture.targetReconciliation and reconcileTargetFromStatus then
+    reconcileTargetFromStatus(parsed)
   end
   if capture.spaceProbe and queueObserverHydration then
     queueObserverHydration()
   end
   Scraper.state.metadata.lastCapturePolled = capture.polled == true
-  if parsed.source == "status" and trim(capture.sentCommand):lower() == "status"
-      and handleShieldStatus then
+  if
+    parsed.source == "status"
+    and trim(capture.sentCommand):lower() == "status"
+    and handleShieldStatus
+  then
     handleShieldStatus(parsed)
   end
 
   local published, publishError = Scraper.publish()
   if not published then
-    diagnostic("warn", "parsed " .. capture.sentCommand
-      .. " but could not publish its snapshot: " .. tostring(publishError))
+    diagnostic(
+      "warn",
+      "parsed "
+        .. capture.sentCommand
+        .. " but could not publish its snapshot: "
+        .. tostring(publishError)
+    )
     return parsed, publishError
   end
 
@@ -1300,15 +1811,23 @@ function Scraper.finishCapture(reason)
     end)
   end
 
-  if capture.intentId and Scraper.proxy
-      and type(Scraper.proxy.publishIntentAck) == "function" then
-    Scraper.proxy.publishIntentAck(capture.intentId, "completed",
-      capture.sentCommand .. " telemetry updated")
+  if capture.intentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+    Scraper.proxy.publishIntentAck(
+      capture.intentId,
+      "completed",
+      capture.sentCommand .. " telemetry updated"
+    )
   end
 
   if not capture.polled then
-    diagnostic("info", "parsed " .. capture.sentCommand .. " ("
-      .. tostring(parsed.recognizedLines or 0) .. " data lines)")
+    diagnostic(
+      "info",
+      "parsed "
+        .. capture.sentCommand
+        .. " ("
+        .. tostring(parsed.recognizedLines or 0)
+        .. " data lines)"
+    )
   end
   return parsed
 end
@@ -1316,16 +1835,22 @@ end
 function Scraper.captureLine(value)
   local profiling = Scraper.profiler.enabled == true
   local profileStarted = profiling and os.clock() or nil
-  if profiling then profileCount("lineChecks") end
+  if profiling then
+    profileCount("lineChecks")
+  end
   local capture = Scraper.active
   if not capture then
-    if profiling then profileTiming("line", profileStarted) end
+    if profiling then
+      profileTiming("line", profileStarted)
+    end
     return false
   end
 
   value = tostring(value or ""):gsub("\r", "")
   if not captureOwnsLine(capture, value) then
-    if profiling then profileTiming("line", profileStarted) end
+    if profiling then
+      profileTiming("line", profileStarted)
+    end
     return false
   end
   if profiling then
@@ -1334,11 +1859,12 @@ function Scraper.captureLine(value)
   end
   if capture.polled and type(deleteLine) == "function" then
     pcall(deleteLine)
-    if profiling then profileCount("deletedLines") end
+    if profiling then
+      profileCount("deletedLines")
+    end
   end
   capture.bytes = capture.bytes + #value + 1
-  if #capture.lines >= Scraper.MAX_CAPTURE_LINES
-      or capture.bytes > Scraper.MAX_CAPTURE_BYTES then
+  if #capture.lines >= Scraper.MAX_CAPTURE_LINES or capture.bytes > Scraper.MAX_CAPTURE_BYTES then
     diagnostic("error", "aborted oversized " .. capture.sentCommand .. " capture")
     Scraper.active = nil
     clearCaptureHandles(capture)
@@ -1353,17 +1879,23 @@ function Scraper.captureLine(value)
   -- Visible radar commands can publish at their unambiguous terminator. Hidden
   -- radar polls remain active until the prompt so their trailing System Map and
   -- character-HUD lines are suppressed with the rest of the response envelope.
-  if capture.parserCommand == "radar"
-      and not capture.polled
-      and value:lower():match("^%s*your%s+coordinates%s*:") then
+  if
+    capture.parserCommand == "radar"
+    and not capture.polled
+    and value:lower():match("^%s*your%s+coordinates%s*:")
+  then
     Scraper.finishCapture("radar terminator")
   end
-  if profiling then profileTiming("line", profileStarted) end
+  if profiling then
+    profileTiming("line", profileStarted)
+  end
   return true
 end
 
 local function refreshLotjUiCompatibility()
-  if not Scraper.state or not Scraper.state.metadata then return false end
+  if not Scraper.state or not Scraper.state.metadata then
+    return false
+  end
   local detected = type(_G.lotj) == "table"
     and type(_G.lotj.chat) == "table"
     and type(_G.lotj.systemMap) == "table"
@@ -1372,14 +1904,20 @@ local function refreshLotjUiCompatibility()
   compatibility.lotjUiDetected = detected or compatibility.lotjUiDetected == true
   Scraper.state.metadata.mudletCompatibility = compatibility
   if newlyDetected then
-    diagnostic("info", "official LotJ Mudlet UI detected; shared chat and radar compatibility enabled")
+    diagnostic(
+      "info",
+      "official LotJ Mudlet UI detected; shared chat and radar compatibility enabled"
+    )
   end
   return compatibility.lotjUiDetected == true
 end
 
 function Scraper.startCapture(parserCommand, sentCommand, options)
-  if Scraper.state and Scraper.state.metadata.inSpace == false
-      and not (options and options.spaceProbe == true) then
+  if
+    Scraper.state
+    and Scraper.state.metadata.inSpace == false
+    and not (options and options.spaceProbe == true)
+  then
     return nil, "space scraping is disabled while landed"
   end
   if Scraper.active then
@@ -1396,16 +1934,27 @@ function Scraper.startCapture(parserCommand, sentCommand, options)
     intentId = options and options.intentId or nil,
     spaceProbe = options and options.spaceProbe == true,
     followupRadar = options and options.followupRadar == true,
+    remoteViewMemberId = options and options.remoteViewMemberId or nil,
+    remoteViewMemberName = options and options.remoteViewMemberName or nil,
+    remoteViewMemberSlot = options and options.remoteViewMemberSlot or nil,
+    remoteViewMember = options and copyTable(options.remoteViewMember) or nil,
+    targetReconciliation = options and options.targetReconciliation == true,
     profileStarted = Scraper.profiler.enabled and os.clock() or nil,
   }
   Scraper.active = capture
-  if normalizedCommand(capture.sentCommand) == "radar"
-      and Scraper.polling.radarRefreshPending == true then
-    Scraper.polling.radarRefreshIssuedGeneration =
-      tonumber(Scraper.polling.radarRefreshGeneration) or 0
+  if
+    normalizedCommand(capture.sentCommand) == "radar"
+    and Scraper.polling.radarRefreshPending == true
+  then
+    Scraper.polling.radarRefreshIssuedGeneration = tonumber(Scraper.polling.radarRefreshGeneration)
+      or 0
   end
   profileCount("capturesStarted")
-  if capture.polled then profileCount("polledCaptures") else profileCount("manualCaptures") end
+  if capture.polled then
+    profileCount("polledCaptures")
+  else
+    profileCount("manualCaptures")
+  end
   profileCommand(capture.sentCommand)
 
   capture.lineTriggerId = tempRegexTrigger("^.*$", function()
@@ -1427,16 +1976,30 @@ end
 
 local function parserForCommand(command)
   local normalized = trim(command):lower():gsub("%s+", " ")
-  if normalized == "radar" or normalized == "radar projectiles" then return "radar" end
-  if normalized == "info" or normalized:match("^info .+") then return "info" end
-  if normalized == "status" or normalized:match("^status .+") then return "status" end
+  if normalized == "radar" or normalized == "radar projectiles" then
+    return "radar"
+  end
+  if normalized == "info" or normalized:match("^info .+") then
+    return "info"
+  end
+  if normalized == "status" or normalized:match("^status .+") then
+    return "status"
+  end
   if normalized == "fleetradar" or normalized == "fleetradar targets" then
     return "fleetradar"
   end
-  if normalized == "battlegroup" or normalized == "bg" then return "battlegroup" end
-  if normalized == "squadron status" then return "squadron status" end
-  if normalized == "navstat" then return "navstat" end
-  if normalized == "calc" or normalized == "calculate" then return "calculate" end
+  if normalized == "battlegroup" or normalized == "bg" then
+    return "battlegroup"
+  end
+  if normalized == "squadron status" then
+    return "squadron status"
+  end
+  if normalized == "navstat" then
+    return "navstat"
+  end
+  if normalized == "calc" or normalized == "calculate" then
+    return "calculate"
+  end
 
   local first, rest = normalized:match("^(%S+)%s*(.-)$")
   if first == "prox" or first == "proximity" then
@@ -1444,8 +2007,7 @@ local function parserForCommand(command)
     for word in rest:gmatch("%S+") do
       if word == "velocity" or word == "speed" then
         mode = "velocity"
-      elseif word ~= "ships" and word ~= "projectiles"
-          and not word:match("^%d+$") then
+      elseif word ~= "ships" and word ~= "projectiles" and not word:match("^%d+$") then
         return nil
       end
     end
@@ -1456,7 +2018,7 @@ end
 
 local function hyperspaceMetadata()
   Scraper.state = Scraper.state or freshState()
-  Scraper.state.metadata.hyperspace = Scraper.state.metadata.hyperspace or {phase = "idle"}
+  Scraper.state.metadata.hyperspace = Scraper.state.metadata.hyperspace or { phase = "idle" }
   return Scraper.state.metadata.hyperspace
 end
 
@@ -1464,14 +2026,18 @@ local function publishHyperspace(phase, extra)
   local metadata = hyperspaceMetadata()
   metadata.phase = phase
   metadata.observedAt = os.time()
-  for key, value in pairs(extra or {}) do metadata[key] = value end
+  for key, value in pairs(extra or {}) do
+    metadata[key] = value
+  end
   Scraper.hyperspace.phase = phase
   return Scraper.publish()
 end
 
 local function publishShipJump(shipName)
   shipName = trim(shipName)
-  if shipName == "" then return false end
+  if shipName == "" then
+    return false
+  end
   Scraper.hyperspace.nextJumpEventId = (Scraper.hyperspace.nextJumpEventId or 0) + 1
   local events = Scraper.state.metadata.shipJumpEvents or {}
   table.insert(events, {
@@ -1480,8 +2046,68 @@ local function publishShipJump(shipName)
     phase = "departure",
     observedAt = os.time(),
   })
-  while #events > 16 do table.remove(events, 1) end
+  while #events > 16 do
+    table.remove(events, 1)
+  end
   Scraper.state.metadata.shipJumpEvents = events
+  return Scraper.publish()
+end
+
+local function removeNamedEntityFromList(entities, shipName)
+  local wanted = trim(shipName):lower()
+  for index = #(entities or {}), 1, -1 do
+    if trim(entities[index].name):lower() == wanted then
+      table.remove(entities, index)
+    end
+  end
+end
+
+function Scraper.handleShipDestruction(text)
+  local shipName =
+    trim(text):match("^.-'([^']+)'%s+explodes%s+in%s+a%s+blinding%s+flash%s+of%s+light!$")
+  if not shipName then
+    return false
+  end
+  local destroyed, destroyedKey = findEntity({ name = shipName })
+  local observer = Scraper.state and Scraper.state.observer or {}
+  local isObserver = trim(observer.name):lower() == shipName:lower()
+  Scraper.destruction.nextEventId = (Scraper.destruction.nextEventId or 0) + 1
+  Scraper.destruction.destroyedNames[shipName:lower()] = os.time()
+  local event = {
+    id = Scraper.destruction.nextEventId,
+    shipName = shipName,
+    phase = "destroyed",
+    x = destroyed and destroyed.x or isObserver and observer.x or nil,
+    y = destroyed and destroyed.y or isObserver and observer.y or nil,
+    z = destroyed and destroyed.z or isObserver and observer.z or nil,
+    observedAt = os.time(),
+  }
+  local metadata = Scraper.state.metadata
+  local events = metadata.shipDestructionEvents or {}
+  table.insert(events, event)
+  while #events > 16 do
+    table.remove(events, 1)
+  end
+  metadata.shipDestructionEvents = events
+
+  if destroyedKey then
+    Scraper.state.entities[destroyedKey] = nil
+  end
+  for _, view in pairs(metadata.tacticalViews or {}) do
+    if type(view) == "table" then
+      removeNamedEntityFromList(view.entities, shipName)
+    end
+  end
+  for key, target in pairs(metadata.combatTargets or {}) do
+    if type(target) == "table" and trim(target.targetName):lower() == shipName:lower() then
+      metadata.combatTargets[key] = nil
+    end
+  end
+  if trim(metadata.combatTarget):lower() == shipName:lower() then
+    metadata.combatTarget = nil
+    Scraper.combat.targetName = nil
+    observer.target = nil
+  end
   return Scraper.publish()
 end
 
@@ -1497,12 +2123,16 @@ end
 
 local function queueFleetJump(selector)
   local fleet = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.fleet
-  if type(fleet) ~= "table" then return end
+  if type(fleet) ~= "table" then
+    return
+  end
   local wanted = trim(selector):lower()
   local localName = observerName()
   local queued = Scraper.hyperspace.fleetJumpQueue or {}
   for index = #queued, 1, -1 do
-    if os.time() - tonumber(queued[index].queuedAt or 0) > 30 then table.remove(queued, index) end
+    if os.time() - tonumber(queued[index].queuedAt or 0) > 30 then
+      table.remove(queued, index)
+    end
   end
   for _, member in ipairs(fleet.members or {}) do
     local include = wanted == "all"
@@ -1518,7 +2148,9 @@ local function queueFleetJump(selector)
           break
         end
       end
-      if not alreadyQueued then table.insert(queued, {name = trim(member.name), queuedAt = os.time()}) end
+      if not alreadyQueued then
+        table.insert(queued, { name = trim(member.name), queuedAt = os.time() })
+      end
       if trim(member.name):lower() == localName:lower() then
         Scraper.hyperspace.pendingLocalJumpUntil = os.time() + 30
       end
@@ -1531,13 +2163,20 @@ local function consumeFleetJump(memberName)
   local queue = Scraper.hyperspace.fleetJumpQueue or {}
   local wanted = trim(memberName):lower()
   for index = #queue, 1, -1 do
-    if os.time() - tonumber(queue[index].queuedAt or 0) > 30 then table.remove(queue, index) end
+    if os.time() - tonumber(queue[index].queuedAt or 0) > 30 then
+      table.remove(queue, index)
+    end
   end
-  if #queue == 0 then return nil end
+  if #queue == 0 then
+    return nil
+  end
   local index = 1
   if wanted ~= "" then
     for candidateIndex, candidate in ipairs(queue) do
-      if trim(candidate.name):lower() == wanted then index = candidateIndex; break end
+      if trim(candidate.name):lower() == wanted then
+        index = candidateIndex
+        break
+      end
     end
   end
   local candidate = table.remove(queue, index)
@@ -1553,7 +2192,9 @@ local function recordOutgoingHyperspaceCommand(command)
   end
   local selector = normalized:match("^battlegroup nav (.-) hyp$")
     or normalized:match("^battlegroup nav (.-) hyper$")
-  if selector then queueFleetJump(selector) end
+  if selector then
+    queueFleetJump(selector)
+  end
 end
 
 function Scraper.disarmAutomation(reason)
@@ -1570,7 +2211,9 @@ function Scraper.disarmAutomation(reason)
   Scraper.hyperspace.activeIntentId = nil
   Scraper.hyperspace.initiatedByHolocron = false
   Scraper.hyperspace.routeIncludesLocalShip = nil
-  if Scraper.active and Scraper.active.polled then abandonCapture(reason or "automation disarmed") end
+  if Scraper.active and Scraper.active.polled then
+    abandonCapture(reason or "automation disarmed")
+  end
   if Scraper.state then
     Scraper.state.metadata.automationArmed = false
     Scraper.state.metadata.automationDisarmedReason = reason or "Electron disconnected"
@@ -1581,7 +2224,9 @@ end
 
 function Scraper.refreshAutomationLease(seconds)
   safeKill("killTimer", Scraper.automationLeaseTimerId)
-  if Scraper.state then Scraper.state.metadata.automationArmed = true end
+  if Scraper.state then
+    Scraper.state.metadata.automationArmed = true
+  end
   Scraper.automationLeaseTimerId = tempTimer(math.max(2, tonumber(seconds) or 6), function()
     Scraper.automationLeaseTimerId = nil
     Scraper.disarmAutomation("Electron automation lease expired")
@@ -1616,9 +2261,11 @@ function Scraper.handleHyperspaceLine(text)
   local value = trim(text)
   local lower = value:lower()
   if value == "Hyperspace course locked. Running final jump checks..." then
-    publishHyperspace("calculating", {error = nil})
-  elseif lower:match("^jump requires [%d,]+ units of fuel")
-      and lower:find("it will consume", 1, true) then
+    publishHyperspace("calculating", { error = nil })
+  elseif
+    lower:match("^jump requires [%d,]+ units of fuel")
+    and lower:find("it will consume", 1, true)
+  then
     local required = value:match("[Jj]ump requires%s+([%d,]+)%s+units")
     local percent = value:match("consume%s+([%d,]+)%%")
     publishHyperspace("calculating", {
@@ -1626,15 +2273,24 @@ function Scraper.handleHyperspaceLine(text)
       fuelPercent = percent and tonumber((percent:gsub(",", ""))) or nil,
     })
   elseif value == "Warning - Not enough fuel to complete the jump!" then
-    publishHyperspace("fuel_warning", {insufficientFuel = true})
+    publishHyperspace("fuel_warning", { insufficientFuel = true })
   elseif lower:match("^jump requires [%d,]+ units of fuel%. you only have [%d,]+") then
     local required, available = value:match(
-      "[Jj]ump requires%s+([%d,]+)%s+units%s+of%s+fuel%.%s+[Yy]ou%s+only%s+have%s+([%d,]+)")
-    local extra = {insufficientFuel = true}
-    if required then extra.fuelRequired = tonumber((required:gsub(",", ""))) end
-    if available then extra.fuelAvailable = tonumber((available:gsub(",", ""))) end
+      "[Jj]ump requires%s+([%d,]+)%s+units%s+of%s+fuel%.%s+[Yy]ou%s+only%s+have%s+([%d,]+)"
+    )
+    local extra = { insufficientFuel = true }
+    if required then
+      extra.fuelRequired = tonumber((required:gsub(",", "")))
+    end
+    if available then
+      extra.fuelAvailable = tonumber((available:gsub(",", "")))
+    end
     publishHyperspace("fuel_warning", extra)
-    if Scraper.hyperspace.initiatedByHolocron and not Scraper.hyperspace.acknowledgedFuelRisk then
+    if
+      not Scraper.polling.paused
+      and Scraper.hyperspace.initiatedByHolocron
+      and not Scraper.hyperspace.acknowledgedFuelRisk
+    then
       Scraper.polling.dispatching = true
       pcall(send, "calc stop", false)
       Scraper.polling.dispatching = false
@@ -1642,7 +2298,7 @@ function Scraper.handleHyperspaceLine(text)
       publishHyperspace("fuel_warning", extra)
     end
   elseif value == "[Status]: Hyperspace calculations have been completed." then
-    publishHyperspace("ready", {remainingSeconds = 0, insufficientFuel = nil})
+    publishHyperspace("ready", { remainingSeconds = 0, insufficientFuel = nil })
     finishHyperspaceIntent("completed", value)
   elseif value == "[ALERT]: Aborting Hyperspace calculation. Terminal reset." then
     if hyperspaceMetadata().insufficientFuel then
@@ -1658,13 +2314,15 @@ function Scraper.handleHyperspaceLine(text)
       completeHyperspaceAbort(value)
     end
   elseif lower:find("jump coordinates too close to stellar object", 1, true) then
-    publishHyperspace("failed", {error = value})
+    publishHyperspace("failed", { error = value })
     finishHyperspaceIntent("rejected", value)
   elseif lower:match("^you are too close to .+ to make the jump to lightspeed!$") then
-    publishHyperspace("ready", {error = value})
+    publishHyperspace("ready", { error = value })
     finishHyperspaceIntent("rejected", value)
   elseif value == "You push forward the hyperspeed lever." then
-    if localJumpExpected() then publishHyperspace("engaging", {error = nil}) end
+    if localJumpExpected() then
+      publishHyperspace("engaging", { error = nil })
+    end
   elseif value == "The stars become streaks of light as you enter hyperspace." then
     local memberName = Scraper.fleetCommand.currentMemberName
     local jumpingShip = consumeFleetJump(memberName)
@@ -1677,53 +2335,129 @@ function Scraper.handleHyperspaceLine(text)
     end
     Scraper.fleetCommand.currentMemberName = nil
   elseif value == "Destination reached. Initiating realspace reentry..." then
-    if Scraper.hyperspace.phase == "hyperspace" then publishHyperspace("reentry") end
+    if Scraper.hyperspace.phase == "hyperspace" then
+      publishHyperspace("reentry")
+    end
   elseif value == "Hyperjump complete." then
     if Scraper.hyperspace.phase == "hyperspace" or Scraper.hyperspace.phase == "reentry" then
-      publishHyperspace("arrived", {arrivedAt = os.time()})
+      publishHyperspace("arrived", { arrivedAt = os.time() })
       Scraper.hyperspace.initiatedByHolocron = false
     end
   else
-    local seconds = value:match("^[Cc]alculating%s+[Hh]yperspace%s+[Tt]rajectory:%s*(%d+)%s+seconds%s+remaining")
-    if not seconds then return false end
-    publishHyperspace("calculating", {remainingSeconds = tonumber(seconds)})
+    local seconds =
+      value:match("^[Cc]alculating%s+[Hh]yperspace%s+[Tt]rajectory:%s*(%d+)%s+seconds%s+remaining")
+    if not seconds then
+      return false
+    end
+    publishHyperspace("calculating", { remainingSeconds = tonumber(seconds) })
   end
   return true
 end
 
 function Scraper.publishGalaxyCatalog()
-  if not Scraper.proxy or type(Scraper.proxy.sendMessage) ~= "function" then return false end
+  if not Scraper.proxy or type(Scraper.proxy.sendMessage) ~= "function" then
+    return false
+  end
   local systems = _G.gmcp and _G.gmcp.Galaxy and _G.gmcp.Galaxy.Systems or {}
-  if type(systems) ~= "table" then systems = {} end
-  if next(systems) == nil and type(_G.lotj) == "table"
-      and type(_G.lotj.galaxyMap) == "table"
-      and type(_G.lotj.galaxyMap.systems) == "table" then
+  if type(systems) ~= "table" then
+    systems = {}
+  end
+  if
+    next(systems) == nil
+    and type(_G.lotj) == "table"
+    and type(_G.lotj.galaxyMap) == "table"
+    and type(_G.lotj.galaxyMap.systems) == "table"
+  then
     systems = _G.lotj.galaxyMap.systems
   end
   local shipSystem = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.System or nil
-  local custom = type(_G.lotj) == "table" and type(_G.lotj.galaxyMap) == "table"
-    and _G.lotj.galaxyMap.recorded or {}
+  local custom = type(_G.lotj) == "table"
+      and type(_G.lotj.galaxyMap) == "table"
+      and _G.lotj.galaxyMap.recorded
+    or {}
   local sent = Scraper.proxy.sendMessage({
-    type = "galaxy_catalog", observedAt = os.time(), systems = copyTable(systems),
-    customSystems = copyTable(custom), shipSystem = copyTable(shipSystem),
+    type = "galaxy_catalog",
+    observedAt = os.time(),
+    systems = copyTable(systems),
+    customSystems = copyTable(custom),
+    shipSystem = copyTable(shipSystem),
   })
   return sent == true
 end
 
 local function validateSystemCoordinate(value)
   value = tonumber(value)
-  if not value or value ~= value or value < -50000 or value > 50000 then return nil end
+  if not value or value ~= value or value < -50000 or value > 50000 then
+    return nil
+  end
   return value >= 0 and math.floor(value + 0.5) or math.ceil(value - 0.5)
+end
+
+local function selectedFormationMembers(payload, fleet)
+  local selected, seen = {}, {}
+  local requestedIds = type(payload.memberIds) == "table" and payload.memberIds or nil
+  if requestedIds and #requestedIds > 0 then
+    if #requestedIds > 64 then
+      return nil, "too many formation members were selected"
+    end
+    for _, rawId in ipairs(requestedIds) do
+      local wantedId = trim(rawId):lower()
+      local found
+      if wantedId == "" then
+        return nil, "a selected formation member id is invalid"
+      end
+      for _, member in ipairs(fleet.members or {}) do
+        if trim(member.id):lower() == wantedId then
+          found = member
+          break
+        end
+      end
+      if not found then
+        return nil, "a selected formation member is no longer available"
+      end
+      local key = trim(found.id):lower()
+      if not seen[key] then
+        seen[key] = true
+        table.insert(selected, found)
+      end
+    end
+  else
+    local wantedId = trim(payload.memberId):lower()
+    local wantedName = trim(payload.memberName):lower()
+    for _, member in ipairs(fleet.members or {}) do
+      if
+        (wantedId ~= "" and trim(member.id):lower() == wantedId)
+        or (wantedName ~= "" and trim(member.name):lower() == wantedName)
+      then
+        table.insert(selected, member)
+        break
+      end
+    end
+  end
+  if #selected == 0 then
+    return nil, "the selected formation member is no longer available"
+  end
+  for _, member in ipairs(selected) do
+    local memberName = trim(member.name)
+    if memberName == "" or memberName:find("[%c\r\n]") then
+      return nil, "a selected formation member name is invalid"
+    end
+  end
+  return selected
 end
 
 local function scopedHyperspaceCommands(payload, localCommand)
   payload = type(payload) == "table" and payload or {}
   local scope = trim(payload.scope):lower()
-  if scope == "" then scope = "local" end
+  if scope == "" then
+    scope = "local"
+  end
   if scope ~= "local" and scope ~= "all" and scope ~= "wings" and scope ~= "selected" then
     return nil, nil, "hyperspace scope must be local, all, wings, or selected"
   end
-  if scope == "local" then return {localCommand}, true end
+  if scope == "local" then
+    return { localCommand }, true
+  end
 
   local fleet = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.fleet
   if type(fleet) ~= "table" or fleet.active ~= true then
@@ -1731,8 +2465,12 @@ local function scopedHyperspaceCommands(payload, localCommand)
   end
   -- Squadron wingmen mirror their lead cockpit, so a squadron route is plotted
   -- and engaged locally while retaining the squadron recipient in telemetry.
-  if fleet.kind == "squadron" then return {localCommand}, true end
-  if fleet.kind ~= "battlegroup" then return nil, nil, "unsupported formation type" end
+  if fleet.kind == "squadron" then
+    return { localCommand }, true
+  end
+  if fleet.kind ~= "battlegroup" then
+    return nil, nil, "unsupported formation type"
+  end
 
   local localName = observerName()
   local commander = false
@@ -1742,7 +2480,9 @@ local function scopedHyperspaceCommands(payload, localCommand)
       break
     end
   end
-  if not commander then return nil, nil, "only the battlegroup flagship can route wing ships" end
+  if not commander then
+    return nil, nil, "only the battlegroup flagship can route wing ships"
+  end
 
   local recipients = {}
   local includesLocal = false
@@ -1756,22 +2496,21 @@ local function scopedHyperspaceCommands(payload, localCommand)
       end
     end
   else
-    local wantedId = trim(payload.memberId):lower()
-    local wantedName = trim(payload.memberName):lower()
-    for _, member in ipairs(fleet.members or {}) do
-      if wantedId ~= "" and trim(member.id):lower() == wantedId
-          or wantedName ~= "" and trim(member.name):lower() == wantedName then
-        local memberName = trim(member.name)
-        if memberName == "" or memberName:find("[%c\r\n]") then
-          return nil, nil, "the selected formation member name is invalid"
-        end
-        table.insert(recipients, tonumber(member.slot) and tostring(member.slot) or memberName)
-        includesLocal = memberName:lower() == localName:lower()
-        break
+    local members, selectionError = selectedFormationMembers(payload, fleet)
+    if not members then
+      return nil, nil, selectionError
+    end
+    for _, member in ipairs(members) do
+      local memberName = trim(member.name)
+      table.insert(recipients, tonumber(member.slot) and tostring(member.slot) or memberName)
+      if memberName:lower() == localName:lower() then
+        includesLocal = true
       end
     end
   end
-  if #recipients == 0 then return nil, nil, "no ships are available in the selected hyperspace scope" end
+  if #recipients == 0 then
+    return nil, nil, "no ships are available in the selected hyperspace scope"
+  end
   local commands = {}
   for _, selector in ipairs(recipients) do
     table.insert(commands, "battlegroup nav " .. selector .. " " .. localCommand)
@@ -1800,8 +2539,10 @@ local function dispatchHyperspacePlot(payload, message)
     return false, "a hyperspace calculation is already running"
   end
   local destination = type(payload.destination) == "table" and payload.destination or {}
-  local x, y, z = validateSystemCoordinate(destination.x),
-    validateSystemCoordinate(destination.y), validateSystemCoordinate(destination.z)
+  local x, y, z =
+    validateSystemCoordinate(destination.x),
+    validateSystemCoordinate(destination.y),
+    validateSystemCoordinate(destination.z)
   if not x or not y or not z then
     return false, "system coordinates must be within -50,000 and 50,000"
   end
@@ -1815,13 +2556,21 @@ local function dispatchHyperspacePlot(payload, message)
     if not gx or not gy or gx ~= gx or gy ~= gy or math.abs(gx) > 100000 then
       return false, "galaxy coordinates are invalid"
     end
-    command = string.format("calculate '%d %d' %d %d %d",
-      math.floor(gx + 0.5), math.floor(gy + 0.5), x, y, z)
+    command = string.format(
+      "calculate '%d %d' %d %d %d",
+      math.floor(gx + 0.5),
+      math.floor(gy + 0.5),
+      x,
+      y,
+      z
+    )
   else
     return false, "hyperspace mode must be local or galactic"
   end
   local commands, includesLocal, scopeError = scopedHyperspaceCommands(payload, command)
-  if not commands then return false, scopeError end
+  if not commands then
+    return false, scopeError
+  end
   Scraper.hyperspace.initiatedByHolocron = true
   Scraper.hyperspace.routeIncludesLocalShip = includesLocal
   Scraper.hyperspace.acknowledgedFuelRisk = payload.acknowledgeFuelRisk == true
@@ -1836,37 +2585,65 @@ local function dispatchHyperspacePlot(payload, message)
 end
 
 local function dispatchNavigationRefresh(payload, message)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   if Scraper.active then
-    return false, Scraper.active.polled
-      and "another telemetry refresh is active"
-      or "a manual telemetry capture is active"
+    return false,
+      Scraper.active.polled and "another telemetry refresh is active"
+        or "a manual telemetry capture is active"
   end
   cancelPollTimer()
   local command = trim(payload.command):lower()
-  if command ~= "calc" and command ~= "navstat" then command = "navstat" end
+  if command ~= "calc" and command ~= "navstat" then
+    command = "navstat"
+  end
   local parser = command == "calc" and "calculate" or "navstat"
   local started, err = Scraper.startCapture(parser, command, {
-    polled = true, pollDelay = 0.25, intentId = message and message.id or nil,
+    polled = true,
+    pollDelay = 0.25,
+    intentId = message and message.id or nil,
     followupRadar = payload.followupRadar == true,
   })
-  if not started then return false, err end
+  if not started then
+    return false, err
+  end
   Scraper.polling.dispatching = true
   local ok, sendError = pcall(send, command, false)
   Scraper.polling.dispatching = false
-  if not ok then abandonCapture("navigation refresh send failed"); return false, tostring(sendError) end
+  if not ok then
+    abandonCapture("navigation refresh send failed")
+    return false, tostring(sendError)
+  end
   return true
 end
 
 local function normalizeWeapon(value)
   local lower = trim(value):lower()
-  if lower:find("autoblaster", 1, true) then return "autoblaster" end
-  if lower:find("turbolaser", 1, true) then return "turbolaser" end
-  if lower:find("laser", 1, true) then return "laser" end
-  if lower:find("ion", 1, true) then return "ion" end
-  if lower:find("missile", 1, true) then return "missile" end
-  if lower:find("torpedo", 1, true) then return "torpedo" end
-  if lower:find("rocket", 1, true) then return "rocket" end
-  if lower:find("burst", 1, true) or lower:find("pulse", 1, true) then return "burst" end
+  if lower:find("autoblaster", 1, true) then
+    return "autoblaster"
+  end
+  if lower:find("turbolaser", 1, true) then
+    return "turbolaser"
+  end
+  if lower:find("laser", 1, true) then
+    return "laser"
+  end
+  if lower:find("ion", 1, true) then
+    return "ion"
+  end
+  if lower:find("missile", 1, true) then
+    return "missile"
+  end
+  if lower:find("torpedo", 1, true) then
+    return "torpedo"
+  end
+  if lower:find("rocket", 1, true) then
+    return "rocket"
+  end
+  if lower:find("burst", 1, true) or lower:find("pulse", 1, true) then
+    return "burst"
+  end
   return nil
 end
 
@@ -1886,34 +2663,104 @@ local function publishCombatEvent(event)
   return Scraper.publish()
 end
 
-local function publishLaunchEvent(weapon, count, targetName)
+local function formationContainsShip(name)
+  local wanted = trim(name):lower()
+  if wanted == "" then
+    return false
+  end
+  local metadata = Scraper.state and Scraper.state.metadata or {}
+  local visited = {}
+  local function contains(fleet)
+    if type(fleet) ~= "table" or visited[fleet] then
+      return false
+    end
+    visited[fleet] = true
+    for _, member in ipairs(fleet.members or {}) do
+      if trim(member.name):lower() == wanted then
+        return true
+      end
+    end
+    return false
+  end
+  if contains(metadata.fleet) then
+    return true
+  end
+  for _, fleet in pairs(metadata.formations or {}) do
+    if contains(fleet) then
+      return true
+    end
+  end
+  return false
+end
+
+local function markHostileSourceAgainstFriendlyTarget(sourceName, targetName)
+  local source = trim(sourceName)
+  local target = trim(targetName)
+  if source == "" or target == "" or source:lower() == target:lower() then
+    return
+  end
+  local observerName =
+    trim(Scraper.state and Scraper.state.observer and Scraper.state.observer.name)
+  local targetEntity = findEntity({ name = target })
+  local targetIsFriendly = target:lower() == observerName:lower()
+    or formationContainsShip(target)
+    or targetEntity and targetEntity.disposition == "ally"
+  if
+    not targetIsFriendly
+    or formationContainsShip(source)
+    or source:lower() == observerName:lower()
+  then
+    return
+  end
+  local attacker = findEntity({ name = source })
+  if attacker and attacker.kind == "ship" then
+    attacker.disposition = "enemy"
+  end
+end
+
+local function publishLaunchEvent(weapon, count, targetName, sourceName)
   local resolvedTarget = targetName or Scraper.combat.targetName
-  local sourceName = Scraper.fleetCommand.currentMemberName
+  local resolvedSource = sourceName
+    or Scraper.fleetCommand.currentMemberName
     or trim(Scraper.state.observer and Scraper.state.observer.name)
   local now = os.time()
-  if Scraper.combat.lastLaunchWeapon == weapon
-      and Scraper.combat.lastLaunchTarget == resolvedTarget
-      and Scraper.combat.lastLaunchSource == sourceName
-      and now - (Scraper.combat.lastLaunchAt or 0) <= 2 then
+  if
+    Scraper.combat.lastLaunchWeapon == weapon
+    and Scraper.combat.lastLaunchTarget == resolvedTarget
+    and Scraper.combat.lastLaunchSource == resolvedSource
+    and now - (Scraper.combat.lastLaunchAt or 0) <= 2
+  then
     return true
   end
   Scraper.combat.lastLaunchWeapon = weapon
   Scraper.combat.lastLaunchTarget = resolvedTarget
-  Scraper.combat.lastLaunchSource = sourceName
+  Scraper.combat.lastLaunchSource = resolvedSource
   Scraper.combat.lastLaunchAt = now
+  markHostileSourceAgainstFriendlyTarget(resolvedSource, resolvedTarget)
   local fleetOrder = Scraper.state.metadata.fleetOrder
-  if Scraper.fleetCommand.currentMemberName and type(fleetOrder) == "table"
-      and fleetOrder.order == "fire" and type(fleetOrder.results) == "table" then
+  if
+    Scraper.fleetCommand.currentMemberName
+    and type(fleetOrder) == "table"
+    and fleetOrder.order == "fire"
+    and type(fleetOrder.results) == "table"
+  then
     local result = fleetOrder.results[Scraper.fleetCommand.currentMemberName]
     if type(result) == "table" then
       result.status = "accepted"
       result.reason = nil
       result.observedAt = os.time()
-      if recountFleetOrder then recountFleetOrder(fleetOrder) end
+      if recountFleetOrder then
+        recountFleetOrder(fleetOrder)
+      end
     end
   end
-  local published = publishCombatEvent({type = "launch", weapon = weapon, count = count,
-    targetName = resolvedTarget, sourceName = sourceName})
+  local published = publishCombatEvent({
+    type = "launch",
+    weapon = weapon,
+    count = count,
+    targetName = resolvedTarget,
+    sourceName = resolvedSource,
+  })
   if Scraper.fleetCommand.currentMemberName then
     Scraper.fleetCommand.currentMemberName = nil
     Scraper.fleetCommand.holdUntil = os.time() + 2
@@ -1928,11 +2775,16 @@ local function publishImpactEvent(weapon, targetName, outcome, sourceName, count
   Scraper.combat.lastImpactTarget = resolvedTarget
   Scraper.combat.lastImpactSource = sourceName
   Scraper.combat.lastImpactAt = now
-  local published = publishCombatEvent({type = "impact", weapon = weapon,
-    targetName = resolvedTarget, sourceName = sourceName,
-    count = math.max(1, tonumber(count) or 1), outcome = outcome})
-  if weapon == "missile" or weapon == "torpedo" or weapon == "rocket"
-      or weapon == "burst" then
+  markHostileSourceAgainstFriendlyTarget(sourceName, resolvedTarget)
+  local published = publishCombatEvent({
+    type = "impact",
+    weapon = weapon,
+    targetName = resolvedTarget,
+    sourceName = sourceName,
+    count = math.max(1, tonumber(count) or 1),
+    outcome = outcome,
+  })
+  if weapon == "missile" or weapon == "torpedo" or weapon == "rocket" or weapon == "burst" then
     Scraper.combat.lastRadarAt = 0
     if not Scraper.combat.projectileReconcileTimerId then
       Scraper.combat.projectileReconcileTimerId = tempTimer(0.05, function()
@@ -1952,6 +2804,12 @@ function Scraper.handleCombatLine(text)
   local value = raw:gsub("%s+%[x%d+%]%s*$", "")
   local displayedTarget = value:match("^Target:%s+.-'([^']+)'")
   if displayedTarget then
+    -- A channeled target attempt may echo a provisional Target line before it
+    -- ultimately fails. Only Target Locked or the delayed status reconciliation
+    -- is allowed to commit pending target state.
+    if Scraper.pendingCommandKind == "target" then
+      return true
+    end
     if Scraper.combat.targetName ~= displayedTarget then
       Scraper.combat.targetName = displayedTarget
       Scraper.state.observer.target = displayedTarget
@@ -1962,22 +2820,32 @@ function Scraper.handleCombatLine(text)
   end
   if value == "You fail to lock on to your target!" then
     local fleetOrder = Scraper.state.metadata.fleetOrder
-    local requested = type(fleetOrder) == "table" and fleetOrder.order == "fire"
-      and trim(fleetOrder.weapon):lower() or ""
-    local failedWeapon = normalizeWeapon(requested)
-      or Scraper.combat.lastFireWeapon or "best"
+    local requested = type(fleetOrder) == "table"
+        and fleetOrder.order == "fire"
+        and trim(fleetOrder.weapon):lower()
+      or ""
+    local failedWeapon = normalizeWeapon(requested) or Scraper.combat.lastFireWeapon or "best"
     local sourceName = Scraper.fleetCommand.currentMemberName
       or trim(Scraper.state.observer and Scraper.state.observer.name)
-    publishCombatEvent({type = "failure", weapon = failedWeapon,
-      sourceName = sourceName, reason = "Failed to lock on to target"})
-    if Scraper.fleetCommand.currentMemberName and type(fleetOrder) == "table"
-        and type(fleetOrder.results) == "table" then
+    publishCombatEvent({
+      type = "failure",
+      weapon = failedWeapon,
+      sourceName = sourceName,
+      reason = "Failed to lock on to target",
+    })
+    if
+      Scraper.fleetCommand.currentMemberName
+      and type(fleetOrder) == "table"
+      and type(fleetOrder.results) == "table"
+    then
       local result = fleetOrder.results[Scraper.fleetCommand.currentMemberName]
       if type(result) == "table" then
         result.status = "rejected"
         result.reason = "Failed to lock on to target."
         result.observedAt = os.time()
-        if recountFleetOrder then recountFleetOrder(fleetOrder) end
+        if recountFleetOrder then
+          recountFleetOrder(fleetOrder)
+        end
         Scraper.publish()
       end
     end
@@ -1987,18 +2855,21 @@ function Scraper.handleCombatLine(text)
   end
 
   local forwardOnlyWeapon = value:match(
-    "^The%s+(.+)%s+can%s+only%s+fire%s+forwards%.%s+You'll%s+need%s+to%s+turn%s+your%s+ship!$")
-    or value:match(
-      "^(.+)%s+can%s+only%s+fire%s+forwards%.%s+You'll%s+need%s+to%s+turn%s+your%s+ship!$")
+    "^The%s+(.+)%s+can%s+only%s+fire%s+forwards%.%s+You'll%s+need%s+to%s+turn%s+your%s+ship!$"
+  ) or value:match(
+    "^(.+)%s+can%s+only%s+fire%s+forwards%.%s+You'll%s+need%s+to%s+turn%s+your%s+ship!$"
+  )
   if forwardOnlyWeapon then
     local weapon = normalizeWeapon(forwardOnlyWeapon)
     if weapon then
-      publishCombatEvent({type = "failure", weapon = weapon,
-        reason = "Forward arc blocked // turn ship"})
+      publishCombatEvent({
+        type = "failure",
+        weapon = weapon,
+        reason = "Forward arc blocked // turn ship",
+      })
       return true
     end
   end
-
 
   local simplyLaunchedWeapon = value:match("^(.+)%s+launched%.$")
   if simplyLaunchedWeapon then
@@ -2009,8 +2880,8 @@ function Scraper.handleCombatLine(text)
     end
   end
 
-  local launchedWeapon, launchedTarget = value:match(
-    "^A%s+(.+)%s+is%s+launched%s+toward%s+.-'([^']+)'%s+by%s+your%s+ship%.$")
+  local launchedWeapon, launchedTarget =
+    value:match("^A%s+(.+)%s+is%s+launched%s+toward%s+.-'([^']+)'%s+by%s+your%s+ship%.$")
   if launchedWeapon and launchedTarget then
     local weapon = normalizeWeapon(launchedWeapon)
     if weapon then
@@ -2027,22 +2898,41 @@ function Scraper.handleCombatLine(text)
     end
   end
 
-  local directHitWeapon, directHitTarget = value:match(
-    "^Your ship's%s+(.+)%s+hits%s+.-'([^']+)'.-!$")
-  if directHitWeapon and directHitTarget then
-    local weapon = normalizeWeapon(directHitWeapon)
+  local remoteLaunchSource, remoteLaunchWeapon, remoteLaunchTarget =
+    value:match("^.-'([^']+)'%s+fires%s+an?%s+(.+)%s+towards?%s+.-'([^']+)'%.$")
+  if remoteLaunchSource and remoteLaunchWeapon and remoteLaunchTarget then
+    local weapon = normalizeWeapon(remoteLaunchWeapon)
     if weapon then
-      publishImpactEvent(weapon, directHitTarget, "hit",
-        trim(Scraper.state.observer and Scraper.state.observer.name), repeated)
+      publishLaunchEvent(weapon, repeated, remoteLaunchTarget, remoteLaunchSource)
       return true
     end
   end
 
-  local remoteHitWeapon, remoteHitSource, remoteHitTarget = value:match(
-    "^An%s+(.+)%s+from%s+.-'([^']+)'%s+hits%s+.-'([^']+)'.*$")
+  local directHitWeapon, directHitTarget =
+    value:match("^Your ship's%s+(.+)%s+hits%s+.-'([^']+)'.-!$")
+  if directHitWeapon and directHitTarget then
+    local weapon = normalizeWeapon(directHitWeapon)
+    if weapon then
+      publishImpactEvent(
+        weapon,
+        directHitTarget,
+        "hit",
+        trim(Scraper.state.observer and Scraper.state.observer.name),
+        repeated
+      )
+      return true
+    end
+  end
+
+  local remoteHitWeapon, remoteHitSource, remoteHitTarget =
+    value:match("^An%s+(.+)%s+from%s+.-'([^']+)'%s+hits%s+.-'([^']+)'.*$")
   if not remoteHitWeapon then
-    remoteHitWeapon, remoteHitSource, remoteHitTarget = value:match(
-      "^A%s+(.+)%s+from%s+.-'([^']+)'%s+hits%s+.-'([^']+)'.*$")
+    remoteHitWeapon, remoteHitSource, remoteHitTarget =
+      value:match("^A%s+(.+)%s+from%s+.-'([^']+)'%s+hits%s+.-'([^']+)'.*$")
+  end
+  if not remoteHitWeapon then
+    remoteHitWeapon, remoteHitSource, remoteHitTarget =
+      value:match("^(.+)%s+from%s+.-'([^']+)'%s+hits%s+.-'([^']+)'.*$")
   end
   if remoteHitWeapon and remoteHitTarget then
     local weapon = normalizeWeapon(remoteHitWeapon)
@@ -2052,11 +2942,15 @@ function Scraper.handleCombatLine(text)
     end
   end
 
-  local remoteMissWeapon, remoteMissSource, remoteMissTarget = value:match(
-    "^An%s+(.+)%s+from%s+.-'([^']+)'%s+barely%s+misses%s+.-'([^']+)'.*$")
+  local remoteMissWeapon, remoteMissSource, remoteMissTarget =
+    value:match("^An%s+(.+)%s+from%s+.-'([^']+)'%s+barely%s+misses%s+.-'([^']+)'.*$")
   if not remoteMissWeapon then
-    remoteMissWeapon, remoteMissSource, remoteMissTarget = value:match(
-      "^A%s+(.+)%s+from%s+.-'([^']+)'%s+barely%s+misses%s+.-'([^']+)'.*$")
+    remoteMissWeapon, remoteMissSource, remoteMissTarget =
+      value:match("^A%s+(.+)%s+from%s+.-'([^']+)'%s+barely%s+misses%s+.-'([^']+)'.*$")
+  end
+  if not remoteMissWeapon then
+    remoteMissWeapon, remoteMissSource, remoteMissTarget =
+      value:match("^(.+)%s+from%s+.-'([^']+)'%s+barely%s+misses%s+.-'([^']+)'.*$")
   end
   if remoteMissWeapon and remoteMissTarget then
     local weapon = normalizeWeapon(remoteMissWeapon)
@@ -2066,14 +2960,16 @@ function Scraper.handleCombatLine(text)
     end
   end
 
-  local explosionTarget, explosionWeapon = value:match(
-    "^You see a large explosion as%s+.-'([^']+)'%s+is%s+hit%s+by%s+an?%s+(.+)%.$")
+  local explosionTarget, explosionWeapon =
+    value:match("^You see a large explosion as%s+.-'([^']+)'%s+is%s+hit%s+by%s+an?%s+(.+)%.$")
   if explosionTarget and explosionWeapon then
     local weapon = normalizeWeapon(explosionWeapon)
     if weapon then
-      if Scraper.combat.lastImpactWeapon == weapon
-          and Scraper.combat.lastImpactTarget == explosionTarget
-          and os.time() - (Scraper.combat.lastImpactAt or 0) <= 2 then
+      if
+        Scraper.combat.lastImpactWeapon == weapon
+        and Scraper.combat.lastImpactTarget == explosionTarget
+        and os.time() - (Scraper.combat.lastImpactAt or 0) <= 2
+      then
         return true
       end
       publishImpactEvent(weapon, explosionTarget, "hit", nil, repeated)
@@ -2085,19 +2981,29 @@ function Scraper.handleCombatLine(text)
   if hitWeapon and hitTarget then
     local weapon = normalizeWeapon(hitWeapon)
     if weapon then
-      publishImpactEvent(weapon, hitTarget, "hit",
-        trim(Scraper.state.observer and Scraper.state.observer.name), repeated)
+      publishImpactEvent(
+        weapon,
+        hitTarget,
+        "hit",
+        trim(Scraper.state.observer and Scraper.state.observer.name),
+        repeated
+      )
       return true
     end
   end
 
-  local missedWeapon, missedTarget = value:match(
-    "^Your ship's%s+(.+)%s+fire%s+at%s+.-'([^']+)'%s+but%s+miss%.$")
+  local missedWeapon, missedTarget =
+    value:match("^Your ship's%s+(.+)%s+fire%s+at%s+.-'([^']+)'%s+but%s+miss%.$")
   if missedWeapon and missedTarget then
     local weapon = normalizeWeapon(missedWeapon)
     if weapon then
-      publishImpactEvent(weapon, missedTarget, "miss",
-        trim(Scraper.state.observer and Scraper.state.observer.name), repeated)
+      publishImpactEvent(
+        weapon,
+        missedTarget,
+        "miss",
+        trim(Scraper.state.observer and Scraper.state.observer.name),
+        repeated
+      )
       return true
     end
   end
@@ -2106,7 +3012,7 @@ function Scraper.handleCombatLine(text)
   if chargedWeapon then
     local weapon = normalizeWeapon(chargedWeapon)
     if weapon then
-      publishCombatEvent({type = "charged", weapon = weapon})
+      publishCombatEvent({ type = "charged", weapon = weapon })
       return true
     end
   end
@@ -2115,9 +3021,76 @@ function Scraper.handleCombatLine(text)
   if reloadedWeapon then
     local weapon = normalizeWeapon(reloadedWeapon)
     if weapon then
-      publishCombatEvent({type = "charged", weapon = weapon})
+      publishCombatEvent({ type = "charged", weapon = weapon })
       return true
     end
+  end
+  return false
+end
+
+local function isRemoteCombatStart(value)
+  local lower = trim(value):lower():gsub("%s+", " ")
+  return lower:match("^.- fire from .-'[^']+' hits ") ~= nil
+    or lower:match("^an? .- from .-'[^']+' hits ") ~= nil
+    or lower:match("^.- fire from .-'[^']+' barely misses ") ~= nil
+    or lower:match("^an? .- from .-'[^']+' barely misses ") ~= nil
+    or lower:match("^.-'[^']+' fires an? .- towards? ") ~= nil
+    or lower:find(" explodes in a", 1, true) ~= nil
+end
+
+local function combatFragmentComplete(value)
+  value = trim(value)
+  return value:match("[%.!]%s*$") ~= nil or value:match("[%.!]%s*%[x%d+%]%s*$") ~= nil
+end
+
+local function clearPendingCombatLine()
+  safeKill("killTimer", Scraper.combat.pendingLineTimerId)
+  Scraper.combat.pendingLineTimerId = nil
+  Scraper.combat.pendingLine = nil
+end
+
+local function rememberCombatFragment(value)
+  clearPendingCombatLine()
+  Scraper.combat.pendingLine = trim(value):gsub("%s+", " ")
+  Scraper.combat.pendingLineTimerId = tempTimer(Scraper.COMBAT_FRAGMENT_TIMEOUT_SECONDS, function()
+    Scraper.combat.pendingLine = nil
+    Scraper.combat.pendingLineTimerId = nil
+  end)
+end
+
+function Scraper.handleCombatFragment(text)
+  local value = trim(text):gsub("%s+", " ")
+  if value == "" then
+    return false
+  end
+  local pending = Scraper.combat.pendingLine
+  if pending and not isRemoteCombatStart(value) then
+    clearPendingCombatLine()
+    local combined = pending .. " " .. value
+    if Scraper.handleShipDestruction(combined) then
+      return true
+    end
+    if Scraper.handleCombatLine(combined) then
+      return true
+    end
+    if #combined <= 2048 and not combatFragmentComplete(combined) then
+      rememberCombatFragment(combined)
+      return true
+    end
+    return false
+  elseif pending then
+    clearPendingCombatLine()
+  end
+
+  if Scraper.handleShipDestruction(value) then
+    return true
+  end
+  if Scraper.handleCombatLine(value) then
+    return true
+  end
+  if isRemoteCombatStart(value) and not combatFragmentComplete(value) then
+    rememberCombatFragment(value)
+    return true
   end
   return false
 end
@@ -2127,31 +3100,45 @@ local function scanKey(entity)
 end
 
 local function scanCommandDue()
-  if not Scraper.state then return nil end
+  if not Scraper.state then
+    return nil
+  end
   local observer = Scraper.state.observer or {}
-  local range = tonumber(observer.radarRange) or (500 + math.max(0, tonumber(observer.sensorArray) or 0) * 10)
+  local range = tonumber(observer.radarRange)
+    or (500 + math.max(0, tonumber(observer.sensorArray) or 0) * 10)
   local now = os.time()
   local best, bestOverdue, bestIsDiscovery
   for _, entity in pairs(Scraper.state.entities) do
     if entity.kind == "ship" and entity.name and entity.x and entity.y and entity.z then
-      local distance = math.sqrt((entity.x - (observer.x or 0)) ^ 2
-        + (entity.y - (observer.y or 0)) ^ 2 + (entity.z - (observer.z or 0)) ^ 2)
+      local distance = math.sqrt(
+        (entity.x - (observer.x or 0)) ^ 2
+          + (entity.y - (observer.y or 0)) ^ 2
+          + (entity.z - (observer.z or 0)) ^ 2
+      )
       if distance <= range then
-        local state = Scraper.scanState[scanKey(entity)] or {statusAt = 0, infoAt = 0}
+        local state = Scraper.scanState[scanKey(entity)] or { statusAt = 0, infoAt = 0 }
         Scraper.scanState[scanKey(entity)] = state
-        for _, source in ipairs({"status", "info"}) do
-          local interval = source == "status" and entity.disposition == "enemy"
-            and Scraper.polling.hostileScanIntervalSeconds
+        for _, source in ipairs({ "status", "info" }) do
+          local interval = source == "status"
+              and entity.disposition == "enemy"
+              and Scraper.polling.hostileScanIntervalSeconds
             or Scraper.polling.standardScanIntervalSeconds
           local lastAttempt = state[source .. "At"] or 0
           local missingTelemetry = source == "status"
-            and entity.hull == nil and entity.shields == nil and entity.condition == nil
+              and entity.hull == nil
+              and entity.shields == nil
+              and entity.condition == nil
             or source == "info" and entity.shipCategory == nil
           local discovery = missingTelemetry and lastAttempt == 0
           local overdue = now - lastAttempt - interval
-          if overdue >= 0 and (best == nil
+          if
+            overdue >= 0
+            and (
+              best == nil
               or discovery and not bestIsDiscovery
-              or discovery == bestIsDiscovery and overdue > bestOverdue) then
+              or discovery == bestIsDiscovery and overdue > bestOverdue
+            )
+          then
             best = {
               command = source .. " " .. entity.name,
               source = source,
@@ -2172,7 +3159,12 @@ local function updatePollingMetadata(command)
   Scraper.state = Scraper.state or freshState()
   Scraper.state.metadata.polling = {
     enabled = Scraper.polling.enabled,
-    active = Scraper.polling.enabled and Scraper.state.metadata.inSpace == true,
+    active = Scraper.polling.enabled
+      and not Scraper.polling.paused
+      and Scraper.state.metadata.inSpace == true,
+    paused = Scraper.polling.paused == true,
+    pausedAt = Scraper.polling.pausedAt,
+    pauseReason = Scraper.polling.pauseReason,
     command = command,
     commandGapSeconds = Scraper.polling.commandGapSeconds,
     cycleDelaySeconds = Scraper.polling.cycleDelaySeconds,
@@ -2192,8 +3184,7 @@ end
 
 local function shipGmcpIsFresh(now)
   local lastAt = tonumber(Scraper.shipGmcp and Scraper.shipGmcp.lastAt) or 0
-  return lastAt > 0 and (tonumber(now) or os.time()) - lastAt
-    <= Scraper.SHIP_GMCP_STALE_SECONDS
+  return lastAt > 0 and (tonumber(now) or os.time()) - lastAt <= Scraper.SHIP_GMCP_STALE_SECONDS
 end
 
 function Scraper.isCombatPollingActive(now)
@@ -2210,24 +3201,28 @@ end
 
 local function fleetStatusCommandDue(now, combatActive)
   local metadata = Scraper.state and Scraper.state.metadata or {}
-  local activeKind = metadata.fleet and metadata.fleet.active == true
-    and metadata.fleet.kind or nil
+  local activeKind = metadata.fleet and metadata.fleet.active == true and metadata.fleet.kind or nil
   local formations = metadata.formations or {}
   local bothKnownInactive = formations.battlegroup
     and formations.battlegroup.active == false
-    and formations.squadron and formations.squadron.active == false
+    and formations.squadron
+    and formations.squadron.active == false
   local activeInterval = combatActive
-    and (Scraper.polling.combatFleetStatusIntervalSeconds
-      or Scraper.COMBAT_FLEET_STATUS_INTERVAL_SECONDS)
-    or (Scraper.polling.fleetStatusIntervalSeconds
-      or Scraper.FLEET_STATUS_INTERVAL_SECONDS)
+      and (Scraper.polling.combatFleetStatusIntervalSeconds or Scraper.COMBAT_FLEET_STATUS_INTERVAL_SECONDS)
+    or (Scraper.polling.fleetStatusIntervalSeconds or Scraper.FLEET_STATUS_INTERVAL_SECONDS)
   local inactiveInterval = Scraper.polling.inactiveFormationProbeIntervalSeconds
     or Scraper.INACTIVE_FORMATION_PROBE_INTERVAL_SECONDS
   local allCandidates = {
-    {kind = "battlegroup", command = "battlegroup",
-      lastAt = Scraper.polling.lastBattlegroupAt or 0},
-    {kind = "squadron", command = "squadron status",
-      lastAt = Scraper.polling.lastSquadronAt or 0},
+    {
+      kind = "battlegroup",
+      command = "battlegroup",
+      lastAt = Scraper.polling.lastBattlegroupAt or 0,
+    },
+    {
+      kind = "squadron",
+      command = "squadron status",
+      lastAt = Scraper.polling.lastSquadronAt or 0,
+    },
   }
   -- A craft cannot simultaneously be a capital-ship battlegroup member and a
   -- fighter squadron member. Once one formation is positively active, poll
@@ -2246,19 +3241,27 @@ local function fleetStatusCommandDue(now, combatActive)
     candidate.overdue = now - candidate.lastAt - candidate.interval
   end
   table.sort(candidates, function(left, right)
-    if left.lastAt == right.lastAt then return left.kind < right.kind end
+    if left.lastAt == right.lastAt then
+      return left.kind < right.kind
+    end
     return left.lastAt < right.lastAt
   end)
   for _, candidate in ipairs(candidates) do
-    if candidate.lastAt == 0 or candidate.overdue >= 0 then return candidate end
+    if candidate.lastAt == 0 or candidate.overdue >= 0 then
+      return candidate
+    end
   end
   return nil
 end
 
 local function pollOnce()
   Scraper.polling.timerId = nil
-  if not Scraper.polling.enabled then return end
-  if Scraper.pendingCommandKind then return end
+  if not Scraper.polling.enabled or Scraper.polling.paused then
+    return
+  end
+  if Scraper.pendingCommandKind then
+    return
+  end
   if os.time() < tonumber(Scraper.fleetCommand.holdUntil or 0) then
     scheduleNextPoll(1)
     return
@@ -2266,7 +3269,9 @@ local function pollOnce()
   -- Never issue hidden commands while Mudlet is connecting or showing the
   -- login screen. A launch event or a successful manual space command must
   -- positively establish the in-space state before automatic polling begins.
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return end
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return
+  end
   if Scraper.active then
     scheduleNextPoll(0.5)
     return
@@ -2281,18 +3286,22 @@ local function pollOnce()
     and now - (Scraper.combat.lastRadarAt or 0)
       >= (Scraper.polling.radarReconcileIntervalSeconds or Scraper.RADAR_RECONCILE_INTERVAL_SECONDS)
   local fleetRadarInterval = combatActive
-    and (Scraper.polling.combatFleetRadarIntervalSeconds
-      or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS)
+      and (Scraper.polling.combatFleetRadarIntervalSeconds or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS)
     or (Scraper.polling.fleetRadarIntervalSeconds or Scraper.FLEETRADAR_INTERVAL_SECONDS)
   local fleetRadarDue = now - (Scraper.polling.lastFleetRadarAt or 0) >= fleetRadarInterval
   local fleetStatusDue = fleetStatusCommandDue(now, combatActive)
   local hydrationCommand = (Scraper.polling.hydrationQueue or {})[1]
   -- First-contact status/info hydration stays ahead of formation refreshes;
   -- routine repeat scans still yield to fleet status and radar below.
-  local scanCandidate = not hydrationCommand and not combatRadarDue
-    and not radarReconcileDue and scanCommandDue() or nil
-  local dueScan = scanCandidate and (scanCandidate.discovery
-    or Scraper.polling.scansSinceCore < 2) and scanCandidate or nil
+  local scanCandidate = not hydrationCommand
+      and not combatRadarDue
+      and not radarReconcileDue
+      and scanCommandDue()
+    or nil
+  local dueScan = scanCandidate
+      and (scanCandidate.discovery or Scraper.polling.scansSinceCore < 2)
+      and scanCandidate
+    or nil
   local command
   local selectedScan
   local selectedFleetStatus
@@ -2345,26 +3354,42 @@ local function pollOnce()
   end
   if selectedScan then
     local parserCommand = parserForCommand(command)
-    local started, startError = Scraper.startCapture(parserCommand, command, {polled = true,
-      pollDelay = Scraper.polling.commandGapSeconds})
-    if not started then scheduleNextPoll(0.5); return end
+    local started, startError = Scraper.startCapture(
+      parserCommand,
+      command,
+      { polled = true, pollDelay = Scraper.polling.commandGapSeconds }
+    )
+    if not started then
+      scheduleNextPoll(0.5)
+      return
+    end
     updatePollingMetadata(command)
     Scraper.polling.dispatching = true
     markAutomaticCommandSent(command, now)
     local sent = pcall(send, command, false)
     Scraper.polling.dispatching = false
-    if not sent then abandonCapture("scan send failed") end
+    if not sent then
+      abandonCapture("scan send failed")
+    end
     return
   end
   local completedCycle = false
-  if not hydrationCommand and not combatRadarDue and not radarReconcileDue
-      and not fleetStatusDue and not fleetRadarDue then
+  if
+    not hydrationCommand
+    and not combatRadarDue
+    and not radarReconcileDue
+    and not fleetStatusDue
+    and not fleetRadarDue
+  then
     Scraper.polling.index = Scraper.polling.index + 1
     completedCycle = Scraper.polling.index > #Scraper.POLL_COMMANDS
-    if completedCycle then Scraper.polling.index = 1 end
+    if completedCycle then
+      Scraper.polling.index = 1
+    end
   end
-  local delay = combatRadarDue and 0.5 or completedCycle
-    and Scraper.polling.cycleDelaySeconds or Scraper.polling.commandGapSeconds
+  local delay = combatRadarDue and 0.5
+    or completedCycle and Scraper.polling.cycleDelaySeconds
+    or Scraper.polling.commandGapSeconds
 
   -- Ship.Info supplies live observer status. Keep the command as a fallback
   -- when GMCP has not arrived recently instead of polling it every cycle.
@@ -2380,8 +3405,10 @@ local function pollOnce()
     pollDelay = delay,
   })
   if not started then
-    diagnostic("warn", "telemetry poll could not capture " .. command .. ": "
-      .. tostring(startError))
+    diagnostic(
+      "warn",
+      "telemetry poll could not capture " .. command .. ": " .. tostring(startError)
+    )
     scheduleNextPoll(delay)
     return
   end
@@ -2393,27 +3420,43 @@ local function pollOnce()
   Scraper.polling.dispatching = false
   if not sent or sendResult == false then
     abandonCapture("poll send failed")
-    diagnostic("warn", "telemetry poll could not send " .. command .. ": "
-      .. tostring(sent and sendError or sendResult))
+    diagnostic(
+      "warn",
+      "telemetry poll could not send "
+        .. command
+        .. ": "
+        .. tostring(sent and sendError or sendResult)
+    )
   end
 end
 
 scheduleNextPoll = function(delay)
   cancelPollTimer()
-  if not Scraper.polling.enabled then return end
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return end
-  if Scraper.pendingCommandKind then return end
+  if not Scraper.polling.enabled or Scraper.polling.paused then
+    return
+  end
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return
+  end
+  if Scraper.pendingCommandKind then
+    return
+  end
   Scraper.polling.timerId = tempTimer(tonumber(delay) or 0.25, pollOnce)
 end
 
 function Scraper.handleSectorArrival(text)
   local message = trim(text)
-  local shipName = message:match("'([^']+)'%s+enters the starsystem,%s+coming out of its hyperjump at")
-  if not shipName then return false end
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return true end
+  local shipName =
+    message:match("'([^']+)'%s+enters the starsystem,%s+coming out of its hyperjump at")
+  if not shipName then
+    return false
+  end
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return true
+  end
   Scraper.polling.radarRefreshPending = true
-  Scraper.polling.radarRefreshGeneration =
-    (tonumber(Scraper.polling.radarRefreshGeneration) or 0) + 1
+  Scraper.polling.radarRefreshGeneration = (tonumber(Scraper.polling.radarRefreshGeneration) or 0)
+    + 1
   Scraper.polling.radarRefreshReason = "ship entered sector: " .. shipName
   Scraper.state.metadata.radarRefreshPending = true
   Scraper.state.metadata.radarRefreshReason = Scraper.polling.radarRefreshReason
@@ -2422,12 +3465,16 @@ function Scraper.handleSectorArrival(text)
     observedAt = os.time(),
   }
   Scraper.combat.lastRadarAt = 0
-  if Scraper.polling.enabled and scheduleNextPoll then scheduleNextPoll(0.1) end
+  if Scraper.polling.enabled and scheduleNextPoll then
+    scheduleNextPoll(0.1)
+  end
   return true
 end
 
 requestProjectileRadarReconciliation = function()
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return false end
+  if Scraper.polling.paused or not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false
+  end
   local repeatDelay = automaticCommandRepeatDelay("radar projectiles")
   if repeatDelay > 0 then
     profileCount("automaticCommandsThrottled")
@@ -2457,8 +3504,10 @@ requestProjectileRadarReconciliation = function()
   Scraper.polling.dispatching = false
   if not sent or sendResult == false then
     abandonCapture("projectile radar send failed")
-    diagnostic("warn", "projectile radar could not send: "
-      .. tostring(sent and sendError or sendResult))
+    diagnostic(
+      "warn",
+      "projectile radar could not send: " .. tostring(sent and sendError or sendResult)
+    )
     return false
   end
   return true
@@ -2466,13 +3515,19 @@ end
 
 function Scraper.handleProjectileSummary(text)
   local total, incoming = trim(text):match("^(%d+)%s+projectiles?,%s+(%d+)%s+incoming")
-  if not total then return false end
+  if not total then
+    return false
+  end
   total, incoming = tonumber(total) or 0, tonumber(incoming) or 0
-  if total > 0 or incoming > 0 then Scraper.combat.lastActivityAt = os.time() end
+  if total > 0 or incoming > 0 then
+    Scraper.combat.lastActivityAt = os.time()
+  end
   Scraper.state.metadata.projectileCount = total
   Scraper.state.metadata.incomingProjectileCount = incoming
   Scraper.publish()
-  if total <= 0 then return true end
+  if total <= 0 then
+    return true
+  end
   return requestProjectileRadarReconciliation()
 end
 
@@ -2488,57 +3543,142 @@ function Scraper.startPolling(options)
   Scraper.polling.lastFleetRadarAt = 0
   Scraper.polling.lastBattlegroupAt = 0
   Scraper.polling.lastSquadronAt = 0
-  Scraper.polling.commandGapSeconds = math.max(0.5,
-    tonumber(options.commandGapSeconds) or Scraper.POLL_COMMAND_GAP_SECONDS)
-  Scraper.polling.cycleDelaySeconds = math.max(1,
-    tonumber(options.cycleDelaySeconds) or Scraper.POLL_CYCLE_DELAY_SECONDS)
-  Scraper.polling.hostileScanIntervalSeconds = math.max(3,
-    tonumber(options.hostileScanIntervalSeconds) or Scraper.HOSTILE_SCAN_INTERVAL_SECONDS)
-  Scraper.polling.standardScanIntervalSeconds = math.max(5,
-    tonumber(options.standardScanIntervalSeconds) or Scraper.STANDARD_SCAN_INTERVAL_SECONDS)
+  Scraper.polling.commandGapSeconds =
+    math.max(0.5, tonumber(options.commandGapSeconds) or Scraper.POLL_COMMAND_GAP_SECONDS)
+  Scraper.polling.cycleDelaySeconds =
+    math.max(1, tonumber(options.cycleDelaySeconds) or Scraper.POLL_CYCLE_DELAY_SECONDS)
+  Scraper.polling.hostileScanIntervalSeconds = math.max(
+    3,
+    tonumber(options.hostileScanIntervalSeconds) or Scraper.HOSTILE_SCAN_INTERVAL_SECONDS
+  )
+  Scraper.polling.standardScanIntervalSeconds = math.max(
+    5,
+    tonumber(options.standardScanIntervalSeconds) or Scraper.STANDARD_SCAN_INTERVAL_SECONDS
+  )
   Scraper.polling.combatRadarIntervalSeconds = math.max(
     Scraper.AUTOMATIC_COMMAND_DEDUP_SECONDS,
-    tonumber(options.combatRadarIntervalSeconds) or Scraper.COMBAT_RADAR_INTERVAL_SECONDS)
-  Scraper.polling.fleetRadarIntervalSeconds = math.max(3,
-    tonumber(options.fleetRadarIntervalSeconds) or Scraper.FLEETRADAR_INTERVAL_SECONDS)
-  Scraper.polling.combatFleetRadarIntervalSeconds = math.max(5,
-    tonumber(options.combatFleetRadarIntervalSeconds)
-      or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS)
-  Scraper.polling.fleetStatusIntervalSeconds = math.max(5,
-    tonumber(options.fleetStatusIntervalSeconds) or Scraper.FLEET_STATUS_INTERVAL_SECONDS)
-  Scraper.polling.combatFleetStatusIntervalSeconds = math.max(3,
+    tonumber(options.combatRadarIntervalSeconds) or Scraper.COMBAT_RADAR_INTERVAL_SECONDS
+  )
+  Scraper.polling.fleetRadarIntervalSeconds =
+    math.max(3, tonumber(options.fleetRadarIntervalSeconds) or Scraper.FLEETRADAR_INTERVAL_SECONDS)
+  Scraper.polling.combatFleetRadarIntervalSeconds = math.max(
+    5,
+    tonumber(options.combatFleetRadarIntervalSeconds) or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS
+  )
+  Scraper.polling.fleetStatusIntervalSeconds = math.max(
+    5,
+    tonumber(options.fleetStatusIntervalSeconds) or Scraper.FLEET_STATUS_INTERVAL_SECONDS
+  )
+  Scraper.polling.combatFleetStatusIntervalSeconds = math.max(
+    3,
     tonumber(options.combatFleetStatusIntervalSeconds)
-      or Scraper.COMBAT_FLEET_STATUS_INTERVAL_SECONDS)
-  Scraper.polling.inactiveFormationProbeIntervalSeconds = math.max(30,
+      or Scraper.COMBAT_FLEET_STATUS_INTERVAL_SECONDS
+  )
+  Scraper.polling.inactiveFormationProbeIntervalSeconds = math.max(
+    30,
     tonumber(options.inactiveFormationProbeIntervalSeconds)
-      or Scraper.INACTIVE_FORMATION_PROBE_INTERVAL_SECONDS)
-  Scraper.polling.radarReconcileIntervalSeconds = math.max(30,
-    tonumber(options.radarReconcileIntervalSeconds) or Scraper.RADAR_RECONCILE_INTERVAL_SECONDS)
-  Scraper.polling.combatActivityWindowSeconds = math.max(5,
-    tonumber(options.combatActivityWindowSeconds) or Scraper.COMBAT_ACTIVITY_WINDOW_SECONDS)
+      or Scraper.INACTIVE_FORMATION_PROBE_INTERVAL_SECONDS
+  )
+  Scraper.polling.radarReconcileIntervalSeconds = math.max(
+    30,
+    tonumber(options.radarReconcileIntervalSeconds) or Scraper.RADAR_RECONCILE_INTERVAL_SECONDS
+  )
+  Scraper.polling.combatActivityWindowSeconds = math.max(
+    5,
+    tonumber(options.combatActivityWindowSeconds) or Scraper.COMBAT_ACTIVITY_WINDOW_SECONDS
+  )
   Scraper.polling.scansSinceCore = 2
   updatePollingMetadata(nil)
   scheduleNextPoll(tonumber(options.initialDelaySeconds) or 0.5)
-  diagnostic("info", Scraper.state and Scraper.state.metadata.inSpace == true
-    and "telemetry polling enabled"
-    or "telemetry polling armed; waiting for confirmed space activity")
+  diagnostic(
+    "info",
+    Scraper.state and Scraper.state.metadata.inSpace == true and "telemetry polling enabled"
+      or "telemetry polling armed; waiting for confirmed space activity"
+  )
   return true
 end
 
 function Scraper.stopPolling()
   cancelPollTimer()
   Scraper.polling.enabled = false
+  Scraper.polling.paused = false
+  Scraper.polling.pausedAt = nil
+  Scraper.polling.pauseReason = nil
   Scraper.polling.resumeWhenInSpace = false
   Scraper.polling.dispatching = false
-  if Scraper.state then updatePollingMetadata(nil) end
+  if Scraper.state then
+    updatePollingMetadata(nil)
+  end
   return true
 end
 
 function Scraper.getPollingState()
   local state = copyTable(Scraper.polling)
-  state.active = state.enabled and Scraper.state
-    and Scraper.state.metadata.inSpace == true or false
+  state.active = state.enabled
+      and not state.paused
+      and Scraper.state
+      and Scraper.state.metadata.inSpace == true
+    or false
   return state
+end
+
+function Scraper.setPollingPaused(paused, reason)
+  paused = paused == true
+  if Scraper.polling.paused == paused then
+    if Scraper.state then
+      updatePollingMetadata(nil)
+      Scraper.publish()
+    end
+    return true
+  end
+
+  Scraper.polling.paused = paused
+  Scraper.polling.pausedAt = paused and os.time() or nil
+  Scraper.polling.pauseReason = paused and (trim(reason) ~= "" and trim(reason) or "manual") or nil
+
+  if paused then
+    cancelPollTimer()
+    safeKill("killTimer", Scraper.combat.projectileReconcileTimerId)
+    Scraper.combat.projectileReconcileTimerId = nil
+    safeKill("killTimer", Scraper.shields.damageTimerId)
+    safeKill("killTimer", Scraper.shields.actionTimerId)
+    Scraper.shields.damageTimerId = nil
+    Scraper.shields.actionTimerId = nil
+    if Scraper.active and Scraper.active.polled then
+      abandonCapture("polling paused")
+    end
+    if Scraper.pendingCommandKind == "target" and completeTargetLock then
+      completeTargetLock("rejected", "Polling paused before the target lock was confirmed.")
+    end
+    local shieldIntentId = Scraper.shields.manualIntentId
+    Scraper.shields.manualIntentId = nil
+    Scraper.shields.recharging = false
+    Scraper.shields.awaiting = false
+    Scraper.shields.attempts = 0
+    Scraper.shields.statusPending = false
+    Scraper.shields.checkForRecharge = false
+    if Scraper.state then
+      Scraper.state.metadata.shieldRecharging = false
+      Scraper.state.metadata.shieldRechargeAttempts = 0
+      Scraper.state.metadata.shieldStatusPending = false
+    end
+    if shieldIntentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+      Scraper.proxy.publishIntentAck(
+        shieldIntentId,
+        "rejected",
+        "Polling paused before shield recharge completed."
+      )
+    end
+  elseif Scraper.polling.enabled and Scraper.state and Scraper.state.metadata.inSpace == true then
+    scheduleNextPoll(0.25)
+  end
+
+  if Scraper.state then
+    updatePollingMetadata(nil)
+    Scraper.publish()
+  end
+  diagnostic("info", paused and "telemetry polling paused" or "telemetry polling resumed")
+  return true
 end
 
 local function resolvePendingCommand(status, reason, pollDelay)
@@ -2560,11 +3700,22 @@ local function holdPollingForCommand(intentId, seconds, timeoutReason, kind)
   Scraper.pendingCommandKind = kind or "command"
   Scraper.pendingCommandTimerId = tempTimer(tonumber(seconds) or 2, function()
     Scraper.pendingCommandTimerId = nil
+    if Scraper.pendingCommandKind == "target" and completeTargetLock then
+      completeTargetLock(
+        "rejected",
+        timeoutReason or "Target lock timed out without ship confirmation."
+      )
+      return
+    end
     local expiredIntentId = Scraper.pendingCommandIntentId
     Scraper.pendingCommandIntentId = nil
     Scraper.pendingCommandKind = nil
-    if expiredIntentId and timeoutReason and Scraper.proxy
-        and type(Scraper.proxy.publishIntentAck) == "function" then
+    if
+      expiredIntentId
+      and timeoutReason
+      and Scraper.proxy
+      and type(Scraper.proxy.publishIntentAck) == "function"
+    then
       Scraper.proxy.publishIntentAck(expiredIntentId, "rejected", timeoutReason)
     end
     scheduleNextPoll(0.25)
@@ -2572,6 +3723,9 @@ local function holdPollingForCommand(intentId, seconds, timeoutReason, kind)
 end
 
 local function commandGateError()
+  if Scraper.polling.paused then
+    return "automatic polling is paused; resume polling before using Holocron3D commands"
+  end
   if Scraper.pendingCommandKind == "target" then
     return "target lock is still concentrating; wait for Target Locked."
   end
@@ -2585,7 +3739,9 @@ local sendRechargeAttempt
 local requestShieldStatus
 
 local function publishShieldState()
-  if not Scraper.state then return end
+  if not Scraper.state then
+    return
+  end
   Scraper.state.metadata.autoRechargeEnabled = Scraper.shields.auto ~= false
   Scraper.state.metadata.shieldRecharging = Scraper.shields.recharging == true
   Scraper.state.metadata.shieldRechargeAttempts = Scraper.shields.attempts or 0
@@ -2611,7 +3767,9 @@ local function finishShieldRecharge(status, reason)
 end
 
 requestShieldStatus = function(checkForRecharge)
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return false end
+  if Scraper.polling.paused or not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false
+  end
   if Scraper.pendingCommandKind == "target" or Scraper.active then
     safeKill("killTimer", Scraper.shields.actionTimerId)
     Scraper.shields.actionTimerId = tempTimer(0.35, function()
@@ -2651,14 +3809,19 @@ requestShieldStatus = function(checkForRecharge)
     abandonCapture("shield status send failed")
     Scraper.shields.statusPending = false
     publishShieldState()
-    diagnostic("warn", "shield status check could not send: "
-      .. tostring(sent and sendError or sendResult))
+    diagnostic(
+      "warn",
+      "shield status check could not send: " .. tostring(sent and sendError or sendResult)
+    )
     return false
   end
   return true
 end
 
 local function beginShieldRecharge(intentId)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "shield recharge is unavailable while landed"
   end
@@ -2666,11 +3829,17 @@ local function beginShieldRecharge(intentId)
     return false, "target lock is still concentrating; wait for Target Locked."
   end
   local shields = Scraper.state.observer.shields
-  if type(shields) == "table" and tonumber(shields.maximum)
-      and tonumber(shields.current) and tonumber(shields.current) >= tonumber(shields.maximum) then
+  if
+    type(shields) == "table"
+    and tonumber(shields.maximum)
+    and tonumber(shields.current)
+    and tonumber(shields.current) >= tonumber(shields.maximum)
+  then
     return false, "shields are already at peak power"
   end
-  if Scraper.shields.recharging then return false, "shield recharge is already running" end
+  if Scraper.shields.recharging then
+    return false, "shield recharge is already running"
+  end
   Scraper.shields.recharging = true
   Scraper.shields.awaiting = false
   Scraper.shields.attempts = 0
@@ -2681,7 +3850,9 @@ local function beginShieldRecharge(intentId)
 end
 
 sendRechargeAttempt = function()
-  if not Scraper.shields.recharging or Scraper.shields.awaiting then return end
+  if Scraper.polling.paused or not Scraper.shields.recharging or Scraper.shields.awaiting then
+    return
+  end
   if Scraper.pendingCommandKind == "target" or Scraper.shields.statusPending then
     safeKill("killTimer", Scraper.shields.actionTimerId)
     Scraper.shields.actionTimerId = tempTimer(0.25, function()
@@ -2691,7 +3862,9 @@ sendRechargeAttempt = function()
     return
   end
   cancelPollTimer()
-  if Scraper.active then abandonCapture("superseded by shield recharge") end
+  if Scraper.active then
+    abandonCapture("superseded by shield recharge")
+  end
   Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "recharge", false)
   Scraper.polling.dispatching = false
@@ -2737,7 +3910,9 @@ end
 function Scraper.handleRechargeResponse(text)
   local response = trim(text)
   if response == "Recharging shields.." then
-    if not Scraper.shields.recharging then return false end
+    if not Scraper.shields.recharging then
+      return false
+    end
     Scraper.shields.awaiting = false
     safeKill("killTimer", Scraper.shields.actionTimerId)
     Scraper.shields.actionTimerId = nil
@@ -2754,8 +3929,10 @@ function Scraper.handleRechargeResponse(text)
     return true
   end
   if response == "The shields are already at peak power." then
-    if type(Scraper.state.observer.shields) == "table"
-        and Scraper.state.observer.shields.maximum then
+    if
+      type(Scraper.state.observer.shields) == "table"
+      and Scraper.state.observer.shields.maximum
+    then
       Scraper.state.observer.shields.current = Scraper.state.observer.shields.maximum
     end
     finishShieldRecharge("completed", response)
@@ -2765,11 +3942,34 @@ function Scraper.handleRechargeResponse(text)
 end
 
 function Scraper.handleShipHit(text, critical)
-  if not critical and not trim(text):match("^You are hit by .+ from .-'[^']+'!") then
+  local value = trim(text)
+  local incomingWeapon, incomingSource
+  if not critical then
+    incomingWeapon, incomingSource = value:match("^You are hit by%s+(.+)%s+from%s+.-'([^']+)'!.*$")
+  end
+  if not critical and (not incomingWeapon or not incomingSource) then
     return false
   end
   Scraper.combat.lastActivityAt = os.time()
-  if not Scraper.shields.auto then return true end
+  if incomingWeapon and incomingSource then
+    local weapon = normalizeWeapon(incomingWeapon)
+    if weapon then
+      local attacker = findEntity({ name = incomingSource })
+      if attacker and attacker.kind == "ship" then
+        attacker.disposition = "enemy"
+      end
+      publishImpactEvent(
+        weapon,
+        trim(Scraper.state.observer and Scraper.state.observer.name),
+        "hit",
+        incomingSource,
+        1
+      )
+    end
+  end
+  if not Scraper.shields.auto then
+    return true
+  end
   safeKill("killTimer", Scraper.shields.damageTimerId)
   Scraper.shields.damageTimerId = nil
   if critical then
@@ -2786,8 +3986,10 @@ function Scraper.handleShipHit(text, critical)
     Scraper.shipGmcp.damageSequence = Scraper.shipGmcp.sequence or 0
     Scraper.shields.damageTimerId = tempTimer(3, function()
       Scraper.shields.damageTimerId = nil
-      if Scraper.shipGmcp.damageSequence ~= nil
-          and (Scraper.shipGmcp.sequence or 0) <= Scraper.shipGmcp.damageSequence then
+      if
+        Scraper.shipGmcp.damageSequence ~= nil
+        and (Scraper.shipGmcp.sequence or 0) <= Scraper.shipGmcp.damageSequence
+      then
         Scraper.shipGmcp.damageSequence = nil
         requestShieldStatus(true)
       end
@@ -2797,14 +3999,18 @@ function Scraper.handleShipHit(text, critical)
 end
 
 local function gmcpNumber(info, key)
-  if type(info) ~= "table" or info[key] == nil then return nil end
+  if type(info) ~= "table" or info[key] == nil then
+    return nil
+  end
   return tonumber(info[key])
 end
 
 function Scraper.handleShipGmcp()
   local profiling = Scraper.profiler.enabled == true
   local profileStarted = profiling and os.clock() or nil
-  if profiling then profileCount("shipGmcpEvents") end
+  if profiling then
+    profileCount("shipGmcpEvents")
+  end
   local info = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.Info or nil
   if type(info) ~= "table" or next(info) == nil then
     if profiling then
@@ -2820,40 +4026,67 @@ function Scraper.handleShipGmcp()
   local energy, maxEnergy = gmcpNumber(info, "energy"), gmcpNumber(info, "maxEnergy")
   local hull, maxHull = gmcpNumber(info, "hull"), gmcpNumber(info, "maxHull")
   local shield, maxShield = gmcpNumber(info, "shield"), gmcpNumber(info, "maxShield")
-  local posX, posY, posZ = gmcpNumber(info, "posX"), gmcpNumber(info, "posY"),
-    gmcpNumber(info, "posZ")
-  local headX, headY, headZ = gmcpNumber(info, "headX"), gmcpNumber(info, "headY"),
-    gmcpNumber(info, "headZ")
+  local posX, posY, posZ =
+    gmcpNumber(info, "posX"), gmcpNumber(info, "posY"), gmcpNumber(info, "posZ")
+  local headX, headY, headZ =
+    gmcpNumber(info, "headX"), gmcpNumber(info, "headY"), gmcpNumber(info, "headZ")
 
   if speed ~= nil or maxSpeed ~= nil then
     observer.speed = observer.speed or {}
-    if speed ~= nil then observer.speed.current = speed end
-    if maxSpeed ~= nil then observer.speed.maximum = maxSpeed end
+    if speed ~= nil then
+      observer.speed.current = speed
+    end
+    if maxSpeed ~= nil then
+      observer.speed.maximum = maxSpeed
+    end
   end
   if energy ~= nil or maxEnergy ~= nil then
     observer.energy = observer.energy or {}
-    if energy ~= nil then observer.energy.current = energy end
-    if maxEnergy ~= nil then observer.energy.maximum = maxEnergy end
+    if energy ~= nil then
+      observer.energy.current = energy
+    end
+    if maxEnergy ~= nil then
+      observer.energy.maximum = maxEnergy
+    end
   end
   if hull ~= nil or maxHull ~= nil then
     observer.hull = observer.hull or {}
-    if hull ~= nil then observer.hull.current = hull end
-    if maxHull ~= nil then observer.hull.maximum = maxHull end
+    if hull ~= nil then
+      observer.hull.current = hull
+    end
+    if maxHull ~= nil then
+      observer.hull.maximum = maxHull
+    end
   end
   if shield ~= nil or maxShield ~= nil then
     observer.shields = observer.shields or {}
-    if shield ~= nil then observer.shields.current = shield end
-    if maxShield ~= nil then observer.shields.maximum = maxShield end
+    if shield ~= nil then
+      observer.shields.current = shield
+    end
+    if maxShield ~= nil then
+      observer.shields.maximum = maxShield
+    end
   end
-  if posX ~= nil then observer.x = posX end
-  if posY ~= nil then observer.y = posY end
-  if posZ ~= nil then observer.z = posZ end
-  if headX ~= nil and headY ~= nil and headZ ~= nil
-      and (headX ~= 0 or headY ~= 0 or headZ ~= 0) then
-    observer.heading = {x = headX, y = headY, z = headZ}
+  if posX ~= nil then
+    observer.x = posX
+  end
+  if posY ~= nil then
+    observer.y = posY
+  end
+  if posZ ~= nil then
+    observer.z = posZ
+  end
+  if
+    headX ~= nil
+    and headY ~= nil
+    and headZ ~= nil
+    and (headX ~= 0 or headY ~= 0 or headZ ~= 0)
+  then
+    observer.heading = { x = headX, y = headY, z = headZ }
   end
   if info.piloting ~= nil then
-    observer.piloting = info.piloting == true or info.piloting == 1
+    observer.piloting = info.piloting == true
+      or info.piloting == 1
       or tostring(info.piloting):lower() == "true"
   end
 
@@ -2866,13 +4099,20 @@ function Scraper.handleShipGmcp()
   clearObserverHydration("status")
   refreshDerivedDistances()
 
-  if Scraper.shipGmcp.damageSequence ~= nil
-      and Scraper.shipGmcp.sequence > Scraper.shipGmcp.damageSequence then
+  if
+    Scraper.shipGmcp.damageSequence ~= nil
+    and Scraper.shipGmcp.sequence > Scraper.shipGmcp.damageSequence
+  then
     Scraper.shipGmcp.damageSequence = nil
     safeKill("killTimer", Scraper.shields.damageTimerId)
     Scraper.shields.damageTimerId = nil
-    if Scraper.shields.auto and shield and maxShield and shield < maxShield
-        and not Scraper.shields.recharging then
+    if
+      Scraper.shields.auto
+      and shield
+      and maxShield
+      and shield < maxShield
+      and not Scraper.shields.recharging
+    then
       beginShieldRecharge(nil)
     end
   end
@@ -2881,12 +4121,16 @@ function Scraper.handleShipGmcp()
   else
     Scraper.publish()
   end
-  if profiling then profileTiming("ship_gmcp", profileStarted) end
+  if profiling then
+    profileTiming("ship_gmcp", profileStarted)
+  end
   return true
 end
 
 ensureShieldsOn = function()
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then return false end
+  if Scraper.polling.paused or not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false
+  end
   if Scraper.pendingCommandKind == "target" then
     tempTimer(0.5, ensureShieldsOn)
     return false
@@ -2916,7 +4160,9 @@ end
 local function dispatchManualShipScan(payload, message)
   payload = type(payload) == "table" and payload or {}
   local gateError = commandGateError()
-  if gateError then return false, gateError end
+  if gateError then
+    return false, gateError
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "ship scanning is unavailable while landed"
   end
@@ -2929,26 +4175,34 @@ local function dispatchManualShipScan(payload, message)
   local targetName = trim(payload.targetName)
   local isObserver = targetId == "player-ship"
     or (targetName ~= "" and targetName:lower() == trim(observer.name):lower())
-  local target = isObserver and observer or findEntity({id = targetId})
-  if not target and targetName ~= "" then target = findEntity({name = targetName}) end
+  local target = isObserver and observer or findEntity({ id = targetId })
+  if not target and targetName ~= "" then
+    target = findEntity({ name = targetName })
+  end
 
   local formationMember
   if not target then
     local metadata = Scraper.state.metadata or {}
     local visited = {}
     local function searchFleet(fleet)
-      if formationMember or type(fleet) ~= "table" or visited[fleet] then return end
+      if formationMember or type(fleet) ~= "table" or visited[fleet] then
+        return
+      end
       visited[fleet] = true
       for _, member in ipairs(fleet.members or {}) do
-        if (targetId ~= "" and trim(member.id):lower() == targetId:lower())
-            or (targetName ~= "" and trim(member.name):lower() == targetName:lower()) then
+        if
+          (targetId ~= "" and trim(member.id):lower() == targetId:lower())
+          or (targetName ~= "" and trim(member.name):lower() == targetName:lower())
+        then
           formationMember = member
           return
         end
       end
     end
     searchFleet(metadata.fleet)
-    for _, fleet in pairs(metadata.formations or {}) do searchFleet(fleet) end
+    for _, fleet in pairs(metadata.formations or {}) do
+      searchFleet(fleet)
+    end
     target = formationMember
   end
 
@@ -2961,10 +4215,14 @@ local function dispatchManualShipScan(payload, message)
   if not isObserver and target.x ~= nil and target.y ~= nil and target.z ~= nil then
     local range = tonumber(observer.radarRange)
       or (500 + math.max(0, tonumber(observer.sensorArray) or 0) * 10)
-    local distance = math.sqrt((target.x - (observer.x or 0)) ^ 2
-      + (target.y - (observer.y or 0)) ^ 2 + (target.z - (observer.z or 0)) ^ 2)
+    local distance = math.sqrt(
+      (target.x - (observer.x or 0)) ^ 2
+        + (target.y - (observer.y or 0)) ^ 2
+        + (target.z - (observer.z or 0)) ^ 2
+    )
     if distance > range then
-      return false, string.format("target is %.0f units away; sensor range is %.0f", distance, range)
+      return false,
+        string.format("target is %.0f units away; sensor range is %.0f", distance, range)
     end
   end
 
@@ -2997,13 +4255,15 @@ local function dispatchManualShipScan(payload, message)
   end
 
   local key = isObserver and "player-ship" or scanKey(target)
-  Scraper.scanState[key] = Scraper.scanState[key] or {statusAt = 0, infoAt = 0}
+  Scraper.scanState[key] = Scraper.scanState[key] or { statusAt = 0, infoAt = 0 }
   Scraper.scanState[key][source .. "At"] = os.time()
   return true
 end
 
 local function publishAutotrackState()
-  if not Scraper.state then return end
+  if not Scraper.state then
+    return
+  end
   Scraper.state.observer.autotrack = Scraper.autotrack.observed
   Scraper.state.metadata.autotrackDesired = Scraper.autotrack.desired
   Scraper.state.metadata.autotrackPending = Scraper.autotrack.pending
@@ -3028,12 +4288,17 @@ local function armAutotrackTimeout()
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
   Scraper.autotrack.timeoutTimerId = tempTimer(5, function()
     Scraper.autotrack.timeoutTimerId = nil
-    if not Scraper.autotrack.pending then return end
+    if not Scraper.autotrack.pending then
+      return
+    end
     completeAutotrack("rejected", "LotJ did not confirm the autotrack state.")
   end)
 end
 
 local function sendAutotrackToggle()
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "autotrack", false)
   Scraper.polling.dispatching = false
@@ -3048,7 +4313,9 @@ end
 
 requestAutotrack = function(desired, intentId)
   local gateError = commandGateError()
-  if gateError then return false, gateError end
+  if gateError then
+    return false, gateError
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "autotrack is unavailable while landed"
   end
@@ -3095,13 +4362,22 @@ function Scraper.handleAutotrackResponse(value)
     observed = false
   elseif lower:match("^autotracking%s+on%.?$") then
     observed = true
-  elseif lower:find("disabled", 1, true) or lower:find("disengaged", 1, true)
-      or lower:find("deactivated", 1, true) or lower:find("turned off", 1, true)
-      or lower:match("%f[%a]off%f[%A]") or lower:find("no longer", 1, true) then
+  elseif
+    lower:find("disabled", 1, true)
+    or lower:find("disengaged", 1, true)
+    or lower:find("deactivated", 1, true)
+    or lower:find("turned off", 1, true)
+    or lower:match("%f[%a]off%f[%A]")
+    or lower:find("no longer", 1, true)
+  then
     observed = false
-  elseif lower:find("enabled", 1, true) or lower:find("engaged", 1, true)
-      or lower:find("activated", 1, true) or lower:find("turned on", 1, true)
-      or lower:match("%f[%a]on%f[%A]") then
+  elseif
+    lower:find("enabled", 1, true)
+    or lower:find("engaged", 1, true)
+    or lower:find("activated", 1, true)
+    or lower:find("turned on", 1, true)
+    or lower:match("%f[%a]on%f[%A]")
+  then
     observed = true
   else
     return nil, "autotrack response did not contain an enabled or disabled state"
@@ -3117,7 +4393,9 @@ function Scraper.handleAutotrackResponse(value)
     Scraper.autotrack.retryCount = Scraper.autotrack.retryCount + 1
     local sent, sendError = sendAutotrackToggle()
     publishAutotrackState()
-    if sent then return observed end
+    if sent then
+      return observed
+    end
     completeAutotrack("rejected", "Could not correct autotrack: " .. tostring(sendError))
     return nil, sendError
   end
@@ -3130,13 +4408,59 @@ function Scraper.handleAutotrackResponse(value)
   return observed
 end
 
+local function requestPendingTargetStatus()
+  Scraper.combat.targetReconcileTimerId = nil
+  if Scraper.polling.paused then
+    if completeTargetLock then
+      completeTargetLock("rejected", "Polling paused before the target lock was confirmed.")
+    end
+    return false
+  end
+  if Scraper.pendingCommandKind ~= "target" then
+    return false
+  end
+  if Scraper.active then
+    Scraper.combat.targetReconcileTimerId = tempTimer(0.5, requestPendingTargetStatus)
+    return true
+  end
+
+  local started, startError = Scraper.startCapture("status", "status", {
+    polled = true,
+    targetReconciliation = true,
+  })
+  if not started then
+    completeTargetLock(
+      "rejected",
+      "Target lock could not be verified by status: " .. tostring(startError)
+    )
+    return false
+  end
+  updatePollingMetadata("status")
+  Scraper.polling.dispatching = true
+  markAutomaticCommandSent("status")
+  local sent, sendResult, sendError = pcall(send, "status", false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    abandonCapture("target reconciliation status send failed")
+    completeTargetLock(
+      "rejected",
+      "Target lock could not be verified by status: " .. tostring(sent and sendError or sendResult)
+    )
+    return false
+  end
+  diagnostic("info", "target lock still unconfirmed; requesting authoritative ship status")
+  return true
+end
+
 local function dispatchTargetShip(payload, message)
   local gateError = commandGateError()
-  if gateError then return false, gateError end
+  if gateError then
+    return false, gateError
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "ship targeting is unavailable while landed"
   end
-  local target = findEntity({id = trim(payload.targetId)})
+  local target = findEntity({ id = trim(payload.targetId) })
   local name = target and trim(target.name) or ""
   if not target or target.kind ~= "ship" or name == "" or name:find("[%c\r\n]") then
     return false, "target ship is not present in the current snapshot"
@@ -3153,60 +4477,99 @@ local function dispatchTargetShip(payload, message)
     abandonCapture("superseded by target command")
     cancelPollTimer()
   end
-  holdPollingForCommand(message and message.id or nil, 45,
-    "Target lock timed out before LotJ confirmed Target Locked.", "target")
+  holdPollingForCommand(
+    message and message.id or nil,
+    35,
+    "Target lock timed out without confirmation from LotJ or ship status.",
+    "target"
+  )
   Scraper.combat.pendingTargetName = name
   Scraper.combat.pendingTargetContext = type(payload.targetContext) == "table"
-    and copyTable(payload.targetContext) or nil
+      and copyTable(payload.targetContext)
+    or nil
+  Scraper.combat.pendingTargetPreviousName = Scraper.combat.targetName
   Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "target " .. name)
   Scraper.polling.dispatching = false
   if not sent or sendResult == false then
     Scraper.combat.pendingTargetName = nil
     Scraper.combat.pendingTargetContext = nil
+    Scraper.combat.pendingTargetPreviousName = nil
     resolvePendingCommand("rejected", tostring(sent and sendError or sendResult), 0.25)
     return false, tostring(sent and sendError or sendResult)
   end
 
-  target.disposition = "enemy"
-  local published, publishError = Scraper.publish()
-  if not published then
-    diagnostic("warn", "targeted " .. name .. " but could not publish enemy disposition: "
-      .. tostring(publishError))
-  end
+  safeKill("killTimer", Scraper.combat.targetReconcileTimerId)
+  Scraper.combat.targetReconcileTimerId =
+    tempTimer(Scraper.TARGET_RECONCILE_SECONDS, requestPendingTargetStatus)
   return true
 end
 
-local function completeTargetLock(status, reason)
-  if Scraper.pendingCommandKind ~= "target" then return false end
+completeTargetLock = function(status, reason)
+  if Scraper.pendingCommandKind ~= "target" then
+    return false
+  end
+  local pendingTargetName = trim(Scraper.combat.pendingTargetName)
+  local previousTargetName = trim(Scraper.combat.pendingTargetPreviousName)
+  safeKill("killTimer", Scraper.combat.targetReconcileTimerId)
+  Scraper.combat.targetReconcileTimerId = nil
   if status == "completed" then
-    Scraper.combat.targetName = Scraper.combat.pendingTargetName
+    Scraper.combat.targetName = pendingTargetName
     Scraper.state.observer.target = Scraper.combat.targetName
     Scraper.state.metadata.combatTarget = Scraper.combat.targetName
-    local context = Scraper.combat.pendingTargetContext or {
-      key = "local", scope = "local", ownerId = "player-ship",
-      ownerName = trim(Scraper.state.observer and Scraper.state.observer.name),
-      ownerLabel = "YOUR SHIP'S TARGET",
-    }
+    local context = Scraper.combat.pendingTargetContext
+      or {
+        key = "local",
+        scope = "local",
+        ownerId = "player-ship",
+        ownerName = trim(Scraper.state.observer and Scraper.state.observer.name),
+        ownerLabel = "YOUR SHIP'S TARGET",
+      }
     rememberCombatTarget(context.key or "local", Scraper.combat.targetName, context)
     if (context.key or "local") ~= "local" then
       rememberCombatTarget("local", Scraper.combat.targetName, {
-        scope = "local", ownerId = "player-ship",
+        scope = "local",
+        ownerId = "player-ship",
         ownerName = trim(Scraper.state.observer and Scraper.state.observer.name),
         ownerLabel = "YOUR SHIP'S TARGET",
       })
     end
+    local target = findEntity({ name = pendingTargetName })
+    if target then
+      target.disposition = "enemy"
+    end
+  elseif
+    pendingTargetName ~= ""
+    and trim(Scraper.combat.targetName):lower() == pendingTargetName:lower()
+    and previousTargetName:lower() ~= pendingTargetName:lower()
+  then
+    Scraper.combat.targetName = previousTargetName ~= "" and previousTargetName or nil
+    Scraper.state.observer.target = Scraper.combat.targetName
+    Scraper.state.metadata.combatTarget = Scraper.combat.targetName
+    rememberCombatTarget("local", previousTargetName, {
+      scope = "local",
+      ownerId = "player-ship",
+      ownerName = trim(Scraper.state.observer and Scraper.state.observer.name),
+      ownerLabel = "YOUR SHIP'S TARGET",
+    })
   end
   Scraper.combat.pendingTargetName = nil
   Scraper.combat.pendingTargetContext = nil
+  Scraper.combat.pendingTargetPreviousName = nil
   resolvePendingCommand(status, reason, 0.25)
-  if status == "completed" then Scraper.publish() end
-  if status == "completed" and Scraper.autotrack.desired
-      and Scraper.autotrack.observed ~= true and not Scraper.autotrack.pending then
+  Scraper.publish()
+  if
+    status == "completed"
+    and Scraper.autotrack.desired
+    and Scraper.autotrack.observed ~= true
+    and not Scraper.autotrack.pending
+  then
     local tracking, trackingError = requestAutotrack(true)
     if not tracking then
-      diagnostic("warn", "target locked but autotrack could not be enabled: "
-        .. tostring(trackingError))
+      diagnostic(
+        "warn",
+        "target locked but autotrack could not be enabled: " .. tostring(trackingError)
+      )
     end
   end
   return true
@@ -3216,8 +4579,10 @@ function Scraper.setDisposition(name, disposition)
   if disposition ~= "neutral" and disposition ~= "ally" and disposition ~= "enemy" then
     return nil, "disposition must be neutral, ally, or enemy"
   end
-  local entity = findEntity({name = name})
-  if not entity or entity.kind ~= "ship" then return nil, "ship is not currently known" end
+  local entity = findEntity({ name = name })
+  if not entity or entity.kind ~= "ship" then
+    return nil, "ship is not currently known"
+  end
   entity.disposition = disposition
   Scraper.publish()
   return true
@@ -3225,12 +4590,16 @@ end
 
 function Scraper.handleIncomingTargeting(text)
   local shipName = trim(text):match("^You are being targeted by .-'([^']+)'%.?$")
-  if not shipName then return false end
+  if not shipName then
+    return false
+  end
   Scraper.combat.lastActivityAt = os.time()
   local marked, markError = Scraper.setDisposition(shipName, "enemy")
   if not marked then
-    diagnostic("warn", "could not mark targeting ship " .. shipName .. " as enemy: "
-      .. tostring(markError))
+    diagnostic(
+      "warn",
+      "could not mark targeting ship " .. shipName .. " as enemy: " .. tostring(markError)
+    )
     return false
   end
   diagnostic("info", shipName .. " targeted the observer and was marked enemy")
@@ -3238,59 +4607,84 @@ function Scraper.handleIncomingTargeting(text)
 end
 
 local FIRE_COMMANDS = {
-  autoblaster = {command = "fire autoblaster", field = "autoblasters"},
-  laser = {command = "fire laser", field = "laserCannons"},
-  turbolaser = {command = "fire turbolaser", field = "turbolasers"},
-  ion = {command = "fire ion", field = "ionCannons"},
-  missile = {command = "fire missile", field = "maximumMissiles", launcher = true, ammo = "missiles"},
-  torpedo = {command = "fire torpedo", field = "maximumTorpedoes", launcher = true, ammo = "torpedoes"},
-  rocket = {command = "fire rocket", field = "maximumRockets", launcher = true, ammo = "rockets"},
-  burst = {command = "fire burst", field = "maximumPulses", launcher = true},
+  autoblaster = { command = "fire autoblaster", field = "autoblasters" },
+  laser = { command = "fire laser", field = "laserCannons" },
+  turbolaser = { command = "fire turbolaser", field = "turbolasers" },
+  ion = { command = "fire ion", field = "ionCannons" },
+  missile = {
+    command = "fire missile",
+    field = "maximumMissiles",
+    launcher = true,
+    ammo = "missiles",
+  },
+  torpedo = {
+    command = "fire torpedo",
+    field = "maximumTorpedoes",
+    launcher = true,
+    ammo = "torpedoes",
+  },
+  rocket = { command = "fire rocket", field = "maximumRockets", launcher = true, ammo = "rockets" },
+  burst = { command = "fire burst", field = "maximumPulses", launcher = true },
 }
-local FIRE_ORDER = {"autoblaster", "laser", "turbolaser", "ion",
-  "missile", "torpedo", "rocket", "burst"}
+local FIRE_ORDER =
+  { "autoblaster", "laser", "turbolaser", "ion", "missile", "torpedo", "rocket", "burst" }
 
 local function installedFireCommands(requested)
-  if requested == "best" then return {{weapon = "best", command = "fire"}} end
+  if requested == "best" then
+    return { { weapon = "best", command = "fire" } }
+  end
   local weapons = Scraper.state.observer.weapons or {}
   local function installed(weapon)
     local definition = FIRE_COMMANDS[weapon]
-    local ammunition = definition and definition.ammo and Scraper.state.observer[definition.ammo] or nil
+    local ammunition = definition and definition.ammo and Scraper.state.observer[definition.ammo]
+      or nil
     local depleted = type(ammunition) == "table" and tonumber(ammunition.current) == 0
-    return definition and not depleted and tonumber(weapons[definition.field] or 0) > 0
+    return definition
+      and not depleted
+      and tonumber(weapons[definition.field] or 0) > 0
       and (not definition.launcher or tonumber(weapons.missileTubes or 0) > 0)
   end
   local commands = {}
   if requested == "all" then
     for _, weapon in ipairs(FIRE_ORDER) do
       if installed(weapon) then
-        table.insert(commands, {weapon = weapon, command = FIRE_COMMANDS[weapon].command})
+        table.insert(commands, { weapon = weapon, command = FIRE_COMMANDS[weapon].command })
       end
     end
   elseif installed(requested) then
-    table.insert(commands, {weapon = requested, command = FIRE_COMMANDS[requested].command})
+    table.insert(commands, { weapon = requested, command = FIRE_COMMANDS[requested].command })
   end
   return commands
 end
 
 local function dispatchFireWeapon(payload)
   local gateError = commandGateError()
-  if gateError then return false, gateError end
+  if gateError then
+    return false, gateError
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "weapons are unavailable while landed"
   end
-  if Scraper.state.observer.hasWeapons == false then return false, "this ship has no weapons" end
-  if not Scraper.combat.targetName then return false, "no combat target is locked" end
+  if Scraper.state.observer.hasWeapons == false then
+    return false, "this ship has no weapons"
+  end
+  if not Scraper.combat.targetName then
+    return false, "no combat target is locked"
+  end
   local requested = trim(payload.weapon):lower()
   if requested ~= "all" and requested ~= "best" and not FIRE_COMMANDS[requested] then
     return false, "unsupported weapon type"
   end
   local commands = installedFireCommands(requested)
-  if #commands == 0 then return false, "requested weapon is not installed" end
+  if #commands == 0 then
+    return false, "requested weapon is not installed"
+  end
 
   cancelPollTimer()
   local interruptedShieldCheck = Scraper.shields.statusPending == true
-  if Scraper.active then abandonCapture("superseded by weapons command") end
+  if Scraper.active then
+    abandonCapture("superseded by weapons command")
+  end
   if interruptedShieldCheck then
     Scraper.shields.statusPending = false
     Scraper.shields.checkForRecharge = true
@@ -3318,33 +4712,45 @@ local function dispatchFireWeapon(payload)
 end
 
 local FLEET_WEAPONS = {
-  best = "fire", all = "fire", autoblaster = "fire autoblaster",
-  laser = "fire laser", turbolaser = "fire turbolaser", ion = "fire ion",
-  missile = "fire missile", torpedo = "fire torpedo", rocket = "fire rocket",
+  best = "fire",
+  all = "fire",
+  autoblaster = "fire autoblaster",
+  laser = "fire laser",
+  turbolaser = "fire turbolaser",
+  ion = "fire ion",
+  missile = "fire missile",
+  torpedo = "fire torpedo",
+  rocket = "fire rocket",
   burst = "fire burst",
 }
 local FLEET_WEAPON_FIELDS = {
-  {weapon = "autoblaster", field = "autoblasters"},
-  {weapon = "laser", field = "laserCannons"},
-  {weapon = "turbolaser", field = "turbolasers"},
-  {weapon = "ion", field = "ionCannons"},
-  {weapon = "missile", field = "maximumMissiles", launcher = true},
-  {weapon = "torpedo", field = "maximumTorpedoes", launcher = true},
-  {weapon = "rocket", field = "maximumRockets", launcher = true},
-  {weapon = "burst", field = "maximumPulses", launcher = true},
+  { weapon = "autoblaster", field = "autoblasters" },
+  { weapon = "laser", field = "laserCannons" },
+  { weapon = "turbolaser", field = "turbolasers" },
+  { weapon = "ion", field = "ionCannons" },
+  { weapon = "missile", field = "maximumMissiles", launcher = true },
+  { weapon = "torpedo", field = "maximumTorpedoes", launcher = true },
+  { weapon = "rocket", field = "maximumRockets", launcher = true },
+  { weapon = "burst", field = "maximumPulses", launcher = true },
 }
 
 local function knownFleetMemberFireCommands(member)
-  local entity = findEntity({name = member.name})
+  local entity = findEntity({ name = member.name })
   local weapons = entity and entity.weapons or nil
-  if type(weapons) ~= "table" then return {"fire"} end
+  if type(weapons) ~= "table" then
+    return { "fire" }
+  end
   local commands = {}
   for _, definition in ipairs(FLEET_WEAPON_FIELDS) do
     local installed = tonumber(weapons[definition.field] or 0) > 0
       and (not definition.launcher or tonumber(weapons.missileTubes or 0) > 0)
-    if installed then table.insert(commands, FLEET_WEAPONS[definition.weapon]) end
+    if installed then
+      table.insert(commands, FLEET_WEAPONS[definition.weapon])
+    end
   end
-  if #commands == 0 then table.insert(commands, "fire") end
+  if #commands == 0 then
+    table.insert(commands, "fire")
+  end
   return commands
 end
 
@@ -3356,38 +4762,306 @@ local function knownWholeFleetFireCommands(fleet)
       table.insert(commands, command)
     end
   end
-  for _, fire in ipairs(installedFireCommands("all")) do add(fire.command) end
+  for _, fire in ipairs(installedFireCommands("all")) do
+    add(fire.command)
+  end
   for _, member in ipairs(fleet.members or {}) do
     if not member.leader then
-      for _, command in ipairs(knownFleetMemberFireCommands(member)) do add(command) end
+      for _, command in ipairs(knownFleetMemberFireCommands(member)) do
+        add(command)
+      end
     end
   end
-  if #commands == 0 then table.insert(commands, "fire") end
+  if #commands == 0 then
+    table.insert(commands, "fire")
+  end
   return commands
 end
 
+local fleetRole
+
 local function currentFleet()
-  local fleet = Scraper.state and Scraper.state.metadata
-    and Scraper.state.metadata.fleet or nil
-  if type(fleet) ~= "table" or fleet.active ~= true then return nil end
+  local fleet = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.fleet or nil
+  if type(fleet) ~= "table" or fleet.active ~= true then
+    return nil
+  end
   return fleet
 end
 
-local function fleetRole(fleet)
-  local observerName = trim(Scraper.state and Scraper.state.observer
-    and Scraper.state.observer.name):lower()
+local function dispatchTacticalViewRequest(payload, message)
+  local gateError = commandGateError()
+  if gateError then
+    return false, gateError
+  end
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false, "remote tactical views are unavailable while landed"
+  end
+  local fleet = currentFleet()
+  if not fleet or fleet.kind ~= "battlegroup" then
+    return false, "an active battlegroup is required for a remote tactical view"
+  end
+  if fleetRole(fleet) ~= "commander" then
+    return false, "only the battlegroup flagship can request a wing tactical view"
+  end
+
+  local wantedId = trim(payload.memberId):lower()
+  local wantedName = trim(payload.memberName):lower()
+  local member
+  for _, candidate in ipairs(fleet.members or {}) do
+    if
+      (wantedId ~= "" and trim(candidate.id):lower() == wantedId)
+      or (wantedName ~= "" and trim(candidate.name):lower() == wantedName)
+    then
+      member = candidate
+      break
+    end
+  end
+  if not member then
+    return false, "the selected battlegroup member is no longer available"
+  end
+  local observerName = trim(Scraper.state.observer and Scraper.state.observer.name)
+  if member.leader == true or trim(member.name):lower() == observerName:lower() then
+    return false, "the flagship already owns the local tactical view"
+  end
+
+  if Scraper.active and not Scraper.active.polled then
+    return false, "another manual telemetry capture is already active"
+  end
+  cancelPollTimer()
+  if Scraper.active then
+    abandonCapture("superseded by remote tactical view request")
+    cancelPollTimer()
+  end
+
+  local command = "battlegroup nav " .. trim(member.name) .. " radar"
+  local started, startError = Scraper.startCapture("radar", command, {
+    polled = true,
+    pollDelay = Scraper.polling.commandGapSeconds,
+    intentId = message and message.id or nil,
+    remoteViewMemberId = trim(member.id or member.name):lower(),
+    remoteViewMemberName = trim(member.name),
+    remoteViewMemberSlot = member.slot,
+    remoteViewMember = member,
+  })
+  if not started then
+    return false, startError
+  end
+
+  Scraper.polling.dispatching = true
+  local sent, sendResult, sendError = pcall(send, command, false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    abandonCapture("remote tactical radar could not be sent")
+    return false, tostring(sent and sendError or sendResult)
+  end
+  return true
+end
+
+reconcileTargetFromStatus = function(result, failure)
+  if Scraper.pendingCommandKind ~= "target" then
+    return false
+  end
+  if failure then
+    return completeTargetLock(
+      "rejected",
+      "Target lock could not be verified by status: " .. tostring(failure)
+    )
+  end
+  local requested = trim(Scraper.combat.pendingTargetName)
+  local observed = trim(result and result.target)
+  observed = observed:lower() == "none" and observed or observed:match("'([^']+)'") or observed
+  if observed ~= "" and observed:lower() == requested:lower() then
+    return completeTargetLock("completed", "Target confirmed by ship status.")
+  end
+  local reported = observed == "" and "no target field"
+    or observed:lower() == "none" and "no active target"
+    or ("target " .. observed)
+  return completeTargetLock(
+    "rejected",
+    "Target lock was not confirmed; ship status reports " .. reported .. "."
+  )
+end
+
+fleetRole = function(fleet)
+  local observerName =
+    trim(Scraper.state and Scraper.state.observer and Scraper.state.observer.name):lower()
   for _, member in ipairs(fleet.members or {}) do
     if trim(member.name):lower() == observerName then
-      if member.leader == true or member.role == "leader" then return "commander" end
+      if member.leader == true or member.role == "leader" then
+        return "commander"
+      end
       return member.role or "member"
     end
   end
   return fleet.role
 end
 
+local function dispatchClearCombatTarget(payload)
+  local gateError = commandGateError()
+  if gateError then
+    return false, gateError
+  end
+  if not Scraper.state or not Scraper.state.metadata or Scraper.state.metadata.inSpace ~= true then
+    return false, "combat targets cannot be cleared while landed"
+  end
+
+  local rawKeys = type(payload.targetKeys) == "table" and payload.targetKeys or {}
+  if #rawKeys == 0 or #rawKeys > 32 then
+    return false, "one to thirty-two active target keys are required"
+  end
+  local metadata = Scraper.state.metadata
+  local activeTargets = type(metadata.combatTargets) == "table" and metadata.combatTargets or {}
+  local tracks, seenKeys = {}, {}
+  for _, rawKey in ipairs(rawKeys) do
+    local key = trim(rawKey):lower()
+    if key == "" or key:find("[%c\r\n]") then
+      return false, "an active target key is invalid"
+    end
+    if not seenKeys[key] then
+      local track = activeTargets[key]
+      if
+        type(track) ~= "table"
+        and key == "local"
+        and trim(metadata.combatTarget):lower() ~= ""
+        and trim(metadata.combatTarget):lower() ~= "none"
+      then
+        track = { key = "local", scope = "local", targetName = metadata.combatTarget }
+      end
+      if type(track) ~= "table" then
+        return false, "the selected target scope is no longer active"
+      end
+      seenKeys[key] = true
+      table.insert(tracks, { key = key, track = track })
+    end
+  end
+
+  local fleet = currentFleet()
+  local commands, seenCommands = {}, {}
+  local function addCommand(command)
+    if not seenCommands[command] then
+      seenCommands[command] = true
+      table.insert(commands, command)
+    end
+  end
+  local function requireBattlegroup()
+    if not fleet or fleet.kind ~= "battlegroup" then
+      return nil, "the battlegroup target is no longer active"
+    end
+    if fleetRole(fleet) ~= "commander" then
+      return nil, "only the battlegroup flagship can clear formation targets"
+    end
+    return true
+  end
+  local function resolveOwnerMembers(track)
+    local requestedIds = type(track.ownerIds) == "table" and track.ownerIds or {}
+    local requestedNames = type(track.ownerNames) == "table" and track.ownerNames or {}
+    if #requestedIds == 0 and trim(track.ownerId) ~= "" then
+      requestedIds = { track.ownerId }
+    end
+    if #requestedNames == 0 and trim(track.ownerName) ~= "" then
+      requestedNames = { track.ownerName }
+    end
+    local members, seenMembers = {}, {}
+    for _, member in ipairs(fleet and fleet.members or {}) do
+      local memberId = trim(member.id):lower()
+      local memberName = trim(member.name):lower()
+      local requested = false
+      for _, ownerId in ipairs(requestedIds) do
+        if memberId ~= "" and memberId == trim(ownerId):lower() then
+          requested = true
+        end
+      end
+      for _, ownerName in ipairs(requestedNames) do
+        if memberName ~= "" and memberName == trim(ownerName):lower() then
+          requested = true
+        end
+      end
+      if requested and not seenMembers[memberId ~= "" and memberId or memberName] then
+        seenMembers[memberId ~= "" and memberId or memberName] = true
+        table.insert(members, member)
+      end
+    end
+    return members
+  end
+
+  for _, entry in ipairs(tracks) do
+    local scope = trim(entry.track.scope):lower()
+    if scope == "local" or scope == "squadron" then
+      addCommand("target none")
+    elseif scope == "all" then
+      local valid, reason = requireBattlegroup()
+      if not valid then
+        return false, reason
+      end
+      addCommand("bg target all none")
+    elseif scope == "wings" then
+      local valid, reason = requireBattlegroup()
+      if not valid then
+        return false, reason
+      end
+      for _, member in ipairs(fleet.members or {}) do
+        local memberName = trim(member.name)
+        if not member.leader and memberName ~= "" then
+          if memberName:find("[%c\r\n]") then
+            return false, "a battlegroup target owner name is invalid"
+          end
+          addCommand("bg target " .. memberName .. " none")
+        end
+      end
+    elseif scope == "selected" then
+      local valid, reason = requireBattlegroup()
+      if not valid then
+        return false, reason
+      end
+      local members = resolveOwnerMembers(entry.track)
+      if #members == 0 then
+        return false, "the selected battlegroup target owner is no longer available"
+      end
+      for _, member in ipairs(members) do
+        local memberName = trim(member.name)
+        if memberName == "" or memberName:find("[%c\r\n]") then
+          return false, "a battlegroup target owner name is invalid"
+        end
+        addCommand("bg target " .. memberName .. " none")
+      end
+    else
+      return false, "unsupported combat target scope"
+    end
+  end
+  if #commands == 0 then
+    return false, "no ships own the selected target"
+  end
+
+  cancelPollTimer()
+  Scraper.polling.dispatching = true
+  for _, command in ipairs(commands) do
+    local sent, sendResult, sendError = pcall(send, command, false)
+    if not sent or sendResult == false then
+      Scraper.polling.dispatching = false
+      scheduleNextPoll(0.25)
+      return false, tostring(sent and sendError or sendResult)
+    end
+  end
+  Scraper.polling.dispatching = false
+
+  for _, entry in ipairs(tracks) do
+    activeTargets[entry.key] = nil
+    local scope = trim(entry.track.scope):lower()
+    if scope == "local" or scope == "squadron" then
+      Scraper.combat.targetName = nil
+      Scraper.state.observer.target = nil
+      metadata.combatTarget = nil
+    end
+  end
+  metadata.combatTargets = activeTargets
+  Scraper.publish()
+  scheduleNextPoll(0.25)
+  return true
+end
+
 local function roundedVector(payload)
   local vectorValue = type(payload.vector) == "table" and payload.vector or {}
-  local values = {tonumber(vectorValue.x), tonumber(vectorValue.y), tonumber(vectorValue.z)}
+  local values = { tonumber(vectorValue.x), tonumber(vectorValue.y), tonumber(vectorValue.z) }
   for _, value in ipairs(values) do
     if not value or value ~= value or math.abs(value) > 10000000 then
       return nil, "course vector must contain finite coordinates within 10,000,000 units"
@@ -3399,15 +5073,23 @@ local function roundedVector(payload)
   local function round(value)
     return value >= 0 and math.floor(value + 0.5) or math.ceil(value - 0.5)
   end
-  return string.format("course relative %d %d %d",
-    round(values[1]), round(values[2]), round(values[3]))
+  return string.format(
+    "course relative %d %d %d",
+    round(values[1]),
+    round(values[2]),
+    round(values[3])
+  )
 end
 
 local function fleetNavigationCommand(payload)
   local mode = trim(payload.mode):lower()
-  if mode == "relative" then return roundedVector(payload) end
-  if mode ~= "target" and mode ~= "away" then return nil, "unsupported fleet navigation mode" end
-  local target = findEntity({id = trim(payload.targetId)})
+  if mode == "relative" then
+    return roundedVector(payload)
+  end
+  if mode ~= "target" and mode ~= "away" then
+    return nil, "unsupported fleet navigation mode"
+  end
+  local target = findPayloadTarget(payload)
   local name = target and trim(target.name) or ""
   if name == "" or name:find("[%c\r\n]") then
     return nil, "navigation target is not present in the current snapshot"
@@ -3418,29 +5100,40 @@ end
 recountFleetOrder = function(order)
   local accepted, rejected, awaiting = 0, 0, 0
   for _, result in pairs(order.results or {}) do
-    if result.status == "accepted" then accepted = accepted + 1
-    elseif result.status == "rejected" then rejected = rejected + 1
-    else awaiting = awaiting + 1 end
+    if result.status == "accepted" then
+      accepted = accepted + 1
+    elseif result.status == "rejected" then
+      rejected = rejected + 1
+    else
+      awaiting = awaiting + 1
+    end
   end
   order.acceptedCount = accepted
   order.rejectedCount = rejected
   order.pendingCount = awaiting
-  if rejected > 0 then order.status = "partial"
-  elseif awaiting > 0 then order.status = "awaiting"
-  elseif accepted > 0 then order.status = "accepted"
-  else order.status = "transmitted" end
+  if rejected > 0 then
+    order.status = "partial"
+  elseif awaiting > 0 then
+    order.status = "awaiting"
+  elseif accepted > 0 then
+    order.status = "accepted"
+  else
+    order.status = "transmitted"
+  end
 end
 
 local function setFleetAutopilotState(name, enabled, statusText)
   local wanted = trim(name):lower()
-  if wanted == "" then return end
+  if wanted == "" then
+    return
+  end
   local metadata = Scraper.state and Scraper.state.metadata or {}
   local observer = Scraper.state and Scraper.state.observer or {}
   if trim(observer.name):lower() == wanted then
     observer.autopilot = enabled
     observer.autopilotStatus = statusText
   end
-  local entity = findEntity({name = name})
+  local entity = findEntity({ name = name })
   if entity then
     entity.autopilot = enabled
     entity.autopilotStatus = statusText
@@ -3454,19 +5147,25 @@ local function setFleetAutopilotState(name, enabled, statusText)
     end
   end
   updateFleet(metadata.fleet)
-  for _, fleet in pairs(metadata.formations or {}) do updateFleet(fleet) end
+  for _, fleet in pairs(metadata.formations or {}) do
+    updateFleet(fleet)
+  end
 end
 
 local function queueAutopilotVerification(orderId)
   safeKill("killTimer", Scraper.fleetCommand.verificationTimerId)
   Scraper.fleetCommand.verificationTimerId = tempTimer(3, function()
     Scraper.fleetCommand.verificationTimerId = nil
-    local order = Scraper.state and Scraper.state.metadata
-      and Scraper.state.metadata.fleetOrder or nil
-    if type(order) ~= "table" or order.id ~= orderId or order.order ~= "autopilot" then return end
+    local order = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.fleetOrder
+      or nil
+    if type(order) ~= "table" or order.id ~= orderId or order.order ~= "autopilot" then
+      return
+    end
     local queue = Scraper.polling.hydrationQueue or {}
     local queued = {}
-    for _, command in ipairs(queue) do queued[command:lower()] = true end
+    for _, command in ipairs(queue) do
+      queued[command:lower()] = true
+    end
     local observerName = trim(Scraper.state.observer and Scraper.state.observer.name):lower()
     for name, result in pairs(order.results or {}) do
       if result.status == "awaiting" then
@@ -3478,16 +5177,40 @@ local function queueAutopilotVerification(orderId)
       end
     end
     Scraper.polling.hydrationQueue = queue
-    if #queue > 0 then scheduleNextPoll(0.1) end
+    if #queue > 0 then
+      scheduleNextPoll(0.1)
+    end
   end)
 end
 
 function Scraper.handleFleetCommandLine(text)
   local message = trim(text)
   local memberName = message:match("^Sending command to .-'([^']+)'%.%.%.$")
-  if memberName then Scraper.fleetCommand.currentMemberName = memberName end
-  local order = Scraper.state and Scraper.state.metadata
-    and Scraper.state.metadata.fleetOrder or nil
+  local capture = Scraper.active
+  if memberName and capture and capture.remoteViewMemberId then
+    capture.remoteResponseMemberName = memberName
+    if trim(memberName):lower() ~= trim(capture.remoteViewMemberName):lower() then
+      local reason = "remote radar response belonged to "
+        .. trim(memberName)
+        .. " instead of "
+        .. trim(capture.remoteViewMemberName)
+      if
+        capture.intentId
+        and Scraper.proxy
+        and type(Scraper.proxy.publishIntentAck) == "function"
+      then
+        Scraper.proxy.publishIntentAck(capture.intentId, "rejected", reason)
+      end
+      abandonCapture(reason)
+      return true
+    end
+    return true
+  end
+  if memberName then
+    Scraper.fleetCommand.currentMemberName = memberName
+  end
+  local order = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.fleetOrder
+    or nil
   if type(order) ~= "table" or os.time() - tonumber(order.observedAt or 0) > 30 then
     return memberName ~= nil
   end
@@ -3495,7 +5218,9 @@ function Scraper.handleFleetCommandLine(text)
   if memberName then
     order.results = order.results or {}
     order.results[memberName] = {
-      name = memberName, status = "awaiting", observedAt = os.time(),
+      name = memberName,
+      status = "awaiting",
+      observedAt = os.time(),
     }
     recountFleetOrder(order)
     Scraper.publish()
@@ -3508,10 +5233,12 @@ function Scraper.handleFleetCommandLine(text)
   if autopilotState and not memberName and order.order == "autopilot" then
     memberName = trim(Scraper.state.observer and Scraper.state.observer.name)
   end
-  if not memberName or type(order.results) ~= "table" then return false end
+  if not memberName or type(order.results) ~= "table" then
+    return false
+  end
   local result = order.results[memberName]
   if type(result) ~= "table" then
-    result = {name = memberName, status = "awaiting", observedAt = os.time()}
+    result = { name = memberName, status = "awaiting", observedAt = os.time() }
     order.results[memberName] = result
   end
 
@@ -3532,11 +5259,17 @@ function Scraper.handleFleetCommandLine(text)
     or message == "Please wait until the ship has finished its current maneuver."
   local accepted = message:match("^New course set, approaching .+%.$") ~= nil
     or message == "The ship begins to turn."
-  if not rejected and not accepted then return false end
+    or message == "You're already traveling that speed."
+  if not rejected and not accepted then
+    return false
+  end
 
   result.status = rejected and "rejected" or "accepted"
   result.reason = rejected and message or nil
   result.observedAt = os.time()
+  if accepted and order.order == "speed" and tonumber(order.speed) then
+    mergeFormationMemberTelemetry(memberName, { speed = tonumber(order.speed) })
+  end
   Scraper.fleetCommand.currentMemberName = nil
   recountFleetOrder(order)
   Scraper.publish()
@@ -3545,14 +5278,22 @@ end
 
 local function sendFleetCommands(commands, order, scope, context)
   cancelPollTimer()
-  if Scraper.active then abandonCapture("superseded by fleet " .. order .. " order") end
+  if Scraper.active then
+    abandonCapture("superseded by fleet " .. order .. " order")
+  end
   Scraper.fleetCommand.nextOrderId = (Scraper.fleetCommand.nextOrderId or 0) + 1
   Scraper.fleetCommand.currentMemberName = nil
   Scraper.fleetCommand.holdUntil = os.time() + 4
   local fleetOrder = {
     id = Scraper.fleetCommand.nextOrderId,
-    order = order, scope = scope, status = "transmitted", observedAt = os.time(),
-    commandCount = #commands, acceptedCount = 0, rejectedCount = 0, pendingCount = 0,
+    order = order,
+    scope = scope,
+    status = "transmitted",
+    observedAt = os.time(),
+    commandCount = #commands,
+    acceptedCount = 0,
+    rejectedCount = 0,
+    pendingCount = 0,
     results = {},
   }
   if type(context) == "table" then
@@ -3566,17 +5307,27 @@ local function sendFleetCommands(commands, order, scope, context)
     local fleet = currentFleet()
     local observerName = trim(Scraper.state.observer and Scraper.state.observer.name)
     for _, member in ipairs(fleet and fleet.members or {}) do
-      local included = scope == "all" or scope == "wings" and not member.leader
+      local selectedNames = {}
+      for _, name in ipairs(type(context) == "table" and context.recipientNames or {}) do
+        selectedNames[trim(name):lower()] = true
+      end
+      local included = scope == "all"
+        or scope == "wings" and not member.leader
         or scope == "local" and trim(member.name):lower() == observerName:lower()
+        or scope == "selected" and selectedNames[trim(member.name):lower()] == true
       if included then
         fleetOrder.results[member.name] = {
-          name = member.name, status = "awaiting", observedAt = os.time(),
+          name = member.name,
+          status = "awaiting",
+          observedAt = os.time(),
         }
       end
     end
     if scope == "local" and next(fleetOrder.results) == nil and observerName ~= "" then
       fleetOrder.results[observerName] = {
-        name = observerName, status = "awaiting", observedAt = os.time(),
+        name = observerName,
+        status = "awaiting",
+        observedAt = os.time(),
       }
     end
     recountFleetOrder(fleetOrder)
@@ -3596,8 +5347,7 @@ local function sendFleetCommands(commands, order, scope, context)
     end
   end
   Scraper.polling.dispatching = false
-  if order == "target" and type(context) == "table"
-      and type(context.targetRecord) == "table" then
+  if order == "target" and type(context) == "table" and type(context.targetRecord) == "table" then
     local record = context.targetRecord
     rememberCombatTarget(record.key, record.targetName, record.details)
     if record.localShip then
@@ -3606,7 +5356,8 @@ local function sendFleetCommands(commands, order, scope, context)
       Scraper.state.metadata.combatTarget = Scraper.combat.targetName
       if record.key ~= "local" then
         rememberCombatTarget("local", record.targetName, {
-          scope = "local", ownerId = "player-ship",
+          scope = "local",
+          ownerId = "player-ship",
           ownerName = trim(Scraper.state.observer and Scraper.state.observer.name),
           ownerLabel = "YOUR SHIP'S TARGET",
         })
@@ -3614,45 +5365,46 @@ local function sendFleetCommands(commands, order, scope, context)
     end
     Scraper.publish()
   end
-  if order == "autopilot" then queueAutopilotVerification(fleetOrder.id) end
+  if order == "autopilot" then
+    queueAutopilotVerification(fleetOrder.id)
+  end
   scheduleNextPoll(2)
   return true
 end
 
 local function dispatchFleetOrder(payload, message)
   local gateError = commandGateError()
-  if gateError then return false, gateError end
+  if gateError then
+    return false, gateError
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "fleet commands are unavailable while landed"
   end
   local fleet = currentFleet()
-  if not fleet then return false, "no active battlegroup or squadron was detected" end
+  if not fleet then
+    return false, "no active battlegroup or squadron was detected"
+  end
   local scope = trim(payload.scope):lower()
-  if scope ~= "local" and scope ~= "all" and scope ~= "wings"
-      and scope ~= "selected" then
+  if scope ~= "local" and scope ~= "all" and scope ~= "wings" and scope ~= "selected" then
     return false, "fleet scope must be local, all, wings, or selected"
   end
-  local selectedMember
+  local selectedMembers
   if scope == "selected" then
-    local wantedId = trim(payload.memberId):lower()
-    local wantedName = trim(payload.memberName):lower()
-    for _, member in ipairs(fleet.members or {}) do
-      if (wantedId ~= "" and trim(member.id):lower() == wantedId)
-          or (wantedName ~= "" and trim(member.name):lower() == wantedName) then
-        selectedMember = member
-        break
-      end
-    end
-    if not selectedMember then
-      return false, "the selected formation member is no longer available"
+    selectedMembers, gateError = selectedFormationMembers(payload, fleet)
+    if not selectedMembers then
+      return false, gateError
     end
   end
   local order = trim(payload.order):lower()
   local target
   if order == "target" then
-    target = findEntity({id = trim(payload.targetId)})
-    if not target or target.kind ~= "ship" or trim(target.name) == ""
-        or trim(target.name):find("[%c\r\n]") then
+    target = findPayloadTarget(payload)
+    if
+      not target
+      or target.kind ~= "ship"
+      or trim(target.name) == ""
+      or trim(target.name):find("[%c\r\n]")
+    then
       return false, "target ship is not present in the current snapshot"
     end
     target.disposition = "enemy"
@@ -3665,7 +5417,9 @@ local function dispatchFleetOrder(payload, message)
     local localCommand
     if order == "navigate" then
       localCommand, gateError = fleetNavigationCommand(payload)
-      if not localCommand then return false, gateError end
+      if not localCommand then
+        return false, gateError
+      end
     elseif order == "speed" then
       local speed = tonumber(payload.speed)
       if not speed or speed ~= speed or speed < 0 or speed > 10000000 then
@@ -3675,54 +5429,75 @@ local function dispatchFleetOrder(payload, message)
     elseif order == "fire" then
       local weapon = trim(payload.weapon):lower()
       localCommand = FLEET_WEAPONS[weapon]
-      if not localCommand then return false, "unsupported fleet weapon" end
-    elseif order == "recharge" then localCommand = "recharge"
-    elseif order == "shields_on" then localCommand = "shields on"
-    elseif order == "chaff" then localCommand = "chaff"
-    elseif order == "autopilot" then localCommand = "autopilot"
-    elseif order ~= "target" then return false, "unsupported battlegroup order" end
+      if not localCommand then
+        return false, "unsupported fleet weapon"
+      end
+    elseif order == "recharge" then
+      localCommand = "recharge"
+    elseif order == "shields_on" then
+      localCommand = "shields on"
+    elseif order == "chaff" then
+      localCommand = "chaff"
+    elseif order == "autopilot" then
+      localCommand = "autopilot"
+    elseif order ~= "target" then
+      return false, "unsupported battlegroup order"
+    end
 
     local commands = {}
     local fireAll = order == "fire" and trim(payload.weapon):lower() == "all"
     local observerName = trim(Scraper.state.observer and Scraper.state.observer.name)
-    if observerName == "" then return false, "the battlegroup flagship name is unavailable" end
+    if observerName == "" then
+      return false, "the battlegroup flagship name is unavailable"
+    end
     local departureSpeed
     if order == "navigate" and payload.departureSpeed ~= nil then
       departureSpeed = tonumber(payload.departureSpeed)
-      if not departureSpeed or departureSpeed ~= departureSpeed or departureSpeed <= 0
-          or departureSpeed > 10000000 then
+      if
+        not departureSpeed
+        or departureSpeed ~= departureSpeed
+        or departureSpeed <= 0
+        or departureSpeed > 10000000
+      then
         return false, "fleet departure speed is outside supported limits"
       end
       departureSpeed = math.floor(departureSpeed + 0.5)
     end
     local recipients = {}
     if scope == "all" then
-      table.insert(recipients, {selector = "all"})
+      table.insert(recipients, { selector = "all" })
     elseif scope == "local" then
-      table.insert(recipients, {selector = observerName, localShip = true})
+      table.insert(recipients, { selector = observerName, localShip = true })
     elseif scope == "selected" then
-      table.insert(recipients, {
-        selector = trim(selectedMember.name), member = selectedMember,
-        localShip = trim(selectedMember.name):lower() == observerName:lower(),
-      })
+      for _, member in ipairs(selectedMembers) do
+        table.insert(recipients, {
+          selector = trim(member.name),
+          member = member,
+          localShip = trim(member.name):lower() == observerName:lower(),
+        })
+      end
     else
       for _, member in ipairs(fleet.members or {}) do
         if not member.leader and tonumber(member.slot) then
-          table.insert(recipients, {selector = tostring(member.slot), member = member})
+          table.insert(recipients, { selector = tostring(member.slot), member = member })
         end
       end
     end
-    if #recipients == 0 then return false, "no ships are available in the selected fleet scope" end
+    if #recipients == 0 then
+      return false, "no ships are available in the selected fleet scope"
+    end
 
     if order == "target" then
       if scope == "local" and Scraper.state.observer.hasWeapons == false then
         return false, "this ship has no weapons"
       end
       for _, recipient in ipairs(recipients) do
-        table.insert(commands, "battlegroup target " .. recipient.selector
-          .. " " .. trim(target.name))
+        table.insert(
+          commands,
+          "battlegroup target " .. recipient.selector .. " " .. trim(target.name)
+        )
       end
-      local targetDetails = {scope = scope, formationKind = "battlegroup"}
+      local targetDetails = { scope = scope, formationKind = "battlegroup" }
       local targetKey
       local localTarget = false
       if scope == "local" then
@@ -3738,25 +5513,41 @@ local function dispatchFleetOrder(payload, message)
         targetKey = "wings"
         targetDetails.ownerLabel = "WING TARGET"
       else
-        targetKey = "selected:" .. trim(selectedMember.id or selectedMember.name):lower()
-        targetDetails.ownerId = selectedMember.id
-        targetDetails.ownerName = selectedMember.name
-        targetDetails.ownerLabel = trim(selectedMember.name):upper() .. "'S TARGET"
-        localTarget = trim(selectedMember.name):lower() == observerName:lower()
+        local ownerIds, ownerNames = {}, {}
+        for _, member in ipairs(selectedMembers) do
+          table.insert(ownerIds, trim(member.id or member.name):lower())
+          table.insert(ownerNames, trim(member.name))
+          if trim(member.name):lower() == observerName:lower() then
+            localTarget = true
+          end
+        end
+        targetKey = "selected:" .. table.concat(ownerIds, ",")
+        targetDetails.ownerIds = ownerIds
+        targetDetails.ownerNames = ownerNames
+        if #selectedMembers == 1 then
+          targetDetails.ownerId = selectedMembers[1].id
+          targetDetails.ownerName = selectedMembers[1].name
+          targetDetails.ownerLabel = trim(selectedMembers[1].name):upper() .. "'S TARGET"
+        else
+          targetDetails.ownerLabel = tostring(#selectedMembers) .. " SELECTED CRAFT TARGET"
+        end
       end
       payload.targetRecord = {
-        key = targetKey, targetName = trim(target.name), details = targetDetails,
+        key = targetKey,
+        targetName = trim(target.name),
+        details = targetDetails,
         localShip = localTarget,
       }
     else
-      if order == "fire" and scope == "local"
-          and Scraper.state.observer.hasWeapons == false then
+      if order == "fire" and scope == "local" and Scraper.state.observer.hasWeapons == false then
         return false, "this ship has no weapons"
       end
       for _, recipient in ipairs(recipients) do
         if departureSpeed then
-          table.insert(commands, "battlegroup nav " .. recipient.selector
-            .. " speed " .. tostring(departureSpeed))
+          table.insert(
+            commands,
+            "battlegroup nav " .. recipient.selector .. " speed " .. tostring(departureSpeed)
+          )
         end
         if fireAll then
           local fireCommands
@@ -3767,29 +5558,43 @@ local function dispatchFleetOrder(payload, message)
             for _, fire in ipairs(installedFireCommands("all")) do
               table.insert(fireCommands, fire.command)
             end
-            if #fireCommands == 0 then table.insert(fireCommands, "fire") end
+            if #fireCommands == 0 then
+              table.insert(fireCommands, "fire")
+            end
           else
             fireCommands = knownFleetMemberFireCommands(recipient.member)
           end
           for _, fireCommand in ipairs(fireCommands) do
-            table.insert(commands, "battlegroup nav " .. recipient.selector
-              .. " " .. fireCommand)
+            table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. fireCommand)
           end
         else
-          table.insert(commands, "battlegroup nav " .. recipient.selector
-            .. " " .. localCommand)
+          table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. localCommand)
         end
       end
     end
-    local orderContext
-    if order == "fire" then orderContext = {weapon = trim(payload.weapon):lower()}
+    local recipientNames = {}
+    for _, recipient in ipairs(recipients) do
+      if recipient.member then
+        table.insert(recipientNames, recipient.member.name)
+      elseif recipient.localShip then
+        table.insert(recipientNames, observerName)
+      end
+    end
+    local orderContext = { recipientNames = recipientNames }
+    if order == "fire" then
+      orderContext.weapon = trim(payload.weapon):lower()
     elseif order == "target" then
-      orderContext = {targetName = trim(target.name), targetRecord = payload.targetRecord}
+      orderContext.targetName = trim(target.name)
+      orderContext.targetRecord = payload.targetRecord
+    elseif order == "speed" then
+      orderContext.speed = math.floor(tonumber(payload.speed) + 0.5)
     end
     return sendFleetCommands(commands, order, scope, orderContext)
   end
 
-  if fleet.kind ~= "squadron" then return false, "unsupported formation type" end
+  if fleet.kind ~= "squadron" then
+    return false, "unsupported formation type"
+  end
   -- Squadron formation actions use LotJ's native squadron channel. Movement,
   -- targeting, and fire remain lead-cockpit actions which wingmen inherit.
   local squadronScope = scope == "selected" and "local" or scope
@@ -3803,34 +5608,61 @@ local function dispatchFleetOrder(payload, message)
     table.insert(commands, "squadron assist")
   elseif order == "aim" then
     local system = trim(payload.system):lower()
-    local allowed = {none = true, launcher = true, laser = true, ion = true,
-      turret = true, tractor = true}
-    if not allowed[system] then return false, "unsupported squadron aim system" end
+    local allowed = {
+      none = true,
+      launcher = true,
+      laser = true,
+      ion = true,
+      turret = true,
+      tractor = true,
+    }
+    if not allowed[system] then
+      return false, "unsupported squadron aim system"
+    end
     table.insert(commands, "squadron aim " .. system)
   elseif order == "target" then
-    if squadronScope == "wings" then return false, "squadron wings inherit the lead ship's target" end
-    return dispatchTargetShip({targetId = target.id, targetContext = {
-      key = "squadron", scope = "squadron", formationKind = "squadron",
-      ownerLabel = "SQUADRON TARGET",
-    }}, message)
+    if squadronScope == "wings" then
+      return false, "squadron wings inherit the lead ship's target"
+    end
+    return dispatchTargetShip({
+      targetId = target.id,
+      targetContext = {
+        key = "squadron",
+        scope = "squadron",
+        formationKind = "squadron",
+        ownerLabel = "SQUADRON TARGET",
+      },
+    }, message)
   elseif order == "fire" then
-    if squadronScope == "wings" then return false, "squadron wings fire through Fire Assist" end
-    return dispatchFireWeapon({weapon = trim(payload.weapon):lower()})
+    if squadronScope == "wings" then
+      return false, "squadron wings fire through Fire Assist"
+    end
+    return dispatchFireWeapon({ weapon = trim(payload.weapon):lower() })
   elseif order == "navigate" then
-    if squadronScope == "wings" then return false, "squadron wings follow the lead ship automatically" end
+    if squadronScope == "wings" then
+      return false, "squadron wings follow the lead ship automatically"
+    end
     local command, commandError = fleetNavigationCommand(payload)
-    if not command then return false, commandError end
+    if not command then
+      return false, commandError
+    end
     if payload.departureSpeed ~= nil then
       local departureSpeed = tonumber(payload.departureSpeed)
-      if not departureSpeed or departureSpeed ~= departureSpeed or departureSpeed <= 0
-          or departureSpeed > 10000000 then
+      if
+        not departureSpeed
+        or departureSpeed ~= departureSpeed
+        or departureSpeed <= 0
+        or departureSpeed > 10000000
+      then
         return false, "squadron departure speed is outside supported limits"
       end
       table.insert(commands, "speed " .. tostring(math.floor(departureSpeed + 0.5)))
     end
     table.insert(commands, command)
   elseif order == "speed" then
-    if squadronScope == "wings" then return false, "squadron wings follow the lead ship automatically" end
+    if squadronScope == "wings" then
+      return false, "squadron wings follow the lead ship automatically"
+    end
     local speed = tonumber(payload.speed)
     if not speed or speed ~= speed or speed < 0 or speed > 10000000 then
       return false, "squadron speed is outside supported limits"
@@ -3843,8 +5675,13 @@ local function dispatchFleetOrder(payload, message)
 end
 
 dispatchSpaceProbe = function(_, message)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   local gateError = commandGateError()
-  if gateError then return false, gateError end
+  if gateError then
+    return false, gateError
+  end
   if Scraper.active and not Scraper.active.polled then
     return false, "another manual telemetry capture is already active"
   end
@@ -3860,7 +5697,9 @@ dispatchSpaceProbe = function(_, message)
     intentId = message and message.id or nil,
     spaceProbe = true,
   })
-  if not started then return false, startError end
+  if not started then
+    return false, startError
+  end
 
   Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "radar", false)
@@ -3874,12 +5713,18 @@ dispatchSpaceProbe = function(_, message)
 end
 
 function Scraper.handleOutgoingCommand(eventName, command)
-  if Scraper.polling.dispatching then return end
+  if Scraper.polling.dispatching then
+    return
+  end
   refreshLotjUiCompatibility()
   local normalizedOutgoing = trim(command):lower():gsub("%s+", " ")
   recordOutgoingHyperspaceCommand(normalizedOutgoing)
-  if normalizedOutgoing == "calc" or normalizedOutgoing == "calculate"
-      or normalizedOutgoing:match("^calc .+") or normalizedOutgoing:match("^calculate .+") then
+  if
+    normalizedOutgoing == "calc"
+    or normalizedOutgoing == "calculate"
+    or normalizedOutgoing:match("^calc .+")
+    or normalizedOutgoing:match("^calculate .+")
+  then
     Scraper.hyperspace.initiatedByHolocron = false
     Scraper.hyperspace.acknowledgedFuelRisk = false
   end
@@ -3899,26 +5744,36 @@ function Scraper.handleOutgoingCommand(eventName, command)
     abandonCapture("interrupted by external Mudlet command")
     cancelPollTimer()
   end
-  if Scraper.polling.enabled and Scraper.state
-      and Scraper.state.metadata.inSpace == true then
+  if Scraper.polling.enabled and Scraper.state and Scraper.state.metadata.inSpace == true then
     scheduleNextPoll(Scraper.USER_IDLE_POLL_DELAY_SECONDS)
   end
 
   local parserCommand = parserForCommand(command)
-  if not parserCommand then return end
-  if Scraper.state and Scraper.state.metadata.inSpace == false then return end
-  Scraper.startCapture(parserCommand, command, {external = true})
+  if not parserCommand then
+    return
+  end
+  if Scraper.state and Scraper.state.metadata.inSpace == false then
+    return
+  end
+  Scraper.startCapture(parserCommand, command, { external = true })
 end
 
 function Scraper.showLastCapture()
   if not Scraper.lastCapture then
-    if type(cecho) == "function" then cecho("<yellow>[Holocron3D] No capture recorded yet.\n") end
+    if type(cecho) == "function" then
+      cecho("<yellow>[Holocron3D] No capture recorded yet.\n")
+    end
     return
   end
 
   if type(cecho) == "function" then
-    cecho("<cyan>[Holocron3D] Last capture: " .. Scraper.lastCapture.command
-      .. " (" .. Scraper.lastCapture.reason .. ")\n")
+    cecho(
+      "<cyan>[Holocron3D] Last capture: "
+        .. Scraper.lastCapture.command
+        .. " ("
+        .. Scraper.lastCapture.reason
+        .. ")\n"
+    )
     for index, capturedLine in ipairs(Scraper.lastCapture.lines) do
       cecho(string.format("<dim_grey>%03d <reset>%s\n", index, capturedLine))
     end
@@ -3927,7 +5782,9 @@ function Scraper.showLastCapture()
 end
 
 function Scraper.getSnapshot()
-  if not Scraper.state then return nil end
+  if not Scraper.state then
+    return nil
+  end
   return {
     observer = copyTable(Scraper.state.observer),
     entities = arrayOfEntities(),
@@ -3936,8 +5793,12 @@ function Scraper.getSnapshot()
 end
 
 function Scraper.requestShipGmcpSupport(eventName, protocol)
-  if protocol and tostring(protocol):upper() ~= "GMCP" then return false end
-  if type(sendGMCP) ~= "function" then return false end
+  if protocol and tostring(protocol):upper() ~= "GMCP" then
+    return false
+  end
+  if type(sendGMCP) ~= "function" then
+    return false
+  end
   local shipOk = pcall(sendGMCP, "Core.Supports.Add", '["Ship 1"]')
   local galaxyOk = pcall(sendGMCP, "Core.Supports.Add", '["Galaxy 1"]')
   return shipOk and galaxyOk
@@ -3947,8 +5808,13 @@ function Scraper.setup(proxy, options)
   if type(proxy) ~= "table" or type(proxy.parseGameOutput) ~= "function" then
     return nil, "proxy must provide parseGameOutput"
   end
-  for _, required in ipairs({"registerAnonymousEventHandler", "tempRegexTrigger",
-      "tempPromptTrigger", "tempTrigger", "tempTimer"}) do
+  for _, required in ipairs({
+    "registerAnonymousEventHandler",
+    "tempRegexTrigger",
+    "tempPromptTrigger",
+    "tempTrigger",
+    "tempTimer",
+  }) do
     if type(_G[required]) ~= "function" then
       return nil, "Mudlet function is unavailable: " .. required
     end
@@ -3962,27 +5828,64 @@ function Scraper.setup(proxy, options)
   Scraper.autotrack.intentId = nil
   Scraper.autotrack.retryCount = 0
   Scraper.autotrack.timeoutTimerId = nil
-  Scraper.fleetCommand = {nextOrderId = 0, currentMemberName = nil,
-    verificationTimerId = nil, holdUntil = 0}
-  Scraper.projectileTracking = {nextId = 0, tracks = {}}
-  Scraper.combat = {targetName = nil, pendingTargetName = nil, pendingTargetContext = nil,
+  Scraper.fleetCommand =
+    { nextOrderId = 0, currentMemberName = nil, verificationTimerId = nil, holdUntil = 0 }
+  Scraper.projectileTracking = { nextId = 0, tracks = {} }
+  Scraper.combat = {
+    targetName = nil,
+    pendingTargetName = nil,
+    pendingTargetContext = nil,
+    pendingTargetPreviousName = nil,
+    targetReconcileTimerId = nil,
     nextEventId = 0,
-    lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
-    lastActivityAt = 0, lastLaunchWeapon = nil, lastLaunchTarget = nil,
-    lastLaunchSource = nil, lastLaunchAt = 0, lastImpactWeapon = nil, lastImpactTarget = nil,
-    lastImpactSource = nil, lastImpactAt = 0, projectileReconcileTimerId = nil}
-  Scraper.shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil}
+    lastFireWeapon = nil,
+    projectileRadarRequestedAt = 0,
+    lastRadarAt = 0,
+    lastActivityAt = 0,
+    lastLaunchWeapon = nil,
+    lastLaunchTarget = nil,
+    lastLaunchSource = nil,
+    lastLaunchAt = 0,
+    lastImpactWeapon = nil,
+    lastImpactTarget = nil,
+    lastImpactSource = nil,
+    lastImpactAt = 0,
+    projectileReconcileTimerId = nil,
+    pendingLine = nil,
+    pendingLineTimerId = nil,
+  }
+  Scraper.destruction = { nextEventId = 0, destroyedNames = {} }
+  Scraper.shipGmcp = { lastAt = 0, sequence = 0, damageSequence = nil }
   safeKill("killTimer", Scraper.shields.damageTimerId)
   safeKill("killTimer", Scraper.shields.actionTimerId)
-  Scraper.shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
-    damageTimerId = nil, actionTimerId = nil, statusPending = false,
-    manualIntentId = nil, activationPending = false}
-  Scraper.shields = {auto = true, recharging = false, awaiting = false, attempts = 0,
-    damageTimerId = nil, actionTimerId = nil, statusPending = false,
-    manualIntentId = nil, activationPending = false}
+  Scraper.shields = {
+    auto = true,
+    recharging = false,
+    awaiting = false,
+    attempts = 0,
+    damageTimerId = nil,
+    actionTimerId = nil,
+    statusPending = false,
+    manualIntentId = nil,
+    activationPending = false,
+  }
+  Scraper.shields = {
+    auto = true,
+    recharging = false,
+    awaiting = false,
+    attempts = 0,
+    damageTimerId = nil,
+    actionTimerId = nil,
+    statusPending = false,
+    manualIntentId = nil,
+    activationPending = false,
+  }
   Scraper.state = freshState()
   if Scraper.state.metadata.mudletCompatibility.lotjUiDetected then
-    diagnostic("info", "official LotJ Mudlet UI detected; shared chat and radar compatibility enabled")
+    diagnostic(
+      "info",
+      "official LotJ Mudlet UI detected; shared chat and radar compatibility enabled"
+    )
   else
     refreshLotjUiCompatibility()
   end
@@ -4017,8 +5920,11 @@ function Scraper.setup(proxy, options)
     end),
     tempTrigger("Please wait until the ship has finished its current maneuver.", function()
       if Scraper.pendingCommandKind ~= "target" then
-        resolvePendingCommand("rejected",
-          "Please wait until the ship has finished its current maneuver.", 1)
+        resolvePendingCommand(
+          "rejected",
+          "Please wait until the ship has finished its current maneuver.",
+          1
+        )
       end
     end),
     tempTrigger("Maneuver complete.", function()
@@ -4030,15 +5936,22 @@ function Scraper.setup(proxy, options)
       completeTargetLock("completed", "Target Locked.")
     end),
     tempTrigger("Your concentration is broken. You fail to lock on to your target.", function()
-      completeTargetLock("rejected",
-        "Your concentration is broken. You fail to lock on to your target.")
+      completeTargetLock(
+        "rejected",
+        "Your concentration is broken. You fail to lock on to your target."
+      )
     end),
     tempTrigger("You must be in the gunners seat or turret of a ship to do that!", function()
-      completeTargetLock("rejected",
-        "You must be in the gunners seat or turret of a ship to do that!")
+      completeTargetLock(
+        "rejected",
+        "You must be in the gunners seat or turret of a ship to do that!"
+      )
     end),
     tempTrigger("You fail to lock on to your target!", function()
       completeTargetLock("rejected", "You fail to lock on to your target!")
+    end),
+    tempTrigger("That ship is currently being protected by other ships.", function()
+      completeTargetLock("rejected", "That ship is currently being protected by other ships.")
     end),
     tempRegexTrigger("^\\s*You are being targeted by .+'[^']+'\\.?\\s*$", function()
       Scraper.handleIncomingTargeting(line or "")
@@ -4046,44 +5959,76 @@ function Scraper.setup(proxy, options)
     tempRegexTrigger("^\\s*You are hit by .+ from .+'[^']+'!.*$", function()
       Scraper.handleShipHit(line or "", false)
     end),
+    tempRegexTrigger(
+      "^\\s*(?:.+\\s+'[^']+'\\s+explodes\\s+in\\s+a.*|(?:blinding\\s+)?flash\\s+of\\s+light!|of\\s+light!|light!)\\s*$",
+      function()
+        Scraper.handleCombatFragment(line or "")
+      end
+    ),
     tempTrigger("[WARNING]: Critical power overload... Shields down!", function()
       Scraper.handleShipHit(line or "", true)
     end),
-    tempRegexTrigger("^\\s*(?:Recharging shields\\.\\.|The shields are already at peak power\\.)\\s*$", function()
-      Scraper.handleRechargeResponse(line or "")
-    end),
-    tempRegexTrigger("^\\s*(?:Shields ON\\. Autorecharge ON\\.|Autorecharge OFF\\. Shields IDLING\\.)\\s*$", function()
-      Scraper.handleShieldPowerResponse(line or "")
-    end),
-    tempRegexTrigger("^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|(?:The\\s+)?.+\\s+can\\s+only\\s+fire\\s+forwards\\.\\s+You'll\\s+need\\s+to\\s+turn\\s+your\\s+ship!|(?:Missile|Torpedo|Rocket)\\s+launched\\.|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|An?\\s+.+\\s+from\\s+.+'.+'\\s+(?:hits|barely\\s+misses)\\s+.+'.+'.*|Your ship's\\s+.+|You see a large explosion as\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$", function()
-      Scraper.handleCombatLine(line or "")
-    end),
+    tempRegexTrigger(
+      "^\\s*(?:Recharging shields\\.\\.|The shields are already at peak power\\.)\\s*$",
+      function()
+        Scraper.handleRechargeResponse(line or "")
+      end
+    ),
+    tempRegexTrigger(
+      "^\\s*(?:Shields ON\\. Autorecharge ON\\.|Autorecharge OFF\\. Shields IDLING\\.)\\s*$",
+      function()
+        Scraper.handleShieldPowerResponse(line or "")
+      end
+    ),
+    tempRegexTrigger(
+      "^\\s*(?:Target:\\s+.+|You fail to lock on to your target!|(?:The\\s+)?.+\\s+can\\s+only\\s+fire\\s+forwards\\.\\s+You'll\\s+need\\s+to\\s+turn\\s+your\\s+ship!|(?:Missile|Torpedo|Rocket)\\s+launched\\.|A\\s+.+\\s+is\\s+launched\\s+toward\\s+.+\\s+by\\s+your\\s+ship\\.|\\d+\\s+.+\\s+fired\\.\\.\\.|An?\\s+.+\\s+from\\s+.+'.+'\\s+(?:hits|barely\\s+misses)\\s+.+|.+\\s+fire\\s+from\\s+.+'.+'\\s+(?:hits|barely\\s+misses)\\s+.+|.+'.+'\\s+fires\\s+an?\\s+.+\\s+towards?\\s+.+|.*'[^']+'\\.\\s*(?:\\[x\\d+\\])?|Your ship's\\s+.+|You see a large explosion as\\s+.+|.+\\s+fully charged\\.|.+\\s+launcher(?:\\(s\\)|s)?\\s+reloaded\\.)\\s*$",
+      function()
+        Scraper.handleCombatFragment(line or "")
+      end
+    ),
     tempRegexTrigger("^\\s*\\d+\\s+projectiles?,\\s+\\d+\\s+incoming.*$", function()
       Scraper.handleProjectileSummary(line or "")
     end),
-    tempRegexTrigger("^\\s*.+\\s+'[^']+'\\s+enters the starsystem, coming out of its hyperjump at(?:\\s+.*)?$", function()
-      Scraper.handleSectorArrival(line or "")
-    end),
+    tempRegexTrigger(
+      "^\\s*.+\\s+'[^']+'\\s+enters the starsystem, coming out of its hyperjump at(?:\\s+.*)?$",
+      function()
+        Scraper.handleSectorArrival(line or "")
+      end
+    ),
     tempRegexTrigger("(?i)^.*auto.*track.*$", function()
       Scraper.handleAutotrackResponse(line or "")
     end),
-    tempRegexTrigger("^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.)\\s*$", function()
-      Scraper.handleHyperspaceLine(line or "")
-    end),
-    tempRegexTrigger("^\\s*(?:Sending command to .+|New course set, approaching .+\\.|The ship begins to turn\\.|Autopilot (?:ON|OFF)\\.|You'll have to disengage the ship's autopilot first\\.|Please wait until the ship has finished its current maneuver\\.)\\s*$", function()
-      Scraper.handleFleetCommandLine(line or "")
-    end),
+    tempRegexTrigger(
+      "^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.)\\s*$",
+      function()
+        Scraper.handleHyperspaceLine(line or "")
+      end
+    ),
+    tempRegexTrigger(
+      "^\\s*(?:Sending command to .+|New course set, approaching .+\\.|The ship begins to turn\\.|You're already traveling that speed\\.|Autopilot (?:ON|OFF)\\.|You'll have to disengage the ship's autopilot first\\.|Please wait until the ship has finished its current maneuver\\.)\\s*$",
+      function()
+        Scraper.handleFleetCommandLine(line or "")
+      end
+    ),
   }
   proxy.scraper = Scraper
   if type(proxy.registerIntentHandler) == "function" then
     proxy.registerIntentHandler("probe_space", dispatchSpaceProbe)
+    proxy.registerIntentHandler("set_polling_paused", function(payload)
+      if type(payload.paused) ~= "boolean" then
+        return false, "polling paused must be a boolean"
+      end
+      return Scraper.setPollingPaused(payload.paused, "renderer")
+    end)
     proxy.registerIntentHandler("set_ship_disposition", function(payload)
       return Scraper.setDisposition(trim(payload.name), trim(payload.disposition):lower())
     end)
     proxy.registerIntentHandler("scan_ship", dispatchManualShipScan)
     proxy.registerIntentHandler("target_ship", dispatchTargetShip)
+    proxy.registerIntentHandler("clear_combat_target", dispatchClearCombatTarget)
     proxy.registerIntentHandler("fire_weapon", dispatchFireWeapon)
     proxy.registerIntentHandler("fleet_order", dispatchFleetOrder)
+    proxy.registerIntentHandler("request_tactical_view", dispatchTacticalViewRequest)
     proxy.registerIntentHandler("recharge_shields", function(_, message)
       return beginShieldRecharge(message and message.id or nil)
     end)
@@ -4121,9 +6066,11 @@ function Scraper.setup(proxy, options)
         -- Treat abort as idempotent. A wing can complete its jump without a
         -- local terminal transition, leaving the renderer with stale workflow
         -- state even though there is no calculation left to stop.
-        if Scraper.hyperspace.phase == "hyperspace"
-            or Scraper.hyperspace.phase == "reentry"
-            or Scraper.hyperspace.phase == "engaging" then
+        if
+          Scraper.hyperspace.phase == "hyperspace"
+          or Scraper.hyperspace.phase == "reentry"
+          or Scraper.hyperspace.phase == "engaging"
+        then
           return false, "the ship is already in hyperspace"
         end
         Scraper.hyperspace.activeIntentId = message and message.id or nil
@@ -4131,10 +6078,14 @@ function Scraper.setup(proxy, options)
         return true
       end
       local commands, _, scopeError = scopedHyperspaceCommands(payload, "calc stop")
-      if not commands then return false, scopeError end
+      if not commands then
+        return false, scopeError
+      end
       Scraper.hyperspace.activeIntentId = message and message.id or nil
       local sent, sendError = sendScopedHyperspaceCommands(commands)
-      if not sent then return false, sendError end
+      if not sent then
+        return false, sendError
+      end
       -- Scoped battlegroup commands may not produce the observer terminal's
       -- abort confirmation. Sending succeeded, so complete the UI workflow now;
       -- a later local confirmation is harmless and remains idempotent.
@@ -4146,17 +6097,25 @@ function Scraper.setup(proxy, options)
         return false, "hyperspace calculations are not ready"
       end
       local commands, includesLocal, scopeError = scopedHyperspaceCommands(payload, "hyper")
-      if not commands then return false, scopeError end
+      if not commands then
+        return false, scopeError
+      end
       if includesLocal then
         local clear, clearanceError = checkHyperspaceClearance()
-        if not clear then return false, clearanceError end
+        if not clear then
+          return false, clearanceError
+        end
       end
       Scraper.hyperspace.activeIntentId = message and message.id or nil
       for _, command in ipairs(commands) do
         local selector = command:lower():match("^battlegroup nav (.-) hyper$")
-        if selector then queueFleetJump(selector) end
+        if selector then
+          queueFleetJump(selector)
+        end
       end
-      if includesLocal then Scraper.hyperspace.pendingLocalJumpUntil = os.time() + 30 end
+      if includesLocal then
+        Scraper.hyperspace.pendingLocalJumpUntil = os.time() + 30
+      end
       return sendScopedHyperspaceCommands(commands)
     end)
     proxy.registerIntentHandler("escape_hyperspace", function()
@@ -4176,7 +6135,9 @@ function Scraper.setup(proxy, options)
     end)
     proxy.registerIntentHandler("navigate_ship", function(payload, message)
       local gateError = commandGateError()
-      if gateError then return false, gateError end
+      if gateError then
+        return false, gateError
+      end
       if Scraper.state.metadata.inSpace ~= true then
         return false, "ship navigation is unavailable while landed"
       end
@@ -4187,7 +6148,7 @@ function Scraper.setup(proxy, options)
       end
       if mode == "relative" then
         local vector = type(payload.vector) == "table" and payload.vector or {}
-        local values = {tonumber(vector.x), tonumber(vector.y), tonumber(vector.z)}
+        local values = { tonumber(vector.x), tonumber(vector.y), tonumber(vector.z) }
         for _, value in ipairs(values) do
           if not value or value ~= value or math.abs(value) > 10000000 then
             return false, "course vector must contain finite coordinates within 10,000,000 units"
@@ -4196,10 +6157,14 @@ function Scraper.setup(proxy, options)
         if values[1] == 0 and values[2] == 0 and values[3] == 0 then
           return false, "course vector cannot be zero"
         end
-        command = string.format("course relative %d %d %d",
-          round(values[1]), round(values[2]), round(values[3]))
+        command = string.format(
+          "course relative %d %d %d",
+          round(values[1]),
+          round(values[2]),
+          round(values[3])
+        )
       elseif mode == "target" or mode == "away" then
-        local target = findEntity({id = trim(payload.targetId)})
+        local target = findEntity({ id = trim(payload.targetId) })
         local name = target and trim(target.name) or ""
         if name == "" or name:find("[%c\r\n]") then
           return false, "navigation target is not present in the current snapshot"
@@ -4214,8 +6179,13 @@ function Scraper.setup(proxy, options)
         departureSpeed = tonumber(payload.departureSpeed)
         local speedReading = Scraper.state.observer.speed
         local maximum = type(speedReading) == "table" and tonumber(speedReading.maximum) or nil
-        if not departureSpeed or departureSpeed ~= departureSpeed or departureSpeed <= 0
-            or departureSpeed > 10000000 or (maximum and departureSpeed > maximum) then
+        if
+          not departureSpeed
+          or departureSpeed ~= departureSpeed
+          or departureSpeed <= 0
+          or departureSpeed > 10000000
+          or (maximum and departureSpeed > maximum)
+        then
           return false, "departure speed is outside the ship's known limits"
         end
         departureSpeed = round(departureSpeed)
@@ -4223,26 +6193,39 @@ function Scraper.setup(proxy, options)
 
       Scraper.polling.dispatching = true
       local sent, sendError = pcall(function()
-        if departureSpeed then send("speed " .. tostring(departureSpeed)) end
+        if departureSpeed then
+          send("speed " .. tostring(departureSpeed))
+        end
         send(command)
       end)
       Scraper.polling.dispatching = false
-      if not sent then return false, tostring(sendError) end
-      holdPollingForCommand(message and message.id or nil, 45,
-        "Maneuver completion was not observed; course controls released.")
+      if not sent then
+        return false, tostring(sendError)
+      end
+      holdPollingForCommand(
+        message and message.id or nil,
+        45,
+        "Maneuver completion was not observed; course controls released."
+      )
       return true
     end)
     proxy.registerIntentHandler("set_ship_speed", function(payload, message)
       local gateError = commandGateError()
-      if gateError then return false, gateError end
+      if gateError then
+        return false, gateError
+      end
       if Scraper.state.metadata.inSpace ~= true then
         return false, "ship speed is unavailable while landed"
       end
       local requestedSpeed = tonumber(payload.speed)
       local speedReading = Scraper.state.observer.speed
       local maximum = type(speedReading) == "table" and tonumber(speedReading.maximum) or nil
-      if not requestedSpeed or requestedSpeed ~= requestedSpeed or requestedSpeed < 0
-          or (maximum and requestedSpeed > maximum) then
+      if
+        not requestedSpeed
+        or requestedSpeed ~= requestedSpeed
+        or requestedSpeed < 0
+        or (maximum and requestedSpeed > maximum)
+      then
         return false, "requested speed is outside the ship's known limits"
       end
       Scraper.polling.dispatching = true
@@ -4250,12 +6233,17 @@ function Scraper.setup(proxy, options)
         send("speed " .. tostring(math.floor(requestedSpeed + 0.5)))
       end)
       Scraper.polling.dispatching = false
-      if not sent then return false, tostring(sendError) end
+      if not sent then
+        return false, tostring(sendError)
+      end
       holdPollingForCommand(message and message.id or nil, 1.5)
       return true
     end)
   end
-  diagnostic("info", "live scraping enabled for info, radar, status, and fleetradar; proximity is derived from coordinates")
+  diagnostic(
+    "info",
+    "live scraping enabled for info, radar, status, and fleetradar; proximity is derived from coordinates"
+  )
   if not options or options.polling ~= false then
     local pollingOptions = options and options.polling or nil
     local pollingReady, pollingError = Scraper.startPolling(pollingOptions)
@@ -4269,6 +6257,8 @@ end
 function Scraper.teardown()
   Scraper.stopPolling()
   safeKill("killTimer", Scraper.combat and Scraper.combat.projectileReconcileTimerId)
+  safeKill("killTimer", Scraper.combat and Scraper.combat.targetReconcileTimerId)
+  safeKill("killTimer", Scraper.combat and Scraper.combat.pendingLineTimerId)
   if Scraper.active then
     clearCaptureHandles(Scraper.active)
     Scraper.active = nil
@@ -4287,13 +6277,31 @@ function Scraper.teardown()
   Scraper.proxy = nil
   Scraper.pendingCommandIntentId = nil
   Scraper.pendingCommandKind = nil
-  Scraper.combat = {targetName = nil, pendingTargetName = nil, pendingTargetContext = nil,
+  Scraper.combat = {
+    targetName = nil,
+    pendingTargetName = nil,
+    pendingTargetContext = nil,
+    pendingTargetPreviousName = nil,
+    targetReconcileTimerId = nil,
     nextEventId = 0,
-    lastFireWeapon = nil, projectileRadarRequestedAt = 0, lastRadarAt = 0,
-    lastActivityAt = 0, lastLaunchWeapon = nil, lastLaunchTarget = nil,
-    lastLaunchSource = nil, lastLaunchAt = 0, lastImpactWeapon = nil, lastImpactTarget = nil,
-    lastImpactSource = nil, lastImpactAt = 0, projectileReconcileTimerId = nil}
-  Scraper.shipGmcp = {lastAt = 0, sequence = 0, damageSequence = nil}
+    lastFireWeapon = nil,
+    projectileRadarRequestedAt = 0,
+    lastRadarAt = 0,
+    lastActivityAt = 0,
+    lastLaunchWeapon = nil,
+    lastLaunchTarget = nil,
+    lastLaunchSource = nil,
+    lastLaunchAt = 0,
+    lastImpactWeapon = nil,
+    lastImpactTarget = nil,
+    lastImpactSource = nil,
+    lastImpactAt = 0,
+    projectileReconcileTimerId = nil,
+    pendingLine = nil,
+    pendingLineTimerId = nil,
+  }
+  Scraper.destruction = { nextEventId = 0, destroyedNames = {} }
+  Scraper.shipGmcp = { lastAt = 0, sequence = 0, damageSequence = nil }
   safeKill("killTimer", Scraper.pendingCommandTimerId)
   Scraper.pendingCommandTimerId = nil
   safeKill("killTimer", Scraper.automationLeaseTimerId)
@@ -4304,8 +6312,8 @@ function Scraper.teardown()
   Scraper.autotrack.intentId = nil
   Scraper.autotrack.retryCount = 0
   safeKill("killTimer", Scraper.fleetCommand and Scraper.fleetCommand.verificationTimerId)
-  Scraper.fleetCommand = {nextOrderId = 0, currentMemberName = nil,
-    verificationTimerId = nil, holdUntil = 0}
+  Scraper.fleetCommand =
+    { nextOrderId = 0, currentMemberName = nil, verificationTimerId = nil, holdUntil = 0 }
   return true
 end
 

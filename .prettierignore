@@ -1,0 +1,10 @@
+node_modules/
+out/
+renderer/dist/
+relay/bin/
+mudlet-package/build/
+mudlet-package/.output/
+mudlet-package/src/resources/
+.electron-smoke-profile/
+.pnpm-store/
+pnpm-lock.yaml

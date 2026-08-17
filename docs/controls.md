@@ -2,27 +2,33 @@
 
 ## Tactical view controls
 
-| Input | Action |
-| --- | --- |
-| Drag | Orbit around the player ship. |
-| Middle-mouse drag while plotting | Temporarily orbit the camera; release to resume course-vector adjustment. |
-| Mouse wheel | Zoom. |
-| `M` | Begin a relative player-ship course vector. |
-| Pointer while moving | Adjust the course on the X/Z plane. |
-| `Shift` + pointer | Adjust course elevation on the Y axis. |
-| Left click / `Enter` | Stage and confirm a course order. |
-| Right click / `Escape` | Cancel the current course order. |
-| Click a contact | Select and inspect it. |
-| `F` | Jump to strategic sector view. |
-| `R` | Reset the camera. |
-| `W` / `A` / `S` / `D` | Pan the free RTS camera. |
-| `Q` / `E` | Change the free RTS camera elevation. |
-| Radar icon (top center) | Show or hide the player ship's sensor-range bubble. |
-| Grid icon (top center) | Show or hide the true world-origin coordinate planes without changing zoom. |
-| Sector icon (top center) | Fit the observed sector and switch to glowing strategic contacts. |
+| Input                                           | Action                                                                                                                                                                                                      |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Drag                                            | Orbit around the player ship.                                                                                                                                                                               |
+| Middle-mouse drag while plotting                | Temporarily orbit the camera; release to resume course-vector adjustment.                                                                                                                                   |
+| Mouse wheel                                     | Zoom.                                                                                                                                                                                                       |
+| `M`                                             | Begin a relative player-ship course vector.                                                                                                                                                                 |
+| Pointer while moving                            | Adjust the course on the X/Z plane.                                                                                                                                                                         |
+| `Shift` + pointer                               | Adjust course elevation on the Y axis.                                                                                                                                                                      |
+| Left click / `Enter`                            | Stage and confirm a course order.                                                                                                                                                                           |
+| Right click / `Escape`                          | Cancel the current course order.                                                                                                                                                                            |
+| Click a contact                                 | Select and inspect it.                                                                                                                                                                                      |
+| `×` on a target shortcut                        | Clear that target in LotJ for every owner shown on the card. Local targets use `target none`, whole-fleet targets use `bg target all none`, and individual battlegroup targets use `bg target <ship> none`. |
+| Click a battlegroup roster card                 | Toggle that craft in the recipient set. Movement and other fleet orders apply only to highlighted cards.                                                                                                    |
+| Select-all icon beside the roster close button  | Restore every fleet craft to the recipient set.                                                                                                                                                             |
+| Camera-lock icon on a battlegroup roster member | Request that ship's radar and switch to its tactical view without changing command recipients.                                                                                                              |
+| Radar-signature / info icon on a roster member  | Open that ship's parsed status / information dossier.                                                                                                                                                       |
+| `F`                                             | Jump to strategic sector view.                                                                                                                                                                              |
+| `R`                                             | Reset the camera.                                                                                                                                                                                           |
+| `W` / `A` / `S` / `D`                           | Pan the free RTS camera.                                                                                                                                                                                    |
+| `Q` / `E`                                       | Change the free RTS camera elevation.                                                                                                                                                                       |
+| Radar icon (top center)                         | Show or hide the player ship's sensor-range bubble.                                                                                                                                                         |
+| Grid icon (top center)                          | Show or hide the true world-origin coordinate planes without changing zoom.                                                                                                                                 |
+| Sector icon (top center)                        | Fit the observed sector and switch to glowing strategic contacts.                                                                                                                                           |
 
-The player ship remains the camera focus and visual origin; entity positions are
-rendered relative to its current world coordinates.
+The player ship remains the default camera focus and visual origin. A remote
+battlegroup tactical view temporarily makes the camera-locked wing ship the visual
+origin; returning to `YOUR SHIP` restores the flagship view.
 
 ## Coordinate scale
 
@@ -42,24 +48,30 @@ framed.
 
 ## Mudlet commands
 
-| Command | Purpose |
-| --- | --- |
-| `h3d start` | Start or reconnect telemetry and launch the desktop app if needed. |
-| `h3d stop` | Stop polling and close the relay connection. |
-| `h3d status` | Show bridge and polling state. |
-| `h3d confirmations on\|off` | Persistently enable or suppress successful `h3d` command confirmations; warnings and errors remain visible. |
-| `h3d debug on\|off` | Persistently enable or suppress detailed parser, snapshot, and bridge diagnostics. Debug output defaults to off. |
-| `h3d snapshot` | Display the current normalized snapshot inside Mudlet. |
-| `h3d profile start` | Begin collecting low-overhead Mudlet telemetry performance metrics. |
-| `h3d profile report` | Report event rates, command/capture traffic, Lua timings, and active Mudlet object counts without stopping collection. |
-| `h3d profile stop` | Print a final performance report and stop collecting metrics. |
-| `h3d dev on <path>` | Persistently use a packaged Windows executable or macOS `.app` from a repository, unpacked `out` directory, or explicit executable path. |
-| `h3d dev off` | Return to the installed application on subsequent starts. |
-| `h3d dev status` | Display the configured desktop application mode. |
-| `h3d help` | Show the available package commands. |
+| Command                     | Purpose                                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `h3d start`                 | Start or reconnect telemetry and launch the desktop app if needed.                                                                       |
+| `h3d stop`                  | Stop polling and close the relay connection.                                                                                             |
+| `h3d pause`                 | Suspend automatic command output without disconnecting the bridge, leaving a clear window for manual Mudlet commands.                    |
+| `h3d resume`                | Resume automatic telemetry polling after a manual command window.                                                                        |
+| `h3d status`                | Show bridge and polling state.                                                                                                           |
+| `h3d confirmations on\|off` | Persistently enable or suppress successful `h3d` command confirmations; warnings and errors remain visible.                              |
+| `h3d debug on\|off`         | Persistently enable or suppress detailed parser, snapshot, and bridge diagnostics. Debug output defaults to off.                         |
+| `h3d snapshot`              | Display the current normalized snapshot inside Mudlet.                                                                                   |
+| `h3d profile start`         | Begin collecting low-overhead Mudlet telemetry performance metrics.                                                                      |
+| `h3d profile report`        | Report event rates, command/capture traffic, Lua timings, and active Mudlet object counts without stopping collection.                   |
+| `h3d profile stop`          | Print a final performance report and stop collecting metrics.                                                                            |
+| `h3d dev on <path>`         | Persistently use a packaged Windows executable or macOS `.app` from a repository, unpacked `out` directory, or explicit executable path. |
+| `h3d dev off`               | Return to the installed application on subsequent starts.                                                                                |
+| `h3d dev status`            | Display the configured desktop application mode.                                                                                         |
+| `h3d help`                  | Show the available package commands.                                                                                                     |
 
 The older `lua dofile(...)` launcher is no longer needed for normal use. It is
 preserved under `poc/` solely for regression work.
+
+The tactical UI exposes the same pause/resume control. While paused, a prominent
+warning covers the command surface because the displayed tactical state may be
+stale; the bridge remains connected and the warning includes a resume button.
 
 ## Performance profiling
 

@@ -32,8 +32,10 @@ end
 
 local nodeCandidates = {
   normalizePath((os.getenv("ProgramFiles") or "") .. "/nodejs/node.exe"),
-  normalizePath((os.getenv("USERPROFILE") or "")
-    .. "/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe"),
+  normalizePath(
+    (os.getenv("USERPROFILE") or "")
+      .. "/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe"
+  ),
 }
 
 local nodeProgram = "node"
@@ -45,7 +47,7 @@ for _, candidate in ipairs(nodeCandidates) do
 end
 
 local bridgeProgram = nodeProgram
-local bridgeArguments = {repoRoot .. "/poc/tools/network-bridge.mjs"}
+local bridgeArguments = { repoRoot .. "/poc/tools/network-bridge.mjs" }
 local bridgeDescription = "Node development bridge"
 local relayProgram = repoRoot .. "/relay/bin/holocron-relay.exe"
 local electronProgram = repoRoot .. "/node_modules/electron/dist/electron.exe"
@@ -56,15 +58,19 @@ local installedUpdater = installedRoot .. "/Update.exe"
 if fileExists(relayProgram) and fileExists(electronProgram) then
   bridgeProgram = relayProgram
   bridgeArguments = {
-    "--app", electronProgram,
-    "--app-dir", repoRoot,
+    "--app",
+    electronProgram,
+    "--app-dir",
+    repoRoot,
   }
   bridgeDescription = "Electron development host"
 elseif fileExists(installedRelay) and fileExists(installedUpdater) then
   bridgeProgram = installedRelay
   bridgeArguments = {
-    "--app", installedUpdater,
-    "--squirrel-exe", "Holocron3D.exe",
+    "--app",
+    installedUpdater,
+    "--squirrel-exe",
+    "Holocron3D.exe",
   }
   bridgeDescription = "installed Electron app"
 end
@@ -88,23 +94,29 @@ end
 lotjHolocron3D = proxyOrError
 
 lotjHolocron3D.onDiagnostic = function(level, message)
-  local color = level == "error" and "<red>"
-    or level == "warn" and "<yellow>"
-    or "<cyan>"
+  local color = level == "error" and "<red>" or level == "warn" and "<yellow>" or "<cyan>"
   cecho(color .. "[Holocron3D] " .. tostring(message) .. "\n")
 end
 
 lotjHolocron3D.onReady = function()
   cecho("<green>[Holocron3D] Mudlet and the bridge are connected.\n")
-  cecho("<green>[Holocron3D] WebSocket endpoint: "
-    .. tostring(lotjHolocron3D.websocketUrl or "unavailable") .. "\n")
+  cecho(
+    "<green>[Holocron3D] WebSocket endpoint: "
+      .. tostring(lotjHolocron3D.websocketUrl or "unavailable")
+      .. "\n"
+  )
   if lotjHolocron3D.renderer == "electron" then
     cecho("<green>[Holocron3D] 3D renderer: Electron desktop window\n")
   else
-    cecho("<green>[Holocron3D] 3D renderer: "
-      .. tostring(lotjHolocron3D.rendererUrl or "unavailable") .. "\n")
+    cecho(
+      "<green>[Holocron3D] 3D renderer: "
+        .. tostring(lotjHolocron3D.rendererUrl or "unavailable")
+        .. "\n"
+    )
   end
-  cecho("<green>[Holocron3D] Telemetry polling is automatic; commands remain available for manual refreshes.\n")
+  cecho(
+    "<green>[Holocron3D] Telemetry polling is automatic; commands remain available for manual refreshes.\n"
+  )
 end
 
 local scraperLoaded, scraperOrError = pcall(require, "lotj_holocron_scraper")
@@ -122,8 +134,7 @@ end
 local started, startError = lotjHolocron3D.start(bridgeProgram, bridgeArguments)
 
 if started then
-  cecho("<yellow>[Holocron3D] " .. bridgeDescription
-    .. " started; waiting for its reply...\n")
+  cecho("<yellow>[Holocron3D] " .. bridgeDescription .. " started; waiting for its reply...\n")
 else
   scraperOrError.teardown()
   cecho("<red>[Holocron3D] Bridge could not start.\n")

@@ -20,7 +20,9 @@ test("Electron telemetry host preserves the Mudlet protocol contract", () => {
     write: (message) => written.push(message),
     emit: (type, message) => emitted.push({ type, message }),
     broadcast: (message) => broadcasts.push(message),
-    shutdown: () => { stopped = true; },
+    shutdown: () => {
+      stopped = true;
+    },
   });
 
   // The primary authenticated Mudlet pipe must become ready even when the
@@ -80,7 +82,7 @@ test("Electron window and preload keep privileged APIs isolated", async () => {
   assert.match(main, /setWindowOpenHandler\(\(\) => \(\{ action: "deny" \}\)\)/);
   assert.doesNotMatch(preload, /ipcRenderer:\s*ipcRenderer/);
   assert.doesNotMatch(preload, /send:\s*ipcRenderer\.send/);
-  assert.match(preload, /contextBridge\.exposeInMainWorld\("holocron"/);
+  assert.match(preload, /contextBridge\.exposeInMainWorld\(\s*"holocron"/);
 });
 
 test("Electron packaging applies Holocron3D branding across Windows surfaces", async () => {
@@ -114,16 +116,29 @@ test("relay credentials are persistent and validated", async () => {
 });
 
 test("Windows paths are stable and overridable", () => {
-  const paths = appDataPaths({ LOCALAPPDATA: "C:\\Users\\Test\\AppData\\Local" }, "win32", "C:\\Users\\Test");
-  assert.equal(paths.token, path.win32.join("C:\\Users\\Test\\AppData\\Local", "Holocron3D", "bridge-token"));
+  const paths = appDataPaths(
+    { LOCALAPPDATA: "C:\\Users\\Test\\AppData\\Local" },
+    "win32",
+    "C:\\Users\\Test",
+  );
+  assert.equal(
+    paths.token,
+    path.win32.join("C:\\Users\\Test\\AppData\\Local", "Holocron3D", "bridge-token"),
+  );
   const custom = appDataPaths({ HOLOCRON_DATA_DIR: "D:\\Holocron" }, "win32");
   assert.equal(custom.relay, path.win32.join("D:\\Holocron", "bin", "holocron-relay.exe"));
-  assert.equal(custom.mudletPackage, path.win32.join("D:\\Holocron", "mudlet", "Holocron3D.mpackage"));
+  assert.equal(
+    custom.mudletPackage,
+    path.win32.join("D:\\Holocron", "mudlet", "Holocron3D.mpackage"),
+  );
 });
 
 test("macOS paths use Application Support and an extensionless relay", () => {
   const paths = appDataPaths({}, "darwin", "/Users/Test");
-  assert.equal(paths.base, path.posix.join("/Users/Test", "Library", "Application Support", "Holocron3D"));
+  assert.equal(
+    paths.base,
+    path.posix.join("/Users/Test", "Library", "Application Support", "Holocron3D"),
+  );
   assert.equal(paths.relay, path.posix.join(paths.base, "bin", "holocron-relay"));
   assert.equal(paths.mudletPackage, path.posix.join(paths.base, "mudlet", "Holocron3D.mpackage"));
 });

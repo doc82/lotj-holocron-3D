@@ -33,6 +33,9 @@ importers:
       '@electron/fuses':
         specifier: ^2.1.3
         version: 2.1.3
+      '@johnnymorganz/stylua-bin':
+        specifier: 2.5.2
+        version: 2.5.2
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
@@ -45,6 +48,9 @@ importers:
       electron:
         specifier: ^43.4.0
         version: 43.4.0(supports-color@8.1.1)
+      prettier:
+        specifier: 3.9.6
+        version: 3.9.6
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -391,6 +397,36 @@ packages:
   '@inquirer/type@2.0.0':
     resolution: {integrity: sha512-XvJRx+2KR3YXyYtPUUy+qd9i7p+GO9Ko6VIIpWlBrpWwXDv8WLFeHTxz35CfQFUiBMLXlGHhGzys7lqit9gWag==}
     engines: {node: '>=18'}
+
+  '@johnnymorganz/stylua-bin-darwin-arm64@2.5.2':
+    resolution: {integrity: sha512-aoUX8+aG7x/hXSYMEkpH7YEvQ9AK/V/qY5SUBOqK4g5iBK9hjfOrFqYWRYo14BG+9QEEeKv0SY5iUviMUpyn0g==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@johnnymorganz/stylua-bin-darwin-x64@2.5.2':
+    resolution: {integrity: sha512-TP+TweORn5qs2NIn1ejTQ5vVDmCwch43WgCnfqIbdSx/txvlr3bVbWO5NeiEzdI2XO6gDFzFi9X6FIK1UNS7qQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@johnnymorganz/stylua-bin-linux-arm64@2.5.2':
+    resolution: {integrity: sha512-zffjBoMQpzP1AnnhVrg1k/8zNrI9VTKQ/hie/baD3y5mgOHe4/YJ33uo0dZeI+uZAu5gdanmvM5fQtPxnGc6xQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@johnnymorganz/stylua-bin-linux-x64@2.5.2':
+    resolution: {integrity: sha512-5NfzgN3lnlgmFcPCmhlyHr7y3Ro6wmPNBYzjVFLJKqJtwMPgSgKKzfT93s2rkX/QZKIlZelLtQ7eHVDmULegSg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@johnnymorganz/stylua-bin-win32-x64@2.5.2':
+    resolution: {integrity: sha512-wasLSN1Z9O0t6v6km/7cnBqtJe1oUX+Mgojba56hveR67i2F97bETu2GroSeCNuuCdXxUXIbZ+tf9b8CVyF1pA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@johnnymorganz/stylua-bin@2.5.2':
+    resolution: {integrity: sha512-9VXOyPCoyajvLOZMiEGigNovEYI7PaAXB065Mc2iiU/vOmAxb+GpbGpCPjLq1jIy8VNU+4Esh50EmLc0SMfziw==}
+    engines: {node: '>=10'}
+    hasBin: true
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -772,6 +808,7 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@xtuc/ieee754@1.2.0':
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}
@@ -2971,6 +3008,29 @@ snapshots:
   '@inquirer/type@2.0.0':
     dependencies:
       mute-stream: 1.0.0
+
+  '@johnnymorganz/stylua-bin-darwin-arm64@2.5.2':
+    optional: true
+
+  '@johnnymorganz/stylua-bin-darwin-x64@2.5.2':
+    optional: true
+
+  '@johnnymorganz/stylua-bin-linux-arm64@2.5.2':
+    optional: true
+
+  '@johnnymorganz/stylua-bin-linux-x64@2.5.2':
+    optional: true
+
+  '@johnnymorganz/stylua-bin-win32-x64@2.5.2':
+    optional: true
+
+  '@johnnymorganz/stylua-bin@2.5.2':
+    optionalDependencies:
+      '@johnnymorganz/stylua-bin-darwin-arm64': 2.5.2
+      '@johnnymorganz/stylua-bin-darwin-x64': 2.5.2
+      '@johnnymorganz/stylua-bin-linux-arm64': 2.5.2
+      '@johnnymorganz/stylua-bin-linux-x64': 2.5.2
+      '@johnnymorganz/stylua-bin-win32-x64': 2.5.2
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

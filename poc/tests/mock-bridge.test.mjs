@@ -94,8 +94,7 @@ test("mock bridge exercises handshake, snapshots, and reverse intents", async (t
 
   send(child, { type: "intent_ack", id: intent.id, status: "accepted" });
   const diagnostic = await output.waitFor(
-    (message) => message.type === "bridge_diagnostic"
-      && message.message.includes(intent.id),
+    (message) => message.type === "bridge_diagnostic" && message.message.includes(intent.id),
   );
   assert.match(diagnostic.message, /accepted/);
 

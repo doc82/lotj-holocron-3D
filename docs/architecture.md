@@ -37,13 +37,13 @@ trusted Mudlet handler accepted it—not that the game completed an action.
 
 The installed application uses `%LOCALAPPDATA%\Holocron3D`:
 
-| Path | Purpose |
-| --- | --- |
-| `bin\holocron-relay.exe` | Native Mudlet-to-Electron relay. |
-| `mudlet\Holocron3D.mpackage` | Importable Mudlet package. |
-| `bridge-token` | Per-user relay credential. |
-| `logs\holocron3d.log` | Structured Electron diagnostics. |
-| `Update.exe` | Squirrel launcher and updater. |
+| Path                         | Purpose                          |
+| ---------------------------- | -------------------------------- |
+| `bin\holocron-relay.exe`     | Native Mudlet-to-Electron relay. |
+| `mudlet\Holocron3D.mpackage` | Importable Mudlet package.       |
+| `bridge-token`               | Per-user relay credential.       |
+| `logs\holocron3d.log`        | Structured Electron diagnostics. |
+| `Update.exe`                 | Squirrel launcher and updater.   |
 
 If the desktop window is blank or fails to launch, inspect
 `%LOCALAPPDATA%\Holocron3D\logs\holocron3d.log` first.
@@ -52,26 +52,26 @@ If the desktop window is blank or fails to launch, inspect
 
 The installed application uses `~/Library/Application Support/Holocron3D`:
 
-| Path | Purpose |
-| --- | --- |
-| `bin/holocron-relay` | Native Mudlet-to-Electron relay. |
-| `mudlet/Holocron3D.mpackage` | Importable Mudlet package. |
-| `bridge-token` | Per-user relay credential. |
-| `logs/holocron3d.log` | Structured Electron diagnostics. |
+| Path                         | Purpose                          |
+| ---------------------------- | -------------------------------- |
+| `bin/holocron-relay`         | Native Mudlet-to-Electron relay. |
+| `mudlet/Holocron3D.mpackage` | Importable Mudlet package.       |
+| `bridge-token`               | Per-user relay credential.       |
+| `logs/holocron3d.log`        | Structured Electron diagnostics. |
 
 The `h3d confirmations` and `h3d debug` preferences are stored in the Mudlet
 profile, so package reinstalls do not reset them.
 
 ## Repository layout
 
-| Path | Contents |
-| --- | --- |
-| `electron/` | Main process, preload API, authentication, and cross-platform bootstrap. |
-| `relay/` | Dependency-free Go relay and tests. |
-| `renderer/` | React features with co-located CSS Modules, typed telemetry domain, and the WebGL tactical engine. |
-| `mudlet/` | Authoritative Lua parser, proxy, scraper, and setup guide. |
-| `mudlet-package/` | AutoPilot-style Muddler package source. |
-| `tests/` | Active protocol, renderer, parser, scraper, and packaging tests. |
-| `tools/` | Release build and Electron smoke-test utilities. |
-| `docs/` | User, contributor, protocol, architecture, and roadmap documentation. |
-| `poc/` | Archived Node/browser proof of concept and its regression tests. |
+| Path              | Contents                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `electron/`       | Main process, preload API, authentication, and cross-platform bootstrap.                           |
+| `relay/`          | Dependency-free Go relay and tests.                                                                |
+| `renderer/`       | React features with co-located CSS Modules, typed telemetry domain, and the WebGL tactical engine. |
+| `mudlet/`         | Authoritative Lua parser, proxy, scraper, and setup guide.                                         |
+| `mudlet-package/` | AutoPilot-style Muddler package source.                                                            |
+| `tests/`          | Active protocol, renderer, parser, scraper, and packaging tests.                                   |
+| `tools/`          | Release build and Electron smoke-test utilities.                                                   |
+| `docs/`           | User, contributor, protocol, architecture, and roadmap documentation.                              |
+| `poc/`            | Archived Node/browser proof of concept and its regression tests.                                   |

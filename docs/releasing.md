@@ -8,12 +8,12 @@ and their downloads have been verified.
 
 Every release must include all four user-facing artifacts:
 
-| Platform | Required asset | Build location |
-| --- | --- | --- |
-| Windows x64 | `Holocron3D-Setup.exe` | `out/make/squirrel.windows/x64/Holocron3D-Setup.exe` |
-| macOS Apple Silicon | `LotJ-Holocron-3D-<version>-arm64.dmg` | `out/make/dmg/darwin/arm64/` |
-| macOS Intel | `LotJ-Holocron-3D-<version>-x64.dmg` | `out/make/dmg/darwin/x64/` |
-| Mudlet package | `Holocron3D.mpackage` | `out/mudlet/Holocron3D.mpackage` |
+| Platform            | Required asset                         | Build location                                       |
+| ------------------- | -------------------------------------- | ---------------------------------------------------- |
+| Windows x64         | `Holocron3D-Setup.exe`                 | `out/make/squirrel.windows/x64/Holocron3D-Setup.exe` |
+| macOS Apple Silicon | `LotJ-Holocron-3D-<version>-arm64.dmg` | `out/make/dmg/darwin/arm64/`                         |
+| macOS Intel         | `LotJ-Holocron-3D-<version>-x64.dmg`   | `out/make/dmg/darwin/x64/`                           |
+| Mudlet package      | `Holocron3D.mpackage`                  | `out/mudlet/Holocron3D.mpackage`                     |
 
 Do not substitute an unpacked application directory, source archive, relay
 binary, or Squirrel `.nupkg` file for an installer. GitHub's automatically

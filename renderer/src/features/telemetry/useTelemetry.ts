@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 
-import type { GalaxyCatalog, InitialState, SpaceState, SystemSnapshot } from "../../types/telemetry";
+import type {
+  GalaxyCatalog,
+  InitialState,
+  SpaceState,
+  SystemSnapshot,
+} from "../../types/telemetry";
 
 export interface TelemetryState {
   connected: boolean;
@@ -21,9 +26,8 @@ const initialTelemetry: TelemetryState = {
 function mergeInitial(current: TelemetryState, initial: InitialState): TelemetryState {
   const connected = initial.connected === true;
   const spaceState = current.spaceState ?? initial.spaceState ?? null;
-  const snapshot = spaceState?.inSpace === false
-    ? null
-    : current.snapshot ?? initial.snapshot ?? null;
+  const snapshot =
+    spaceState?.inSpace === false ? null : (current.snapshot ?? initial.snapshot ?? null);
   return {
     connected,
     connectionLabel: connected ? "MUDLET LINK" : "WAITING FOR MUDLET",
@@ -58,8 +62,12 @@ export function useTelemetry(): TelemetryState {
       setTelemetry((current) => ({ ...current, connectionLabel: "WAITING FOR MUDLET" }));
       cleanups.push(
         api.onSnapshot((snapshot) => setTelemetry((current) => receiveSnapshot(current, snapshot))),
-        api.onSpaceState((spaceState) => setTelemetry((current) => receiveSpaceState(current, spaceState))),
-        api.onGalaxyCatalog((galaxyCatalog) => setTelemetry((current) => ({ ...current, galaxyCatalog }))),
+        api.onSpaceState((spaceState) =>
+          setTelemetry((current) => receiveSpaceState(current, spaceState)),
+        ),
+        api.onGalaxyCatalog((galaxyCatalog) =>
+          setTelemetry((current) => ({ ...current, galaxyCatalog })),
+        ),
         api.onConnectionState((connection) => {
           const connected = connection?.connected === true;
           setTelemetry((current) => ({
@@ -73,7 +81,11 @@ export function useTelemetry(): TelemetryState {
       void api.getInitialState().then((initial) => {
         if (!active) return;
         if (!initial) {
-          setTelemetry((current) => ({ ...current, connected: false, connectionLabel: "IPC REJECTED" }));
+          setTelemetry((current) => ({
+            ...current,
+            connected: false,
+            connectionLabel: "IPC REJECTED",
+          }));
           return;
         }
         setTelemetry((current) => mergeInitial(current, initial));
@@ -102,25 +114,45 @@ export function useTelemetry(): TelemetryState {
       socket = new WebSocket(websocketUrl);
       socket.addEventListener("open", () => {
         reconnectDelay = 500;
-        setTelemetry((current) => ({ ...current, connected: true, connectionLabel: "BRIDGE LINK" }));
+        setTelemetry((current) => ({
+          ...current,
+          connected: true,
+          connectionLabel: "BRIDGE LINK",
+        }));
       });
       socket.addEventListener("message", (event) => {
         let message: { type?: string } & Record<string, unknown>;
-        try { message = JSON.parse(String(event.data)); } catch { return; }
+        try {
+          message = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
         if (message.type === "bridge_ready") {
-          setTelemetry((current) => ({ ...current, connected: true, connectionLabel: "LIVE LINK" }));
+          setTelemetry((current) => ({
+            ...current,
+            connected: true,
+            connectionLabel: "LIVE LINK",
+          }));
         } else if (message.type === "system_snapshot") {
           setTelemetry((current) => receiveSnapshot(current, message as unknown as SystemSnapshot));
         } else if (message.type === "space_state") {
           setTelemetry((current) => receiveSpaceState(current, message as unknown as SpaceState));
         } else if (message.type === "galaxy_catalog") {
-          setTelemetry((current) => ({ ...current, galaxyCatalog: message as unknown as GalaxyCatalog }));
+          setTelemetry((current) => ({
+            ...current,
+            galaxyCatalog: message as unknown as GalaxyCatalog,
+          }));
         }
       });
       socket.addEventListener("close", () => {
         if (!active) return;
-        setTelemetry((current) => ({ ...current, connected: false, connectionLabel: "RECONNECTING",
-          snapshot: null, spaceState: null }));
+        setTelemetry((current) => ({
+          ...current,
+          connected: false,
+          connectionLabel: "RECONNECTING",
+          snapshot: null,
+          spaceState: null,
+        }));
         reconnectTimer = setTimeout(connect, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 1.7, 8000);
       });

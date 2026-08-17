@@ -21,7 +21,10 @@
   pointer-events: none;
   white-space: nowrap;
   text-shadow: 0 0 7px rgba(125, 239, 255, 0.7);
-  font: 800 8px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    800 8px/1.2 ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.12em;
 }
 
@@ -34,7 +37,9 @@
   transform: translateX(-50%);
   border: 1px solid rgba(123, 235, 255, 0.48);
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(76, 221, 255, 0.2), inset 0 0 8px rgba(76, 221, 255, 0.12);
+  box-shadow:
+    0 0 10px rgba(76, 221, 255, 0.2),
+    inset 0 0 8px rgba(76, 221, 255, 0.12);
   content: "";
 }
 
@@ -52,7 +57,10 @@
   color: rgba(123, 211, 242, 0.72);
   background: rgba(2, 12, 24, 0.72);
   pointer-events: none;
-  font: 700 8px/1 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    700 8px/1 ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.15em;
 }
 
@@ -70,7 +78,10 @@
   pointer-events: none;
   white-space: nowrap;
   text-shadow: 0 0 7px rgba(84, 209, 255, 0.78);
-  font: 700 9px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    700 9px/1.2 ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.08em;
 }
 
@@ -92,7 +103,10 @@
   color: #e4fbff;
   background: rgba(2, 8, 16, 0.9);
   pointer-events: none;
-  font: 11px ui-monospace, "Cascadia Mono", monospace;
+  font:
+    11px ui-monospace,
+    "Cascadia Mono",
+    monospace;
 }
 
 .tooltip > strong,
@@ -115,10 +129,15 @@
   transform: translate(-50%, -50%);
   color: #e9fbff;
   text-align: center;
-  text-shadow: 0 0 7px #43bfff, 0 0 12px #168cff;
+  text-shadow:
+    0 0 7px #43bfff,
+    0 0 12px #168cff;
   background: transparent;
   cursor: pointer;
-  font: 700 11px/1 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    700 11px/1 ui-monospace,
+    "Cascadia Mono",
+    monospace;
 }
 
 .clusterCount:hover,

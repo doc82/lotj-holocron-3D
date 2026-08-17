@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requestedPlatform = process.argv[2] || process.platform;
 const requestedArch = process.argv[3] || process.arch;
-const goos = requestedPlatform === "win32" ? "windows" : requestedPlatform === "darwin" ? "darwin" : "linux";
+const goos =
+  requestedPlatform === "win32" ? "windows" : requestedPlatform === "darwin" ? "darwin" : "linux";
 const goarch = requestedArch === "arm64" ? "arm64" : "amd64";
 const extension = goos === "windows" ? ".exe" : "";
 const outputDirectory = path.join(root, "relay", "bin", `${goos}-${requestedArch}`);

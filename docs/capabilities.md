@@ -18,7 +18,9 @@ Jedi output. Its current capabilities include:
 - Merging ships, celestial bodies, fleet positions, distance, velocity, and
   system metadata into authoritative snapshots.
 - Detecting launch and landing state, pausing polling while landed, and clearing
-  stale space presentation.
+  stale space presentation. Automatic command output can also be explicitly
+  paused and resumed from Mudlet or the tactical UI without disconnecting the
+  bridge; the UI clearly marks the retained snapshot as potentially stale.
 - Rendering procedural low-poly 3D hulls with an observer-locked
   Homeworld-style orbit camera. Each LotJ ship class has a distinct generated
   model, and known heading vectors orient those models in three dimensions.
@@ -66,10 +68,16 @@ Jedi output. Its current capabilities include:
   player's role.
 - Providing a first pass on formation commands. Battlegroup commanders can
   issue scoped movement, speed, targeting, weapon, shield, chaff, and autopilot
-  orders; squadron leads can issue the lead-ship actions supported by LotJ plus
+  orders to the whole fleet, all wings, or any highlighted subset of individual
+  roster cards. An adjacent select-all control restores the full fleet selection;
+  squadron leads can issue the lead-ship actions supported by LotJ plus
   squadron roll, chaff, Fire Assist, and subsystem-aim orders. Squadron wings
   continue to inherit navigation, targeting, and fire behavior from the lead
   ship.
+- Allowing a battlegroup commander to request an isolated radar view from one
+  wing ship through a dedicated camera-lock icon, pivot the tactical scene to
+  that remote observer without changing command recipients, and safely use
+  contacts from that view in selected-member target and navigation orders.
 - Providing player-ship navigation orders from the command deck. `M` opens a
   Homeworld-style course vector: pointer movement chooses X/Z, holding Shift
   adjusts Y, and a blue arrow previews the continuing heading. Selected ships
@@ -103,6 +111,9 @@ Jedi output. Its current capabilities include:
 - Distinguishing the player ship from formation hyperspace departures and
   rendering observed wing-ship jumps as tactical-map streak, flare, and fade
   effects.
+- Detecting named ships that explode in a blinding flash, immediately removing
+  the destroyed contact and rendering its last known position as a white-hot
+  fireball with expanding shockwaves, secondary bursts, and glowing debris.
 
 ## Known limitations
 

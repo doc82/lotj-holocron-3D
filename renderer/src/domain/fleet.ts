@@ -5,8 +5,9 @@ function normalizedName(name: string | undefined): string {
 }
 
 export function localFormationRole(fleet: FleetStatus, localName: string): FleetStatus["role"] {
-  const localMember = fleet.members.find((member) =>
-    normalizedName(member.name) === normalizedName(localName));
+  const localMember = fleet.members.find(
+    (member) => normalizedName(member.name) === normalizedName(localName),
+  );
 
   if (!localMember) return fleet.role;
   if (fleet.kind === "battlegroup") {

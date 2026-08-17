@@ -35,7 +35,9 @@
   position: absolute;
   border: 1px solid var(--line);
   background: var(--panel);
-  box-shadow: 0 0 30px rgba(0, 0, 0, 0.25), inset 0 0 24px rgba(28, 132, 151, 0.035);
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.25),
+    inset 0 0 24px rgba(28, 132, 151, 0.035);
   backdrop-filter: blur(12px);
 }
 
@@ -70,7 +72,10 @@
 .eyebrow {
   margin: 0 0 5px;
   color: var(--cyan);
-  font: 600 10px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    600 10px/1.2 ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.18em;
 }
 
@@ -79,9 +84,168 @@
   align-items: center;
   gap: 9px;
   color: #8cb3bb;
-  font: 600 10px ui-monospace, "Cascadia Mono", monospace;
+  font:
+    600 10px ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.12em;
   justify-self: end;
+}
+
+.connectionControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-self: end;
+}
+
+.pollingControl {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 196, 91, 0.36);
+  padding: 0 9px;
+  color: #eabf6b;
+  background: rgba(42, 29, 8, 0.66);
+  cursor: pointer;
+  font:
+    700 9px/1 ui-monospace,
+    "Cascadia Mono",
+    monospace;
+  letter-spacing: 0.12em;
+}
+
+.pollingControl:hover,
+.pollingControl:focus-visible,
+.pollingControlPaused {
+  border-color: #ffd777;
+  outline: none;
+  color: #fff0bd;
+  background: rgba(111, 68, 8, 0.58);
+  box-shadow: 0 0 18px rgba(255, 184, 54, 0.16);
+}
+
+.pollingControl:disabled {
+  opacity: 0.48;
+  cursor: wait;
+}
+
+.pollingControl svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.pollingControl svg path:first-child:last-child {
+  fill: currentColor;
+  stroke: none;
+}
+
+.pollingPausedOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at center, rgba(83, 50, 5, 0.2), transparent 36%), rgba(1, 5, 9, 0.58);
+  backdrop-filter: blur(3px) saturate(0.55);
+}
+
+.pollingPausedIndicator {
+  width: min(620px, calc(100vw - 48px));
+  display: grid;
+  justify-items: center;
+  border: 1px solid rgba(255, 205, 100, 0.72);
+  padding: 30px 34px 28px;
+  color: #ffe4a0;
+  text-align: center;
+  background: rgba(25, 15, 3, 0.92);
+  box-shadow:
+    0 0 70px rgba(255, 178, 38, 0.14),
+    inset 0 0 34px rgba(255, 182, 42, 0.06);
+  clip-path: polygon(0 14px, 14px 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+
+.pauseGlyph {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  margin-bottom: 16px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 24px rgba(255, 198, 76, 0.2);
+  font:
+    800 22px/1 ui-monospace,
+    monospace;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+}
+
+.pollingPausedIndicator p {
+  margin: 0 0 5px;
+  color: #dcaa54;
+  font:
+    700 10px/1.3 ui-monospace,
+    monospace;
+  letter-spacing: 0.2em;
+}
+
+.pollingPausedIndicator h2 {
+  color: #fff1c2;
+  font-size: clamp(28px, 4vw, 48px);
+  letter-spacing: 0.14em;
+  text-shadow: 0 0 22px rgba(255, 197, 76, 0.25);
+}
+
+.pollingPausedIndicator > span:not(.pauseGlyph) {
+  margin-top: 10px;
+  color: #b99a60;
+  font:
+    600 10px/1.5 ui-monospace,
+    monospace;
+  letter-spacing: 0.1em;
+}
+
+.pollingPausedIndicator button {
+  display: flex;
+  min-width: 190px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+  border: 1px solid #ffd271;
+  color: #241400;
+  background: #efb94f;
+  cursor: pointer;
+  font:
+    800 11px/1 ui-monospace,
+    monospace;
+  letter-spacing: 0.12em;
+}
+
+.pollingPausedIndicator button:hover,
+.pollingPausedIndicator button:focus-visible {
+  outline: 1px solid #fff1bd;
+  outline-offset: 3px;
+  background: #ffd576;
+}
+
+.pollingPausedIndicator button:disabled {
+  opacity: 0.58;
+  cursor: wait;
+}
+
+.pollingPausedIndicator button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  stroke: none;
 }
 
 .light {
@@ -109,9 +273,9 @@
 .scopeDrawer {
   top: 154px;
   bottom: 316px;
-  left: 112px;
+  left: 72px;
   z-index: 17;
-  width: min(340px, calc(100vw - 146px));
+  width: min(390px, calc(100vw - 106px));
   padding: 15px;
   overflow: hidden;
   animation: panel-enter 180ms ease-out both;
@@ -128,7 +292,45 @@
   padding-bottom: 10px;
 }
 
-.scopeDrawer h2 { color: #ddfaff; font: 600 15px/1.2 ui-monospace, monospace; }
+.scopeDrawer h2 {
+  color: #ddfaff;
+  font:
+    600 15px/1.2 ui-monospace,
+    monospace;
+}
+
+.scopeDrawerHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.selectAllScope {
+  display: grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(82, 220, 244, 0.24);
+  padding: 0;
+  color: #78dbe9;
+  background: rgba(7, 31, 42, 0.72);
+  cursor: pointer;
+}
+
+.selectAllScope svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.selectAllScope:hover,
+.selectAllScope:focus-visible {
+  border-color: #75e8ff;
+  outline: none;
+  color: #dffaff;
+}
 
 .closeScopeDrawer {
   border: 1px solid rgba(82, 220, 244, 0.24);
@@ -136,11 +338,17 @@
   color: #7eb3bd;
   background: rgba(7, 31, 42, 0.72);
   cursor: pointer;
-  font: 18px/1 ui-monospace, monospace;
+  font:
+    18px/1 ui-monospace,
+    monospace;
 }
 
 .closeScopeDrawer:hover,
-.closeScopeDrawer:focus-visible { border-color: #75e8ff; outline: none; color: #dffaff; }
+.closeScopeDrawer:focus-visible {
+  border-color: #75e8ff;
+  outline: none;
+  color: #dffaff;
+}
 
 .clusterPanel > header {
   display: flex;
@@ -152,7 +360,10 @@
 
 .clusterPanel h2 {
   color: #d9f8ff;
-  font: 600 12px/1.4 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    600 12px/1.4 ui-monospace,
+    "Cascadia Mono",
+    monospace;
 }
 
 .closeCluster {
@@ -161,7 +372,9 @@
   color: #79b8c4;
   background: transparent;
   cursor: pointer;
-  font: 22px/1 ui-monospace, monospace;
+  font:
+    22px/1 ui-monospace,
+    monospace;
 }
 
 .memberGrid {
@@ -198,13 +411,19 @@
 }
 
 .memberGrid strong {
-  font: 600 11px/1.3 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    600 11px/1.3 ui-monospace,
+    "Cascadia Mono",
+    monospace;
 }
 
 .memberGrid span {
   margin-top: 4px;
   color: #72949c;
-  font: 9px/1.3 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    9px/1.3 ui-monospace,
+    "Cascadia Mono",
+    monospace;
 }
 
 .muted {
@@ -228,10 +447,15 @@
 .readouts dt,
 .readouts dd {
   margin: 0;
-  font: 11px/1.2 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    11px/1.2 ui-monospace,
+    "Cascadia Mono",
+    monospace;
 }
 
-.systemIdentity { min-width: 0; }
+.systemIdentity {
+  min-width: 0;
+}
 
 .controlStack {
   display: grid;
@@ -279,8 +503,12 @@
   background: rgba(2, 13, 22, 0.96);
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.48);
   transform: translate(-50%, 3px);
-  transition: opacity 100ms ease, transform 100ms ease;
-  font: 700 9px/1.25 ui-monospace, monospace;
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+  font:
+    700 9px/1.25 ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
@@ -320,7 +548,9 @@
   outline: none;
   color: #9deaff;
   background: rgba(19, 103, 138, 0.42);
-  box-shadow: inset 0 0 15px rgba(52, 174, 225, 0.14), 0 0 10px rgba(31, 154, 220, 0.12);
+  box-shadow:
+    inset 0 0 15px rgba(52, 174, 225, 0.14),
+    0 0 10px rgba(31, 154, 220, 0.12);
 }
 
 .viewControls svg {
@@ -351,7 +581,9 @@
   color: #77939a;
   background: rgba(12, 30, 37, 0.72);
   cursor: pointer;
-  font: 600 10px ui-monospace, monospace;
+  font:
+    600 10px ui-monospace,
+    monospace;
 }
 
 .dispositions button[aria-pressed="true"] {
@@ -420,7 +652,9 @@
   z-index: 0;
   border: 1px solid var(--line);
   background: var(--panel);
-  box-shadow: 0 0 30px rgba(0, 0, 0, 0.25), inset 0 0 24px rgba(28, 132, 151, 0.035);
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.25),
+    inset 0 0 24px rgba(28, 132, 151, 0.035);
   backdrop-filter: blur(12px);
   clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
   content: "";
@@ -460,8 +694,16 @@
   border-left: 1px solid rgba(82, 220, 244, 0.2);
   box-shadow: inset 16px 0 24px rgba(7, 44, 58, 0.12);
 }
-.selectedVessel { grid-column: 2; grid-row: 1; }
-.issuerBank { grid-column: 1; grid-row: 1; border-left: 0 !important; box-shadow: none !important; }
+.selectedVessel {
+  grid-column: 2;
+  grid-row: 1;
+}
+.issuerBank {
+  grid-column: 1;
+  grid-row: 1;
+  border-left: 0 !important;
+  box-shadow: none !important;
+}
 
 .commandBank [data-tooltip]::before,
 .commandBank [data-tooltip]::after {
@@ -498,7 +740,9 @@
 .manualScanStatus {
   margin-top: 7px;
   color: #69cde5;
-  font: 700 10px/1.4 ui-monospace, monospace;
+  font:
+    700 10px/1.4 ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
 }
 
@@ -507,7 +751,9 @@
   color: #83b9c4;
   background: rgba(13, 48, 61, 0.5);
   cursor: pointer;
-  font: 700 10px ui-monospace, monospace;
+  font:
+    700 10px ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
 }
 
@@ -540,13 +786,17 @@
   border-color: #ef4444;
   color: #fff0f0;
   background: rgba(167, 31, 44, 0.58);
-  box-shadow: inset 0 0 12px rgba(239, 68, 68, 0.22), 0 0 9px rgba(239, 68, 68, 0.15);
+  box-shadow:
+    inset 0 0 12px rgba(239, 68, 68, 0.22),
+    0 0 9px rgba(239, 68, 68, 0.15);
 }
 
 .aggressiveWarning {
   margin-top: 6px;
   color: rgba(255, 111, 111, 0.78);
-  font: 700 9px/1.3 ui-monospace, monospace;
+  font:
+    700 9px/1.3 ui-monospace,
+    monospace;
   letter-spacing: 0.09em;
 }
 
@@ -591,14 +841,18 @@
 
 .actionPending strong {
   color: #dffaff;
-  font: 800 11px/1.3 ui-monospace, monospace;
+  font:
+    800 11px/1.3 ui-monospace,
+    monospace;
   letter-spacing: 0.09em;
 }
 
 .actionPending small {
   margin-top: 6px;
   color: #73a8b4;
-  font: 9px/1.3 ui-monospace, monospace;
+  font:
+    9px/1.3 ui-monospace,
+    monospace;
 }
 
 .actionPending button {
@@ -613,7 +867,9 @@
   color: #ffc2ca;
   background: rgba(91, 24, 35, 0.58);
   cursor: pointer;
-  font: 800 9px ui-monospace, monospace;
+  font:
+    800 9px ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
 }
 
@@ -644,7 +900,9 @@
   padding: 10px;
   color: #54737b;
   text-align: center;
-  font: 700 10px ui-monospace, monospace;
+  font:
+    700 10px ui-monospace,
+    monospace;
   letter-spacing: 0.12em;
 }
 
@@ -669,8 +927,12 @@
   color: #ffe7e9;
   text-align: center;
   background: rgba(77, 5, 16, 0.94);
-  box-shadow: 0 0 20px rgba(255, 44, 72, 0.35), inset 0 0 18px rgba(255, 58, 83, 0.16);
-  font: 800 10px/1.4 ui-monospace, monospace;
+  box-shadow:
+    0 0 20px rgba(255, 44, 72, 0.35),
+    inset 0 0 18px rgba(255, 58, 83, 0.16);
+  font:
+    800 10px/1.4 ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
   animation: command-rejected 480ms steps(2, jump-none) 5;
 }
@@ -679,7 +941,9 @@
   border-color: #55df9b;
   color: #dffff0;
   background: rgba(8, 62, 41, 0.94);
-  box-shadow: 0 0 20px rgba(55, 225, 145, 0.22), inset 0 0 18px rgba(55, 225, 145, 0.1);
+  box-shadow:
+    0 0 20px rgba(55, 225, 145, 0.22),
+    inset 0 0 18px rgba(55, 225, 145, 0.1);
   animation: controls-enter 220ms ease-out both;
 }
 
@@ -687,7 +951,9 @@
   border-color: #d7bd69;
   color: #fff2bd;
   background: rgba(65, 49, 8, 0.94);
-  box-shadow: 0 0 20px rgba(221, 184, 58, 0.2), inset 0 0 18px rgba(221, 184, 58, 0.1);
+  box-shadow:
+    0 0 20px rgba(221, 184, 58, 0.2),
+    inset 0 0 18px rgba(221, 184, 58, 0.1);
   animation: controls-enter 220ms ease-out both;
 }
 
@@ -695,7 +961,9 @@
   border-color: #52dcf4;
   color: #e1faff;
   background: rgba(7, 46, 61, 0.94);
-  box-shadow: 0 0 20px rgba(44, 200, 255, 0.2), inset 0 0 18px rgba(44, 200, 255, 0.1);
+  box-shadow:
+    0 0 20px rgba(44, 200, 255, 0.2),
+    inset 0 0 18px rgba(44, 200, 255, 0.1);
   animation: controls-enter 220ms ease-out both;
 }
 
@@ -705,17 +973,24 @@
   display: flex;
   gap: 13px;
   color: #8fc5d0;
-  font: 700 10px ui-monospace, monospace;
+  font:
+    700 10px ui-monospace,
+    monospace;
 }
 
-.cameraLegend b { color: #547780; font-weight: 500; }
+.cameraLegend b {
+  color: #547780;
+  font-weight: 500;
+}
 
 .selectedVessel {
   background: radial-gradient(circle at 50% 120%, rgba(23, 130, 163, 0.15), transparent 65%);
 }
 
 .selectedVessel[data-disabled="true"] {
-  box-shadow: inset 0 2px 0 rgba(255, 77, 48, 0.55), inset 0 0 32px rgba(150, 30, 16, 0.12);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 77, 48, 0.55),
+    inset 0 0 32px rgba(150, 30, 16, 0.12);
   background: radial-gradient(circle at 50% 120%, rgba(181, 47, 25, 0.2), transparent 68%);
 }
 
@@ -731,9 +1006,28 @@
   background: radial-gradient(circle at 50% 55%, rgba(27, 122, 151, 0.1), transparent 58%);
 }
 
-.emptyTarget > span { margin-bottom: 8px; color: #70bed0; font: 32px/1 ui-monospace, monospace; }
-.emptyTarget > strong { color: #82acb5; font: 800 10px/1.3 ui-monospace, monospace; letter-spacing: 0.13em; }
-.emptyTarget > small { max-width: 240px; margin-top: 7px; font: 700 8px/1.5 ui-monospace, monospace; letter-spacing: 0.09em; }
+.emptyTarget > span {
+  margin-bottom: 8px;
+  color: #70bed0;
+  font:
+    32px/1 ui-monospace,
+    monospace;
+}
+.emptyTarget > strong {
+  color: #82acb5;
+  font:
+    800 10px/1.3 ui-monospace,
+    monospace;
+  letter-spacing: 0.13em;
+}
+.emptyTarget > small {
+  max-width: 240px;
+  margin-top: 7px;
+  font:
+    700 8px/1.5 ui-monospace,
+    monospace;
+  letter-spacing: 0.09em;
+}
 
 .issuerHeading {
   display: flex;
@@ -742,20 +1036,39 @@
   gap: 12px;
 }
 
-.issuerHeading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.issuerHeading p { margin: 4px 0 0; color: #698f98; font: 700 9px/1.2 ui-monospace, monospace; letter-spacing: 0.08em; }
+.issuerHeading h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.issuerHeading p {
+  margin: 4px 0 0;
+  color: #698f98;
+  font:
+    700 9px/1.2 ui-monospace,
+    monospace;
+  letter-spacing: 0.08em;
+}
 .issuerHeading > span {
   flex: none;
   border: 1px solid rgba(92, 255, 158, 0.45);
   padding: 4px 6px;
   color: #72e6aa;
   background: rgba(22, 87, 57, 0.22);
-  font: 800 8px ui-monospace, monospace;
+  font:
+    800 8px ui-monospace,
+    monospace;
   letter-spacing: 0.08em;
 }
 
-.issuerRanges { display: grid; grid-template-columns: 1fr; margin-top: 3px; }
-.issuerRanges > div { margin-top: 5px; }
+.issuerRanges {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin-top: 3px;
+}
+.issuerRanges > div {
+  margin-top: 5px;
+}
 
 .issuerStatus {
   display: flex;
@@ -763,7 +1076,9 @@
   gap: 8px;
   margin-top: 8px;
   color: #668d96;
-  font: 700 8px/1.3 ui-monospace, monospace;
+  font:
+    700 8px/1.3 ui-monospace,
+    monospace;
   letter-spacing: 0.06em;
 }
 
@@ -773,8 +1088,19 @@
   padding-top: 7px;
 }
 
-.hyperspaceActions > p { margin: 0 0 5px; color: #6baab7; font: 800 8px ui-monospace, monospace; letter-spacing: 0.13em; }
-.hyperspaceActions > div { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.hyperspaceActions > p {
+  margin: 0 0 5px;
+  color: #6baab7;
+  font:
+    800 8px ui-monospace,
+    monospace;
+  letter-spacing: 0.13em;
+}
+.hyperspaceActions > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
 .hyperspaceActions button {
   min-width: 0;
   height: 38px;
@@ -788,14 +1114,46 @@
   cursor: pointer;
 }
 .hyperspaceActions button:hover:not(:disabled),
-.hyperspaceActions button:focus-visible { border-color: #75e8ff; outline: none; color: #e0fbff; background: rgba(21, 93, 118, 0.7); }
-.hyperspaceActions button:disabled { opacity: 0.3; cursor: not-allowed; }
-.hyperspaceActions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.hyperspaceActions button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 800 8px ui-monospace, monospace; letter-spacing: 0.04em; }
-.hyperspaceActions > small { display: block; margin-top: 5px; color: #587f88; font: 700 7px ui-monospace, monospace; letter-spacing: 0.1em; }
+.hyperspaceActions button:focus-visible {
+  border-color: #75e8ff;
+  outline: none;
+  color: #e0fbff;
+  background: rgba(21, 93, 118, 0.7);
+}
+.hyperspaceActions button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.hyperspaceActions svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.hyperspaceActions button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font:
+    800 8px ui-monospace,
+    monospace;
+  letter-spacing: 0.04em;
+}
+.hyperspaceActions > small {
+  display: block;
+  margin-top: 5px;
+  color: #587f88;
+  font:
+    700 7px ui-monospace,
+    monospace;
+  letter-spacing: 0.1em;
+}
 
 .playerVessel {
-  box-shadow: inset 0 2px 0 rgba(132, 239, 255, 0.36), inset 16px 0 24px rgba(7, 44, 58, 0.12);
+  box-shadow:
+    inset 0 2px 0 rgba(132, 239, 255, 0.36),
+    inset 16px 0 24px rgba(7, 44, 58, 0.12);
   background: radial-gradient(circle at 50% 115%, rgba(55, 194, 221, 0.2), transparent 67%);
 }
 
@@ -819,7 +1177,9 @@
   border: 1px solid rgba(83, 203, 228, 0.25);
   padding: 4px 7px;
   color: #77b6c2;
-  font: 700 10px ui-monospace, monospace;
+  font:
+    700 10px ui-monospace,
+    monospace;
   letter-spacing: 0.1em;
 }
 
@@ -840,7 +1200,9 @@
   color: #73cada;
   background: rgba(8, 35, 46, 0.78);
   cursor: pointer;
-  font: 800 9px ui-monospace, monospace;
+  font:
+    800 9px ui-monospace,
+    monospace;
 }
 
 .dossierLaunchers button:hover,
@@ -855,7 +1217,9 @@
   border-color: rgba(92, 255, 158, 0.72);
   color: #8fffc0;
   background: rgba(20, 112, 64, 0.3);
-  box-shadow: inset 0 0 9px rgba(66, 255, 142, 0.12), 0 0 8px rgba(66, 255, 142, 0.18);
+  box-shadow:
+    inset 0 0 9px rgba(66, 255, 142, 0.12),
+    0 0 8px rgba(66, 255, 142, 0.18);
   text-shadow: 0 0 7px rgba(93, 255, 159, 0.58);
 }
 
@@ -863,7 +1227,9 @@
   border-color: rgba(255, 86, 56, 0.7);
   color: #ff765f;
   background: rgba(123, 25, 12, 0.42);
-  box-shadow: inset 0 0 10px rgba(255, 62, 34, 0.12), 0 0 9px rgba(255, 55, 31, 0.15);
+  box-shadow:
+    inset 0 0 10px rgba(255, 62, 34, 0.12),
+    0 0 9px rgba(255, 55, 31, 0.15);
   text-shadow: 0 0 8px rgba(255, 63, 35, 0.62);
   animation: disabled-target-pulse 1.35s ease-in-out infinite;
 }
@@ -884,7 +1250,9 @@
   column-gap: 20px;
 }
 
-.compactReadouts > div { padding: 5px 0; }
+.compactReadouts > div {
+  padding: 5px 0;
+}
 
 .compactReadouts dt,
 .compactReadouts dd {
@@ -900,11 +1268,16 @@
   gap: 8px;
   margin: 4px 0 10px;
   color: #77939a;
-  font: 700 11px ui-monospace, monospace;
+  font:
+    700 11px ui-monospace,
+    monospace;
   letter-spacing: 0.12em;
 }
 
-.fleetStatus .light { width: 6px; height: 6px; }
+.fleetStatus .light {
+  width: 6px;
+  height: 6px;
+}
 
 .fleetShip {
   display: block;
@@ -916,7 +1289,10 @@
   text-align: left;
   background: rgba(9, 37, 49, 0.56);
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .fleetShip:hover,
@@ -938,12 +1314,16 @@
   height: 18px;
 }
 
-.fleetShip > * { display: block; }
+.fleetShip > * {
+  display: block;
+}
 
 .fleetShip span,
 .fleetShip small {
   color: #63828a;
-  font: 9px/1.4 ui-monospace, monospace;
+  font:
+    9px/1.4 ui-monospace,
+    monospace;
   letter-spacing: 0.1em;
 }
 
@@ -953,17 +1333,29 @@
   color: #cceef5;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 600 14px ui-monospace, monospace;
+  font:
+    600 14px ui-monospace,
+    monospace;
 }
 
 @keyframes panel-enter {
-  from { opacity: 0; transform: translateX(-12px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes controls-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 760px) {
@@ -988,13 +1380,26 @@
     height: 286px;
   }
 
-  .commandDeck { height: 286px; }
+  .commandDeck {
+    height: 286px;
+  }
 
-  .selectedVessel { display: none; }
-  .issuerBank { grid-column: 1; }
-  .commandBank { grid-column: 2; }
+  .selectedVessel {
+    display: none;
+  }
+  .issuerBank {
+    grid-column: 1;
+  }
+  .commandBank {
+    grid-column: 2;
+  }
 
-  .scopeDrawer { top: 148px; bottom: 310px; left: 82px; width: calc(100vw - 94px); }
+  .scopeDrawer {
+    top: 148px;
+    bottom: 310px;
+    left: 82px;
+    width: calc(100vw - 94px);
+  }
 
   .clusterPanel {
     right: 12px;
@@ -1003,17 +1408,31 @@
 }
 
 @keyframes pending-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes command-rejected {
-  0%, 100% { opacity: 1; border-color: #ff5266; }
-  50% { opacity: 0.48; border-color: #ffd1d7; }
+  0%,
+  100% {
+    opacity: 1;
+    border-color: #ff5266;
+  }
+  50% {
+    opacity: 0.48;
+    border-color: #ffd1d7;
+  }
 }
 
 @keyframes disabled-target-pulse {
-  0%, 100% { opacity: 0.72; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1021,5 +1440,7 @@
     transition-duration: 120ms;
   }
 
-  .vesselTags > .disabledTag { animation: none; }
+  .vesselTags > .disabledTag {
+    animation: none;
+  }
 }

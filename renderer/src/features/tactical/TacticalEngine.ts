@@ -13,8 +13,23 @@ import {
   type ScenePoint,
   type TacticalScene,
 } from "../../domain/scene";
-import type { Color3, CombatEvent, ShipJumpEvent, SystemSnapshot, Vector3, WeaponType } from "../../types/telemetry";
+import type {
+  Color3,
+  CombatEvent,
+  ShipDestructionEvent,
+  ShipJumpEvent,
+  SystemSnapshot,
+  Vector3,
+  WeaponType,
+} from "../../types/telemetry";
 import { shipModelFor } from "../../domain/shipModels";
+import {
+  combatVisualStyle,
+  planCombatEvent,
+  planDestructionEvent,
+  type CombatVisualEffect,
+  type DestructionVisualEffect,
+} from "../../domain/combat";
 import {
   elevationFromPointer,
   elevationFromWheel,
@@ -141,8 +156,16 @@ export interface TacticalEngineCallbacks {
   onMovementCancel(): void;
 }
 
-interface DragState { x: number; y: number; moved: boolean; button: number }
-interface ElevationDragState { pointerY: number; elevation: number }
+interface DragState {
+  x: number;
+  y: number;
+  moved: boolean;
+  button: number;
+}
+interface ElevationDragState {
+  pointerY: number;
+  elevation: number;
+}
 interface SavedCameraState {
   mode: TacticalCameraMode;
   targetId: string | null;
@@ -154,17 +177,6 @@ interface SavedCameraState {
   targetYaw: number;
   targetPitch: number;
   targetDistance: number;
-}
-interface CombatEffect {
-  id: number;
-  type: "projectile" | "launch" | "impact";
-  weapon: WeaponType;
-  targetName: string;
-  start: number;
-  duration: number;
-  from: Vector3;
-  to: Vector3;
-  outcome?: "hit" | "miss";
 }
 interface JumpEffect {
   id: number;
@@ -256,10 +268,12 @@ export class TacticalEngine {
   private cameraFocus: Vector3 = [0, 0, 0];
   private freeFocusWorld: Vector3 = [0, 0, 0];
   private savedCameraState: SavedCameraState | null = null;
-  private combatEffects: CombatEffect[] = [];
+  private combatEffects: CombatVisualEffect[] = [];
   private lastCombatEventId = 0;
   private jumpEffects: JumpEffect[] = [];
   private lastJumpEventId = 0;
+  private destructionEffects: DestructionVisualEffect[] = [];
+  private lastDestructionEventId = 0;
   private disabledEffectsActive = false;
   private selectedId: string | null = null;
 
@@ -314,8 +328,11 @@ export class TacticalEngine {
     const desiredGridExtent = Math.max(MINIMUM_ORIGIN_GRID_EXTENT, largestWorldCoordinate * 1.1);
     const nextGridStep = this.niceOriginGridStep(desiredGridExtent);
     const nextGridExtent = Math.ceil(desiredGridExtent / nextGridStep) * nextGridStep;
-    if (nextOriginOffset.some((value, index) => value !== this.originOffset[index])
-        || nextGridExtent !== this.originGridExtent || nextGridStep !== this.originGridStep) {
+    if (
+      nextOriginOffset.some((value, index) => value !== this.originOffset[index]) ||
+      nextGridExtent !== this.originGridExtent ||
+      nextGridStep !== this.originGridStep
+    ) {
       this.originOffset = nextOriginOffset;
       this.originGridExtent = nextGridExtent;
       this.originGridStep = nextGridStep;
@@ -340,7 +357,8 @@ export class TacticalEngine {
       const moving = scenesHaveMotion(this.interpolator.target, nextScene);
       let duration = 450;
       if (moving) {
-        const observedInterval = this.lastMotionSnapshotAt === null ? 900 : now - this.lastMotionSnapshotAt;
+        const observedInterval =
+          this.lastMotionSnapshotAt === null ? 900 : now - this.lastMotionSnapshotAt;
         duration = Math.min(6000, Math.max(450, observedInterval * 0.88));
         this.lastMotionSnapshotAt = now;
       }
@@ -402,7 +420,11 @@ export class TacticalEngine {
     this.requestRender();
   }
 
-  beginMovementPlanning(vector: Vector3, interactive: boolean, origins: Vector3[] = [[0, 0, 0]]): void {
+  beginMovementPlanning(
+    vector: Vector3,
+    interactive: boolean,
+    origins: Vector3[] = [[0, 0, 0]],
+  ): void {
     if (!this.savedCameraState) {
       this.savedCameraState = {
         mode: this.cameraMode,
@@ -455,7 +477,11 @@ export class TacticalEngine {
     this.requestRender();
   }
 
-  setMovementActive(active: boolean, vector: Vector3 = this.movementVector, interactive = true): void {
+  setMovementActive(
+    active: boolean,
+    vector: Vector3 = this.movementVector,
+    interactive = true,
+  ): void {
     this.movementActive = active;
     this.movementInteractive = active && interactive;
     this.movementVector = [...vector];
@@ -470,59 +496,15 @@ export class TacticalEngine {
   }
 
   pushCombatEvent(event: CombatEvent): void {
-    if (!event.id || event.id <= this.lastCombatEventId
-        || event.type === "charged" || event.type === "failure") return;
+    if (
+      !event.id ||
+      event.id <= this.lastCombatEventId ||
+      event.type === "charged" ||
+      event.type === "failure"
+    )
+      return;
     this.lastCombatEventId = event.id;
-    const target = this.findPointByName(event.targetName);
-    const now = performance.now();
-    if (event.type === "launch") {
-      const projectile = ["missile", "torpedo", "rocket", "burst"].includes(event.weapon);
-      const observer = this.scene.points.find((point) => point.kind === "observer") ?? null;
-      const namedSource = this.findPointByName(event.sourceName);
-      const sourceIsObserver = event.sourceName && observer
-        && event.sourceName.trim().toLowerCase() === observer.name.trim().toLowerCase();
-      const source = namedSource ?? (!event.sourceName || sourceIsObserver ? observer : null);
-      if (!source) return;
-      if (!projectile && !target) return;
-      const sourcePosition: Vector3 = [...(source?.position3d ?? [0, 0, 0])];
-      const heading = source?.heading;
-      const headingVector: Vector3 = [
-        Number(heading?.x) || 0,
-        Number(heading?.y) || 0,
-        Number(heading?.z) || 0,
-      ];
-      if (Math.hypot(...headingVector) < 0.001) headingVector[2] = 1;
-      const launchDirectionTarget: Vector3 = target
-        ? [...target.position3d]
-        : sourcePosition.map((coordinate, index) => coordinate + headingVector[index] * 100) as Vector3;
-      this.combatEffects.push({
-        id: event.id,
-        type: projectile ? "launch" : "projectile",
-        weapon: event.weapon,
-        targetName: target?.name || event.targetName || "",
-        start: now,
-        duration: projectile ? 460 : 1_100,
-        from: sourcePosition,
-        to: projectile ? launchDirectionTarget
-          : [...(target?.position3d ?? [0, 0, 0])],
-      });
-    } else if (event.type === "impact") {
-      if (!target) return;
-      const confirmedHits = Math.max(1, Math.min(12, Number(event.count) || 1));
-      for (let index = 0; index < confirmedHits; index += 1) {
-        this.combatEffects.push({
-          id: event.id * 100 + index,
-          type: "impact",
-          weapon: event.weapon,
-          targetName: target.name,
-          start: now + index * 85,
-          duration: 780,
-          from: [0, 0, 0],
-          to: [...target.position3d],
-          outcome: event.outcome,
-        });
-      }
-    }
+    this.combatEffects.push(...planCombatEvent(event, this.scene.points, performance.now()));
     this.requestRender();
   }
 
@@ -537,9 +519,10 @@ export class TacticalEngine {
       Number(ship.heading?.z) || 0,
     ];
     const length = Math.hypot(...rawDirection);
-    const direction = length > 0.001
-      ? rawDirection.map((value) => value / length) as Vector3
-      : [0, 0, 1] as Vector3;
+    const direction =
+      length > 0.001
+        ? (rawDirection.map((value) => value / length) as Vector3)
+        : ([0, 0, 1] as Vector3);
     this.jumpEffects.push({
       id: event.id,
       start: performance.now(),
@@ -547,6 +530,20 @@ export class TacticalEngine {
       origin: [...ship.position3d],
       direction,
     });
+    this.requestRender();
+  }
+
+  pushDestructionEvent(event: ShipDestructionEvent): void {
+    if (!event.id || event.id <= this.lastDestructionEventId) return;
+    this.lastDestructionEventId = event.id;
+    const effect = planDestructionEvent(
+      event,
+      this.scene.points,
+      this.originOffset,
+      performance.now(),
+    );
+    if (!effect) return;
+    this.destructionEffects.push(effect);
     this.requestRender();
   }
 
@@ -613,26 +610,34 @@ export class TacticalEngine {
   }
 
   private headingFor(point: ScenePoint): Vector3 {
-      const heading = point.heading;
+    const heading = point.heading;
     return heading && typeof heading === "object"
-        ? [Number(heading.x) || 0, Number(heading.y) || 0, Number(heading.z) || 0]
-        : [0, 0, 0];
+      ? [Number(heading.x) || 0, Number(heading.y) || 0, Number(heading.z) || 0]
+      : [0, 0, 0];
   }
 
   private rebuildPointBuffers(): void {
     const tacticalPoints = this.scene.points.filter((point) => point.kind !== "projectile");
     const strategic = tacticalPoints.flatMap((point) => {
-      const size = point.kind === "cluster" ? Math.min(18, point.pointSize)
-        : point.kind === "observer" ? 8 : 5;
-      return this.interleavedVertex(
-        point.position3d, point.color, size, 0, this.headingFor(point),
-      );
+      const size =
+        point.kind === "cluster"
+          ? Math.min(18, point.pointSize)
+          : point.kind === "observer"
+            ? 8
+            : 5;
+      return this.interleavedVertex(point.position3d, point.color, size, 0, this.headingFor(point));
     });
     const landmarks = this.scene.points
       .filter((point) => !["ship", "observer", "projectile"].includes(point.kind))
-      .flatMap((point) => this.interleavedVertex(
-        point.position3d, point.color, point.pointSize, 0, this.headingFor(point),
-      ));
+      .flatMap((point) =>
+        this.interleavedVertex(
+          point.position3d,
+          point.color,
+          point.pointSize,
+          0,
+          this.headingFor(point),
+        ),
+      );
     this.pointCount = tacticalPoints.length;
     this.landmarkCount = landmarks.length / 11;
     this.upload(this.pointBuffer, strategic, this.gl.DYNAMIC_DRAW);
@@ -647,9 +652,8 @@ export class TacticalEngine {
       const model = shipModelFor(point.shipCategory);
       const heading = this.headingFor(point);
       const magnitude = Math.hypot(...heading);
-      const forward: Vector3 = magnitude > 0.0001
-        ? heading.map((value) => value / magnitude) as Vector3
-        : [0, 0, 1];
+      const forward: Vector3 =
+        magnitude > 0.0001 ? (heading.map((value) => value / magnitude) as Vector3) : [0, 0, 1];
       const referenceUp: Vector3 = Math.abs(forward[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
       const right: Vector3 = [
         referenceUp[1] * forward[2] - referenceUp[2] * forward[1],
@@ -657,16 +661,21 @@ export class TacticalEngine {
         referenceUp[0] * forward[1] - referenceUp[1] * forward[0],
       ];
       const rightLength = Math.max(0.0001, Math.hypot(...right));
-      right.forEach((value, index) => { right[index] = value / rightLength; });
+      right.forEach((value, index) => {
+        right[index] = value / rightLength;
+      });
       const up: Vector3 = [
         forward[1] * right[2] - forward[2] * right[1],
         forward[2] * right[0] - forward[0] * right[2],
         forward[0] * right[1] - forward[1] * right[0],
       ];
       const world = (local: Vector3): Vector3 => [
-        point.position3d[0] + model.scale * (right[0] * local[0] + up[0] * local[1] + forward[0] * local[2]),
-        point.position3d[1] + model.scale * (right[1] * local[0] + up[1] * local[1] + forward[1] * local[2]),
-        point.position3d[2] + model.scale * (right[2] * local[0] + up[2] * local[1] + forward[2] * local[2]),
+        point.position3d[0] +
+          model.scale * (right[0] * local[0] + up[0] * local[1] + forward[0] * local[2]),
+        point.position3d[1] +
+          model.scale * (right[1] * local[0] + up[1] * local[1] + forward[1] * local[2]),
+        point.position3d[2] +
+          model.scale * (right[2] * local[0] + up[2] * local[1] + forward[2] * local[2]),
       ];
       for (let index = 0; index < model.triangles.length; index += 3) {
         const a = world(model.triangles[index]);
@@ -680,9 +689,13 @@ export class TacticalEngine {
           ab[0] * ac[1] - ab[1] * ac[0],
         ];
         const normalLength = Math.max(0.0001, Math.hypot(...normal));
-        const diffuse = Math.abs((normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2]) / normalLength);
+        const diffuse = Math.abs(
+          (normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2]) / normalLength,
+        );
         const brightness = 0.36 + diffuse * 0.64;
-        const color = point.color.map((channel) => Math.min(1, channel * 0.35 + brightness * 0.62)) as Color3;
+        const color = point.color.map((channel) =>
+          Math.min(1, channel * 0.35 + brightness * 0.62),
+        ) as Color3;
         vertices.push(
           ...this.interleavedVertex(a, color),
           ...this.interleavedVertex(b, color),
@@ -699,7 +712,10 @@ export class TacticalEngine {
     if (this.movementActive) {
       const color: Color3 = [0.2, 0.72, 1];
       const pushLine = (from: Vector3, to: Vector3, lineColor: Color3 = color): void => {
-        vertices.push(...this.interleavedVertex(from, lineColor), ...this.interleavedVertex(to, lineColor));
+        vertices.push(
+          ...this.interleavedVertex(from, lineColor),
+          ...this.interleavedVertex(to, lineColor),
+        );
       };
       const destination = formationDestination(this.movementOrigins, this.movementVector);
       for (const origin of this.movementOrigins) {
@@ -715,10 +731,14 @@ export class TacticalEngine {
           direction[0] * reference[1] - direction[1] * reference[0],
         ];
         const sideLength = Math.max(0.0001, Math.hypot(...side));
-        side.forEach((value, index) => { side[index] = value / sideLength; });
+        side.forEach((value, index) => {
+          side[index] = value / sideLength;
+        });
         const headLength = Math.min(length * 0.24, Math.max(12, this.camera.distance * 0.055));
         const headWidth = headLength * 0.5;
-        const base = destination.map((value, index) => value - direction[index] * headLength) as Vector3;
+        const base = destination.map(
+          (value, index) => value - direction[index] * headLength,
+        ) as Vector3;
         const left = base.map((value, index) => value + side[index] * headWidth) as Vector3;
         const right = base.map((value, index) => value - side[index] * headWidth) as Vector3;
         pushLine(origin, destination);
@@ -740,8 +760,10 @@ export class TacticalEngine {
       const guideColor: Color3 = [0.32, 0.88, 1];
       const markerColor: Color3 = [0.62, 0.94, 1];
       const margin = Math.max(12, this.camera.distance * 0.08);
-      const lowerY = Math.min(origin[1], endpoint[1], this.cameraFocus[1] - this.camera.distance) - margin;
-      const upperY = Math.max(origin[1], endpoint[1], this.cameraFocus[1] + this.camera.distance) + margin;
+      const lowerY =
+        Math.min(origin[1], endpoint[1], this.cameraFocus[1] - this.camera.distance) - margin;
+      const upperY =
+        Math.max(origin[1], endpoint[1], this.cameraFocus[1] + this.camera.distance) + margin;
       const guideStart: Vector3 = [endpoint[0], lowerY, endpoint[2]];
       const guideEnd: Vector3 = [endpoint[0], upperY, endpoint[2]];
       vertices.push(
@@ -768,8 +790,8 @@ export class TacticalEngine {
       const ground: Vector3 = [endpoint[0], origin[1], endpoint[2]];
       const ringSize = Math.max(6, markerHalfWidth * 0.55);
       for (let index = 0; index < 20; index += 1) {
-        const a = index / 20 * Math.PI * 2;
-        const b = (index + 1) / 20 * Math.PI * 2;
+        const a = (index / 20) * Math.PI * 2;
+        const b = ((index + 1) / 20) * Math.PI * 2;
         vertices.push(
           ...this.interleavedVertex(
             [ground[0] + Math.cos(a) * ringSize, ground[1], ground[2] + Math.sin(a) * ringSize],
@@ -788,7 +810,11 @@ export class TacticalEngine {
 
   private spherePoint(radius: number, latitude: number, longitude: number): Vector3 {
     const horizontal = Math.cos(latitude) * radius;
-    return [horizontal * Math.cos(longitude), Math.sin(latitude) * radius, horizontal * Math.sin(longitude)];
+    return [
+      horizontal * Math.cos(longitude),
+      Math.sin(latitude) * radius,
+      horizontal * Math.sin(longitude),
+    ];
   }
 
   private niceOriginGridStep(extent: number): number {
@@ -845,7 +871,7 @@ export class TacticalEngine {
       }
     };
     for (const degrees of [-60, -30, 0, 30, 60]) {
-      const latitude = degrees * Math.PI / 180;
+      const latitude = (degrees * Math.PI) / 180;
       appendRing((longitude) => this.spherePoint(this.radarRange, latitude, longitude));
     }
     for (let meridian = 0; meridian < 8; meridian += 1) {
@@ -907,9 +933,21 @@ export class TacticalEngine {
       );
     }
 
-    appendLine([originX - extent, originY, originZ], [originX + extent, originY, originZ], [0.78, 0.18, 0.25]);
-    appendLine([originX, originY - extent, originZ], [originX, originY + extent, originZ], [0.25, 0.78, 0.42]);
-    appendLine([originX, originY, originZ - extent], [originX, originY, originZ + extent], [0.16, 0.48, 1]);
+    appendLine(
+      [originX - extent, originY, originZ],
+      [originX + extent, originY, originZ],
+      [0.78, 0.18, 0.25],
+    );
+    appendLine(
+      [originX, originY - extent, originZ],
+      [originX, originY + extent, originZ],
+      [0.25, 0.78, 0.42],
+    );
+    appendLine(
+      [originX, originY, originZ - extent],
+      [originX, originY, originZ + extent],
+      [0.16, 0.48, 1],
+    );
 
     this.originGridCount = grid.length / 11;
     this.upload(this.originGridBuffer, grid);
@@ -920,8 +958,9 @@ export class TacticalEngine {
     const wanted = name.trim().toLowerCase();
     for (const point of this.scene.points) {
       if ((point.name || "").trim().toLowerCase() === wanted) return point;
-      const member = point.members?.find((candidate) =>
-        (candidate.name || "").trim().toLowerCase() === wanted);
+      const member = point.members?.find(
+        (candidate) => (candidate.name || "").trim().toLowerCase() === wanted,
+      );
       if (member) return member;
     }
     return null;
@@ -939,8 +978,8 @@ export class TacticalEngine {
 
   private uniqueOrigins(origins: Vector3[]): Vector3[] {
     const unique = new Map<string, Vector3>();
-    for (const origin of origins.length > 0 ? origins : [[0, 0, 0] as Vector3]) {
-      const safe = origin.map((value) => Number.isFinite(value) ? value : 0) as Vector3;
+    for (const origin of origins) {
+      const safe = origin.map((value) => (Number.isFinite(value) ? value : 0)) as Vector3;
       unique.set(safe.join(":"), safe);
     }
     return [...unique.values()];
@@ -984,8 +1023,13 @@ export class TacticalEngine {
 
   private disabledShips(): ScenePoint[] {
     const points = this.scene.points.flatMap((point) => point.members ?? [point]);
-    return points.filter((point) => ["ship", "observer"].includes(point.kind)
-      && String(point.condition || "").trim().toLowerCase() === "disabled");
+    return points.filter(
+      (point) =>
+        ["ship", "observer"].includes(point.kind) &&
+        String(point.condition || "")
+          .trim()
+          .toLowerCase() === "disabled",
+    );
   }
 
   private appendDisabledShipEffects(now: number, lines: number[], points: number[]): void {
@@ -1016,15 +1060,18 @@ export class TacticalEngine {
         const pulse = 0.72 + Math.sin(now * 0.014 + siteSeed * 19) * 0.28;
         points.push(...this.interleavedVertex(origin, [0.28, 0.035, 0.005], 30 * pulse));
         points.push(...this.interleavedVertex(origin, [1, 0.2, 0.015], 13 * pulse));
-        points.push(...this.interleavedVertex(
-          [origin[0], origin[1] + modelScale * 0.14, origin[2]],
-          [1, 0.72, 0.08], 7 * pulse,
-        ));
+        points.push(
+          ...this.interleavedVertex(
+            [origin[0], origin[1] + modelScale * 0.14, origin[2]],
+            [1, 0.72, 0.08],
+            7 * pulse,
+          ),
+        );
 
         for (let ember = 0; ember < 7; ember += 1) {
           const emberSeed = hash(`${ship.id}:${site}:${ember}`);
           const speed = 0.42 + emberSeed * 0.55;
-          const progress = (now / 1000 * speed + emberSeed * 7.31 + shipSeed) % 1;
+          const progress = ((now / 1000) * speed + emberSeed * 7.31 + shipSeed) % 1;
           const angle = emberSeed * Math.PI * 8 + progress * 1.4;
           const spread = modelScale * (0.08 + progress * 0.42);
           const rise = modelScale * (0.18 + progress * 1.35);
@@ -1038,13 +1085,19 @@ export class TacticalEngine {
             emberPoint[1] - modelScale * (0.12 + progress * 0.12),
             emberPoint[2] - Math.sin(angle) * modelScale * 0.05,
           ];
-          const emberColor: Color3 = progress < 0.32
-            ? [1, 0.86, 0.2]
-            : progress < 0.72 ? [1, 0.28, 0.025] : [0.72, 0.055, 0.008];
-          lines.push(...this.interleavedVertex(tail, emberColor),
-            ...this.interleavedVertex(emberPoint, emberColor));
-          points.push(...this.interleavedVertex(emberPoint, emberColor,
-            Math.max(2, 8 * (1 - progress))));
+          const emberColor: Color3 =
+            progress < 0.32
+              ? [1, 0.86, 0.2]
+              : progress < 0.72
+                ? [1, 0.28, 0.025]
+                : [0.72, 0.055, 0.008];
+          lines.push(
+            ...this.interleavedVertex(tail, emberColor),
+            ...this.interleavedVertex(emberPoint, emberColor),
+          );
+          points.push(
+            ...this.interleavedVertex(emberPoint, emberColor, Math.max(2, 8 * (1 - progress))),
+          );
         }
       }
 
@@ -1070,8 +1123,10 @@ export class TacticalEngine {
           ship.position3d[2] - modelScale * 0.08,
         ];
         lines.push(
-          ...this.interleavedVertex(start, arcColor), ...this.interleavedVertex(middle, arcColor),
-          ...this.interleavedVertex(middle, arcColor), ...this.interleavedVertex(end, arcColor),
+          ...this.interleavedVertex(start, arcColor),
+          ...this.interleavedVertex(middle, arcColor),
+          ...this.interleavedVertex(middle, arcColor),
+          ...this.interleavedVertex(end, arcColor),
         );
       }
     }
@@ -1085,22 +1140,33 @@ export class TacticalEngine {
       const modelScale = shipModelFor(selected.shipCategory).scale;
       const radius = Math.max(modelScale * 1.85, this.camera.distance * 0.018);
       const segments = 72;
-      const appendRing = (ringRadius: number, color: Color3, rotation = 0,
-          fromSegment = 0, toSegment = segments): void => {
+      const appendRing = (
+        ringRadius: number,
+        color: Color3,
+        rotation = 0,
+        fromSegment = 0,
+        toSegment = segments,
+      ): void => {
         for (let segment = fromSegment; segment < toSegment; segment += 1) {
-          const start = rotation + segment / segments * Math.PI * 2;
-          const end = rotation + (segment + 1) / segments * Math.PI * 2;
+          const start = rotation + (segment / segments) * Math.PI * 2;
+          const end = rotation + ((segment + 1) / segments) * Math.PI * 2;
           vertices.push(
-            ...this.interleavedVertex([
-              center[0] + Math.cos(start) * ringRadius,
-              center[1],
-              center[2] + Math.sin(start) * ringRadius,
-            ], color),
-            ...this.interleavedVertex([
-              center[0] + Math.cos(end) * ringRadius,
-              center[1],
-              center[2] + Math.sin(end) * ringRadius,
-            ], color),
+            ...this.interleavedVertex(
+              [
+                center[0] + Math.cos(start) * ringRadius,
+                center[1],
+                center[2] + Math.sin(start) * ringRadius,
+              ],
+              color,
+            ),
+            ...this.interleavedVertex(
+              [
+                center[0] + Math.cos(end) * ringRadius,
+                center[1],
+                center[2] + Math.sin(end) * ringRadius,
+              ],
+              color,
+            ),
           );
         }
       };
@@ -1113,7 +1179,7 @@ export class TacticalEngine {
       appendRing(radius * 0.72, [0.23, 0.075, 0.008]);
 
       // Two opposed bright sweeps orbit the otherwise solid selection border.
-      const rotation = now / 1150 * Math.PI * 2;
+      const rotation = (now / 1150) * Math.PI * 2;
       const sweepLength = 10;
       appendRing(radius * 1.035, [1, 0.9, 0.42], rotation, 0, sweepLength);
       appendRing(radius * 1.035, [1, 0.9, 0.42], rotation + Math.PI, 0, sweepLength);
@@ -1122,21 +1188,123 @@ export class TacticalEngine {
       const bracketInner = radius * 1.08;
       const bracketOuter = radius * 1.24;
       for (let quarter = 0; quarter < 4; quarter += 1) {
-        const angle = rotation * 0.18 + quarter * Math.PI / 2;
+        const angle = rotation * 0.18 + (quarter * Math.PI) / 2;
         vertices.push(
-          ...this.interleavedVertex([
-            center[0] + Math.cos(angle) * bracketInner, center[1],
-            center[2] + Math.sin(angle) * bracketInner,
-          ], bracketColor),
-          ...this.interleavedVertex([
-            center[0] + Math.cos(angle) * bracketOuter, center[1],
-            center[2] + Math.sin(angle) * bracketOuter,
-          ], bracketColor),
+          ...this.interleavedVertex(
+            [
+              center[0] + Math.cos(angle) * bracketInner,
+              center[1],
+              center[2] + Math.sin(angle) * bracketInner,
+            ],
+            bracketColor,
+          ),
+          ...this.interleavedVertex(
+            [
+              center[0] + Math.cos(angle) * bracketOuter,
+              center[1],
+              center[2] + Math.sin(angle) * bracketOuter,
+            ],
+            bracketColor,
+          ),
         );
       }
     }
     this.selectionCount = vertices.length / 11;
     this.upload(this.selectionBuffer, vertices, this.gl.DYNAMIC_DRAW);
+  }
+
+  private appendDestructionEffects(now: number, lines: number[], points: number[]): void {
+    this.destructionEffects = this.destructionEffects.filter(
+      (effect) => now - effect.start < effect.duration,
+    );
+    for (const effect of this.destructionEffects) {
+      const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
+      const burst = 1 - Math.min(1, progress / 0.42);
+      const ember = 1 - progress;
+      const shockProgress = 1 - (1 - Math.min(1, progress * 1.22)) ** 3;
+      const white: Color3 = [1 * burst, 0.94 * burst, 0.78 * burst];
+      const orange: Color3 = [1 * ember, 0.24 * ember, 0.035 * ember];
+      const smoke: Color3 = [0.34 * ember, 0.065 * ember, 0.025 * ember];
+
+      // A white-hot core blooms first, followed by an orange fireball and
+      // three orthogonal shockwave rings so the blast reads in any camera view.
+      if (burst > 0) {
+        points.push(...this.interleavedVertex(effect.origin, white, 24 + burst * 92));
+      }
+      points.push(...this.interleavedVertex(effect.origin, smoke, 112 * ember + 8));
+      points.push(...this.interleavedVertex(effect.origin, orange, 48 * ember + 5));
+      const ringRadius = 7 + shockProgress * 105;
+      const ringColor: Color3 = [0.95 * ember, 0.32 * ember, 0.06 * ember];
+      const segments = 28;
+      for (let plane = 0; plane < 3; plane += 1) {
+        for (let index = 0; index < segments; index += 1) {
+          const a = (index / segments) * Math.PI * 2;
+          const b = ((index + 1) / segments) * Math.PI * 2;
+          const ringPoint = (angle: number): Vector3 => {
+            const first = Math.cos(angle) * ringRadius;
+            const second = Math.sin(angle) * ringRadius;
+            if (plane === 0)
+              return [effect.origin[0] + first, effect.origin[1] + second, effect.origin[2]];
+            if (plane === 1)
+              return [effect.origin[0] + first, effect.origin[1], effect.origin[2] + second];
+            return [effect.origin[0], effect.origin[1] + first, effect.origin[2] + second];
+          };
+          lines.push(
+            ...this.interleavedVertex(ringPoint(a), ringColor),
+            ...this.interleavedVertex(ringPoint(b), ringColor),
+          );
+        }
+      }
+
+      // Deterministic fragments keep the effect stable frame-to-frame while
+      // throwing glowing wreckage out in a spherical pattern.
+      const debrisProgress = Math.min(1, progress / 0.88);
+      const debrisEase = 1 - (1 - debrisProgress) ** 2;
+      for (let index = 0; index < 24; index += 1) {
+        const azimuth = index * 2.399963 + effect.id * 0.173;
+        const vertical = ((index * 7) % 23) / 11.5 - 1;
+        const horizontal = Math.sqrt(Math.max(0, 1 - vertical * vertical));
+        const direction: Vector3 = [
+          Math.cos(azimuth) * horizontal,
+          vertical,
+          Math.sin(azimuth) * horizontal,
+        ];
+        const reach = (72 + (index % 6) * 15) * debrisEase;
+        const tailReach = Math.max(0, reach - 15 * ember);
+        const head = effect.origin.map((value, axis) => value + direction[axis] * reach) as Vector3;
+        const tail = effect.origin.map(
+          (value, axis) => value + direction[axis] * tailReach,
+        ) as Vector3;
+        const debrisColor = index % 3 === 0 ? white : orange;
+        lines.push(
+          ...this.interleavedVertex(tail, debrisColor),
+          ...this.interleavedVertex(head, debrisColor),
+        );
+        if (index % 4 === 0)
+          points.push(...this.interleavedVertex(head, debrisColor, 7 + 6 * ember));
+      }
+
+      for (let index = 0; index < 4; index += 1) {
+        const ignition = 0.18 + index * 0.11;
+        const local = Math.max(0, Math.min(1, (progress - ignition) / 0.2));
+        if (local <= 0 || local >= 1) continue;
+        const angle = effect.id * 0.41 + index * 1.7;
+        const offset = 18 + index * 9;
+        const secondary: Vector3 = [
+          effect.origin[0] + Math.cos(angle) * offset,
+          effect.origin[1] + (index - 1.5) * 8,
+          effect.origin[2] + Math.sin(angle) * offset,
+        ];
+        const pulse = Math.sin(local * Math.PI);
+        points.push(
+          ...this.interleavedVertex(
+            secondary,
+            [pulse, pulse * 0.45, pulse * 0.08],
+            16 + pulse * 34,
+          ),
+        );
+      }
+    }
   }
 
   private rebuildCombatBuffers(now: number): void {
@@ -1147,27 +1315,42 @@ export class TacticalEngine {
       from[1] + (to[1] - from[1]) * amount,
       from[2] + (to[2] - from[2]) * amount,
     ];
-    this.combatEffects = this.combatEffects.filter((effect) => now - effect.start < effect.duration);
+    this.combatEffects = this.combatEffects.filter(
+      (effect) => now - effect.start < effect.duration,
+    );
     for (const effect of this.combatEffects) {
       if (now < effect.start) continue;
       const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
-      const color = effect.outcome === "miss" ? [0.52, 0.72, 0.82] as Color3 : this.weaponColor(effect.weapon);
+      const style = combatVisualStyle(effect);
+      const baseColor =
+        effect.outcome === "miss"
+          ? ([0.52, 0.72, 0.82] as Color3)
+          : this.weaponColor(effect.weapon);
+      const color = baseColor.map((channel) => channel * style.opacity) as Color3;
       const liveTarget = this.findPointByName(effect.targetName);
       const targetPosition = liveTarget?.position3d ?? effect.to;
-      const missOffset = effect.outcome === "miss"
-        ? Math.max(8, Math.hypot(...targetPosition) * 0.045)
-        : 0;
-      const endpoint: Vector3 = [
-        targetPosition[0] + missOffset,
-        targetPosition[1] + missOffset * 0.35,
-        targetPosition[2],
-      ];
+      const shotVector = targetPosition.map(
+        (value, index) => value - effect.from[index],
+      ) as Vector3;
+      const shotDistance = Math.hypot(...shotVector);
+      const shotDirection =
+        shotDistance > 0.001
+          ? (shotVector.map((value) => value / shotDistance) as Vector3)
+          : ([0.94, 0.33, 0] as Vector3);
+      const missOffset =
+        effect.outcome === "miss" ? Math.max(6, Math.min(18, shotDistance * 0.055)) : 0;
+      const endpoint = targetPosition.map(
+        (value, index) => value + shotDirection[index] * missOffset,
+      ) as Vector3;
       if (effect.type === "launch") {
-        const delta: Vector3 = endpoint.map((value, index) => value - effect.from[index]) as Vector3;
+        const delta: Vector3 = endpoint.map(
+          (value, index) => value - effect.from[index],
+        ) as Vector3;
         const targetDistance = Math.hypot(...delta);
-        const direction: Vector3 = targetDistance > 0.001
-          ? delta.map((value) => value / targetDistance) as Vector3
-          : [0, 0, 1];
+        const direction: Vector3 =
+          targetDistance > 0.001
+            ? (delta.map((value) => value / targetDistance) as Vector3)
+            : [0, 0, 1];
         const reference: Vector3 = Math.abs(direction[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
         const rightRaw: Vector3 = [
           direction[1] * reference[2] - direction[2] * reference[1],
@@ -1186,20 +1369,27 @@ export class TacticalEngine {
         const headDistance = burstLength * eased;
         const tailProgress = Math.max(0, (progress - 0.24) / 0.76);
         const tailDistance = burstLength * tailProgress * tailProgress;
-        const tail = effect.from.map((value, index) =>
-          value + direction[index] * tailDistance) as Vector3;
-        const head = effect.from.map((value, index) =>
-          value + direction[index] * headDistance) as Vector3;
+        const tail = effect.from.map(
+          (value, index) => value + direction[index] * tailDistance,
+        ) as Vector3;
+        const head = effect.from.map(
+          (value, index) => value + direction[index] * headDistance,
+        ) as Vector3;
         const spread = Math.sin(progress * Math.PI) * Math.min(7, burstLength * 0.16);
         const rays = 5;
         for (let index = 0; index < rays; index += 1) {
-          const angle = index / rays * Math.PI * 2;
+          const angle = (index / rays) * Math.PI * 2;
           const rayScale = index === 0 ? 0 : 0.55 + (index % 2) * 0.35;
-          const rayHead: Vector3 = head.map((value, axis) => value
-            + right[axis] * Math.cos(angle) * spread * rayScale
-            + up[axis] * Math.sin(angle) * spread * rayScale) as Vector3;
-          lines.push(...this.interleavedVertex(tail, color),
-            ...this.interleavedVertex(rayHead, color));
+          const rayHead: Vector3 = head.map(
+            (value, axis) =>
+              value +
+              right[axis] * Math.cos(angle) * spread * rayScale +
+              up[axis] * Math.sin(angle) * spread * rayScale,
+          ) as Vector3;
+          lines.push(
+            ...this.interleavedVertex(tail, color),
+            ...this.interleavedVertex(rayHead, color),
+          );
         }
         const glow = color.map((channel) => channel * 0.3) as Color3;
         points.push(...this.interleavedVertex(head, glow, 26));
@@ -1207,31 +1397,57 @@ export class TacticalEngine {
       } else if (effect.type === "projectile") {
         const eased = 1 - (1 - progress) ** 2;
         const head = lerp(effect.from, endpoint, Math.min(0.96, eased));
-        const tail = lerp(effect.from, endpoint, Math.max(0, eased - 0.13));
-        const strategicProjectile = ["missile", "torpedo", "rocket", "burst"].includes(effect.weapon);
-        const coreSize = effect.weapon === "torpedo" ? 14
-          : effect.weapon === "missile" ? 13
-            : effect.weapon === "rocket" ? 11 : effect.weapon === "burst" ? 10 : 8;
+        const tail = lerp(effect.from, endpoint, Math.max(0, eased - style.trailFraction));
+        const strategicProjectile = ["missile", "torpedo", "rocket", "burst"].includes(
+          effect.weapon,
+        );
+        const normalCoreSize =
+          effect.weapon === "torpedo"
+            ? 14
+            : effect.weapon === "missile"
+              ? 13
+              : effect.weapon === "rocket"
+                ? 11
+                : effect.weapon === "burst"
+                  ? 10
+                  : 8;
+        const coreSize = effect.outcome === "miss" ? style.pointSize : normalCoreSize;
         const glowColor = color.map((channel) => channel * 0.28) as Color3;
         lines.push(...this.interleavedVertex(tail, color), ...this.interleavedVertex(head, color));
-        if (strategicProjectile) {
+        if (strategicProjectile && effect.outcome !== "miss") {
           points.push(...this.interleavedVertex(head, glowColor, coreSize * 2.35));
         }
         points.push(...this.interleavedVertex(head, color, coreSize));
       } else {
-        const explosive = ["missile", "torpedo", "rocket", "burst"].includes(effect.weapon);
-        const radius = Math.sin(progress * Math.PI)
-          * (effect.outcome === "hit" ? explosive ? 38 : 24 : 14);
+        if (effect.outcome === "miss") {
+          const blip = endpoint.map(
+            (value, index) => value + shotDirection[index] * style.impactRadius * progress,
+          ) as Vector3;
+          const blipSize = style.pointSize * Math.sin(progress * Math.PI);
+          points.push(...this.interleavedVertex(blip, color, blipSize));
+          continue;
+        }
+        const radius = Math.sin(progress * Math.PI) * style.impactRadius;
         const segments = 16;
         for (let index = 0; index < segments; index += 1) {
-          const a = index / segments * Math.PI * 2;
-          const b = (index + 1) / segments * Math.PI * 2;
-          const start: Vector3 = [endpoint[0] + Math.cos(a) * radius, endpoint[1] + Math.sin(a) * radius, endpoint[2]];
-          const end: Vector3 = [endpoint[0] + Math.cos(b) * radius, endpoint[1] + Math.sin(b) * radius, endpoint[2]];
-          lines.push(...this.interleavedVertex(start, color), ...this.interleavedVertex(end, color));
+          const a = (index / segments) * Math.PI * 2;
+          const b = ((index + 1) / segments) * Math.PI * 2;
+          const start: Vector3 = [
+            endpoint[0] + Math.cos(a) * radius,
+            endpoint[1] + Math.sin(a) * radius,
+            endpoint[2],
+          ];
+          const end: Vector3 = [
+            endpoint[0] + Math.cos(b) * radius,
+            endpoint[1] + Math.sin(b) * radius,
+            endpoint[2],
+          ];
+          lines.push(
+            ...this.interleavedVertex(start, color),
+            ...this.interleavedVertex(end, color),
+          );
         }
-        points.push(...this.interleavedVertex(endpoint, color,
-          effect.outcome === "hit" ? explosive ? 26 : 18 : 8));
+        points.push(...this.interleavedVertex(endpoint, color, style.pointSize));
       }
     }
     this.jumpEffects = this.jumpEffects.filter((effect) => now - effect.start < effect.duration);
@@ -1239,37 +1455,46 @@ export class TacticalEngine {
       const progress = Math.max(0, Math.min(1, (now - effect.start) / effect.duration));
       const eased = 1 - (1 - progress) ** 3;
       const length = 35 + eased * 220;
-      const tail = effect.origin.map((value, axis) =>
-        value + effect.direction[axis] * length * Math.max(0, progress - 0.3)) as Vector3;
-      const head = effect.origin.map((value, axis) =>
-        value + effect.direction[axis] * length) as Vector3;
+      const tail = effect.origin.map(
+        (value, axis) => value + effect.direction[axis] * length * Math.max(0, progress - 0.3),
+      ) as Vector3;
+      const head = effect.origin.map(
+        (value, axis) => value + effect.direction[axis] * length,
+      ) as Vector3;
       const color: Color3 = [0.54, 0.76, 1];
       for (let ray = -3; ray <= 3; ray += 1) {
         const spread = Math.sin(progress * Math.PI) * ray * 1.8;
         const rayHead: Vector3 = [head[0] + spread, head[1] + Math.abs(ray) * 0.45, head[2]];
-        lines.push(...this.interleavedVertex(tail, color), ...this.interleavedVertex(rayHead, color));
+        lines.push(
+          ...this.interleavedVertex(tail, color),
+          ...this.interleavedVertex(rayHead, color),
+        );
       }
       const glow: Color3 = [0.18, 0.3, 0.48];
       points.push(...this.interleavedVertex(head, glow, 42 * (1 - progress * 0.55)));
       points.push(...this.interleavedVertex(head, color, 16 * (1 - progress * 0.45)));
     }
+    this.appendDestructionEffects(now, lines, points);
     for (const point of this.scene.points) {
       if (point.kind !== "projectile") continue;
       const weapon = this.projectileWeapon(point);
       const color = this.weaponColor(weapon);
       const distance = Math.hypot(...point.position3d);
       const trailLength = Math.max(5, Math.min(55, distance * 0.045));
-      const direction: Vector3 = distance > 0.0001
-        ? point.position3d.map((value) => value / distance) as Vector3
-        : [0, 0, 1];
+      const direction: Vector3 =
+        distance > 0.0001
+          ? (point.position3d.map((value) => value / distance) as Vector3)
+          : [0, 0, 1];
       const tail: Vector3 = [
         point.position3d[0] - direction[0] * trailLength,
         point.position3d[1] - direction[1] * trailLength,
         point.position3d[2] - direction[2] * trailLength,
       ];
       const glow = color.map((channel) => channel * 0.28) as Color3;
-      lines.push(...this.interleavedVertex(tail, color),
-        ...this.interleavedVertex(point.position3d, color));
+      lines.push(
+        ...this.interleavedVertex(tail, color),
+        ...this.interleavedVertex(point.position3d, color),
+      );
       points.push(...this.interleavedVertex(point.position3d, glow, 30));
       points.push(...this.interleavedVertex(point.position3d, color, 13));
     }
@@ -1291,11 +1516,13 @@ export class TacticalEngine {
   private fitRadius(): number {
     const [offsetX, offsetY, offsetZ] = this.originOffset.map(Math.abs);
     const extent = this.originGridExtent;
-    const originGridRadius = this.originGridEnabled ? Math.max(
-      Math.hypot(offsetX + extent, offsetY + extent, offsetZ),
-      Math.hypot(offsetX + extent, offsetY, offsetZ + extent),
-      Math.hypot(offsetX, offsetY + extent, offsetZ + extent),
-    ) : 0;
+    const originGridRadius = this.originGridEnabled
+      ? Math.max(
+          Math.hypot(offsetX + extent, offsetY + extent, offsetZ),
+          Math.hypot(offsetX + extent, offsetY, offsetZ + extent),
+          Math.hypot(offsetX, offsetY + extent, offsetZ + extent),
+        )
+      : 0;
     const contentRadius = Math.max(
       this.interpolator.target.radius,
       this.radarBubbleEnabled ? this.radarRange : 0,
@@ -1305,7 +1532,8 @@ export class TacticalEngine {
   }
 
   private updateMarkerReference(): void {
-    const fitPixelsPerUnit = Math.max(1, this.canvas.clientHeight) / (2 * this.camera.targetDistance);
+    const fitPixelsPerUnit =
+      Math.max(1, this.canvas.clientHeight) / (2 * this.camera.targetDistance);
     this.markerReferencePixelsPerUnit = Math.max(
       0.01,
       Math.min(DEFAULT_PIXELS_PER_DISTANCE_UNIT, fitPixelsPerUnit),
@@ -1339,7 +1567,13 @@ export class TacticalEngine {
     return ratio;
   }
 
-  private drawBuffer(buffer: WebGLBuffer, count: number, mode: number, points: boolean, alpha: number): void {
+  private drawBuffer(
+    buffer: WebGLBuffer,
+    count: number,
+    mode: number,
+    points: boolean,
+    alpha: number,
+  ): void {
     this.bindAttributes(buffer);
     this.gl.uniform1i(this.locations.points, points ? 1 : 0);
     this.gl.uniform1f(this.locations.alpha, alpha);
@@ -1356,7 +1590,13 @@ export class TacticalEngine {
   };
 
   private scheduleActiveFrame(): void {
-    if (this.disposed || document.hidden || this.frameTimer !== null || this.animationFrame !== null) return;
+    if (
+      this.disposed ||
+      document.hidden ||
+      this.frameTimer !== null ||
+      this.animationFrame !== null
+    )
+      return;
     this.frameTimer = setTimeout(() => {
       this.frameTimer = null;
       if (!this.disposed && !document.hidden) {
@@ -1384,9 +1624,10 @@ export class TacticalEngine {
     this.rebuildSelectionBuffer(now);
     let heightGuideAlpha = 0;
     if (this.heightGuideShown) {
-      const fadeProgress = this.heightGuideFadeStartedAt === null
-        ? 0
-        : Math.max(0, Math.min(1, (now - this.heightGuideFadeStartedAt) / HEIGHT_GUIDE_FADE_MS));
+      const fadeProgress =
+        this.heightGuideFadeStartedAt === null
+          ? 0
+          : Math.max(0, Math.min(1, (now - this.heightGuideFadeStartedAt) / HEIGHT_GUIDE_FADE_MS));
       if (fadeProgress >= 1) {
         this.hideHeightGuide();
       } else {
@@ -1404,9 +1645,9 @@ export class TacticalEngine {
     const aspect = this.canvas.width / this.canvas.height;
     const movementReach = this.movementActive
       ? Math.max(
-        ...this.movementOrigins.map((origin) => Math.hypot(...origin)),
-        Math.hypot(...formationDestination(this.movementOrigins, this.movementVector)),
-      )
+          ...this.movementOrigins.map((origin) => Math.hypot(...origin)),
+          Math.hypot(...formationDestination(this.movementOrigins, this.movementVector)),
+        )
       : 0;
     const contentRadius = Math.max(
       this.scene.radius + Math.hypot(...this.cameraFocus),
@@ -1421,12 +1662,12 @@ export class TacticalEngine {
     const halfHeight = this.camera.distance;
     const halfWidth = halfHeight * aspect;
     const pixelsPerUnit = Math.max(1, this.canvas.clientHeight) / (2 * halfHeight);
-    const modelBlend = Math.max(0, Math.min(1,
-      (pixelsPerUnit - STRATEGIC_DOT_PPU) / (MODEL_DETAIL_PPU - STRATEGIC_DOT_PPU),
-    ));
-    const nextFidelity: TacticalFidelity = modelBlend <= 0.05
-      ? "strategic"
-      : modelBlend >= 0.95 ? "model" : "transition";
+    const modelBlend = Math.max(
+      0,
+      Math.min(1, (pixelsPerUnit - STRATEGIC_DOT_PPU) / (MODEL_DETAIL_PPU - STRATEGIC_DOT_PPU)),
+    );
+    const nextFidelity: TacticalFidelity =
+      modelBlend <= 0.05 ? "strategic" : modelBlend >= 0.95 ? "model" : "transition";
     if (nextFidelity !== this.fidelity) {
       this.fidelity = nextFidelity;
       this.callbacks.onFidelityChange(nextFidelity);
@@ -1458,7 +1699,13 @@ export class TacticalEngine {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.uniform1f(this.locations.markerScale, 1);
     if (modelBlend < 1) {
-      this.drawBuffer(this.pointBuffer, this.pointCount, gl.POINTS, true, Math.max(0.12, 1 - modelBlend));
+      this.drawBuffer(
+        this.pointBuffer,
+        this.pointCount,
+        gl.POINTS,
+        true,
+        Math.max(0.12, 1 - modelBlend),
+      );
     }
     if (modelBlend > 0) {
       gl.uniform1f(this.locations.markerScale, this.markerScale);
@@ -1469,7 +1716,13 @@ export class TacticalEngine {
       gl.depthMask(false);
       this.drawBuffer(this.courseBuffer, this.courseCount, gl.LINES, false, 0.95);
       if (heightGuideAlpha > 0) {
-        this.drawBuffer(this.heightGuideBuffer, this.heightGuideCount, gl.LINES, false, heightGuideAlpha);
+        this.drawBuffer(
+          this.heightGuideBuffer,
+          this.heightGuideCount,
+          gl.LINES,
+          false,
+          heightGuideAlpha,
+        );
       }
       gl.depthMask(true);
       gl.enable(gl.DEPTH_TEST);
@@ -1494,12 +1747,20 @@ export class TacticalEngine {
     this.publishClusterLabels();
     this.publishCourseLabel();
     this.publishPlayerShipLabel();
-    const focusMoving = this.cameraFocus.some((value, index) => Math.abs(cameraTarget[index] - value) > 0.05);
-    if (this.interpolator.isAnimating(now) || this.camera.isMoving() || focusMoving
-        || this.combatEffects.length > 0 || this.jumpEffects.length > 0
-        || this.disabledEffectsActive
-        || this.selectionCount > 0
-        || this.heightGuideFadeStartedAt !== null) {
+    const focusMoving = this.cameraFocus.some(
+      (value, index) => Math.abs(cameraTarget[index] - value) > 0.05,
+    );
+    if (
+      this.interpolator.isAnimating(now) ||
+      this.camera.isMoving() ||
+      focusMoving ||
+      this.combatEffects.length > 0 ||
+      this.jumpEffects.length > 0 ||
+      this.destructionEffects.length > 0 ||
+      this.disabledEffectsActive ||
+      this.selectionCount > 0 ||
+      this.heightGuideFadeStartedAt !== null
+    ) {
       this.scheduleActiveFrame();
     }
   };
@@ -1521,10 +1782,19 @@ export class TacticalEngine {
         y: screen.y,
       });
     }
-    const signature = labels.map((label) => [
-      label.id, label.x.toFixed(1), label.y.toFixed(1), label.count, label.summary,
-      label.distance.toFixed(1), ...label.worldPosition,
-    ].join(":" )).join("|");
+    const signature = labels
+      .map((label) =>
+        [
+          label.id,
+          label.x.toFixed(1),
+          label.y.toFixed(1),
+          label.count,
+          label.summary,
+          label.distance.toFixed(1),
+          ...label.worldPosition,
+        ].join(":"),
+      )
+      .join("|");
     if (signature === this.clusterLabelSignature) return;
     this.clusterLabelSignature = signature;
     this.callbacks.onClusterLabels(labels);
@@ -1538,11 +1808,15 @@ export class TacticalEngine {
     const screen = this.movementActive
       ? project(endpoint, this.viewProjection, rect.width, rect.height)
       : null;
-    const label: CourseLabel | null = screen ? {
-      worldPosition: endpoint.map((value, index) => value - this.originOffset[index]) as Vector3,
-      x: screen.x,
-      y: screen.y,
-    } : null;
+    const label: CourseLabel | null = screen
+      ? {
+          worldPosition: endpoint.map(
+            (value, index) => value - this.originOffset[index],
+          ) as Vector3,
+          x: screen.x,
+          y: screen.y,
+        }
+      : null;
     const signature = label
       ? `${label.x.toFixed(1)}:${label.y.toFixed(1)}:${label.worldPosition.join(":")}`
       : "hidden";
@@ -1568,11 +1842,17 @@ export class TacticalEngine {
     for (const point of this.scene.points) {
       const screen = project(point.position3d, this.viewProjection, rect.width, rect.height);
       if (!screen) continue;
-      const distance = Math.hypot(screen.x - (clientX - rect.left), screen.y - (clientY - rect.top));
-      const markerRadius = point.pointSize * this.markerScale / 2 + 5;
+      const distance = Math.hypot(
+        screen.x - (clientX - rect.left),
+        screen.y - (clientY - rect.top),
+      );
+      const markerRadius = (point.pointSize * this.markerScale) / 2 + 5;
       const inside = distance < Math.max(threshold, markerRadius);
-      const winsTie = closest && Math.abs(distance - closestDistance) < 0.5
-        && point.kind === "cluster" && closest.kind !== "cluster";
+      const winsTie =
+        closest &&
+        Math.abs(distance - closestDistance) < 0.5 &&
+        point.kind === "cluster" &&
+        closest.kind !== "cluster";
       if (inside && (distance < closestDistance || winsTie)) {
         closest = point;
         closestDistance = distance;
@@ -1642,7 +1922,7 @@ export class TacticalEngine {
     }
     if (this.movementInteractive) {
       const rect = this.canvas.getBoundingClientRect();
-      const unitsPerPixel = this.camera.distance * 2 / Math.max(1, rect.height);
+      const unitsPerPixel = (this.camera.distance * 2) / Math.max(1, rect.height);
       const deltaX = event.clientX - (rect.left + rect.width / 2);
       const deltaY = event.clientY - (rect.top + rect.height / 2);
       const origin = this.movementCenter();
@@ -1651,14 +1931,21 @@ export class TacticalEngine {
         const anchor = this.elevationDrag;
         if (anchor) {
           const elevation = elevationFromPointer(
-            anchor.elevation, anchor.pointerY, event.clientY, unitsPerPixel,
+            anchor.elevation,
+            anchor.pointerY,
+            event.clientY,
+            unitsPerPixel,
           );
           this.movementVector = [this.movementVector[0], elevation, this.movementVector[2]];
         }
       } else {
         this.endElevationAdjustment();
         const planarVector = pointerToXZVector(
-          deltaX, deltaY, unitsPerPixel, this.camera.yaw, this.camera.pitch,
+          deltaX,
+          deltaY,
+          unitsPerPixel,
+          this.camera.yaw,
+          this.camera.pitch,
         );
         const targetX = this.cameraFocus[0] + planarVector[0];
         const targetZ = this.cameraFocus[2] + planarVector[2];
@@ -1668,18 +1955,22 @@ export class TacticalEngine {
       return;
     }
     const point = this.pointAt(event.clientX, event.clientY, 18);
-    this.callbacks.onTooltip(point ? {
-      name: point.name,
-      shipCategory: point.shipCategory,
-      distance: Math.hypot(...point.position3d),
-      memberCount: point.memberCount,
-      groupSummary: point.memberSummary,
-      worldPosition: point.worldPosition,
-      hull: point.hull as TacticalTooltip["hull"],
-      shields: point.shields as TacticalTooltip["shields"],
-      x: Math.min(event.clientX + 14, window.innerWidth - 210),
-      y: Math.min(event.clientY + 14, window.innerHeight - 150),
-    } : null);
+    this.callbacks.onTooltip(
+      point
+        ? {
+            name: point.name,
+            shipCategory: point.shipCategory,
+            distance: Math.hypot(...point.position3d),
+            memberCount: point.memberCount,
+            groupSummary: point.memberSummary,
+            worldPosition: point.worldPosition,
+            hull: point.hull as TacticalTooltip["hull"],
+            shields: point.shields as TacticalTooltip["shields"],
+            x: Math.min(event.clientX + 14, window.innerWidth - 210),
+            y: Math.min(event.clientY + 14, window.innerHeight - 150),
+          }
+        : null,
+    );
   };
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -1687,7 +1978,8 @@ export class TacticalEngine {
       const { moved, button } = this.drag;
       this.drag = null;
       delete this.canvas.dataset.dragging;
-      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+      if (this.canvas.hasPointerCapture(event.pointerId))
+        this.canvas.releasePointerCapture(event.pointerId);
       if (!this.movementInteractive && button === 0 && !moved) {
         this.callbacks.onSelect(this.pointAt(event.clientX, event.clientY, 14)?.id ?? null);
       }
@@ -1708,7 +2000,7 @@ export class TacticalEngine {
     event.preventDefault();
     if (this.movementInteractive && event.shiftKey) {
       const rect = this.canvas.getBoundingClientRect();
-      const unitsPerPixel = this.camera.distance * 2 / Math.max(1, rect.height);
+      const unitsPerPixel = (this.camera.distance * 2) / Math.max(1, rect.height);
       this.beginElevationAdjustment();
       const elevation = elevationFromWheel(this.movementVector[1], event.deltaY, unitsPerPixel);
       this.movementVector = [this.movementVector[0], elevation, this.movementVector[2]];
@@ -1729,8 +2021,12 @@ export class TacticalEngine {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
-        || event.target instanceof HTMLSelectElement) return;
+    if (
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLTextAreaElement ||
+      event.target instanceof HTMLSelectElement
+    )
+      return;
     const key = event.key.toLowerCase();
     if (key === "shift" && this.movementInteractive) {
       this.beginElevationAdjustment();
@@ -1747,11 +2043,13 @@ export class TacticalEngine {
         const pointer = pointerToXZVector(
           key === "a" ? -1 : key === "d" ? 1 : 0,
           key === "w" ? -1 : key === "s" ? 1 : 0,
-          1, this.camera.yaw, this.camera.pitch,
+          1,
+          this.camera.yaw,
+          this.camera.pitch,
         );
         const length = Math.max(0.0001, Math.hypot(pointer[0], pointer[2]));
-        this.freeFocusWorld[0] += pointer[0] / length * step;
-        this.freeFocusWorld[2] += pointer[2] / length * step;
+        this.freeFocusWorld[0] += (pointer[0] / length) * step;
+        this.freeFocusWorld[2] += (pointer[2] / length) * step;
       }
       event.preventDefault();
     } else {

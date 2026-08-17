@@ -1,8 +1,7 @@
 # Development setup
 
 Holocron3D supports development on Windows x64 and macOS Intel/Apple Silicon.
-The clean-build baseline is Node.js 24.19.0, pnpm 11.19.0, Go 1.25.3, and JDK
-17. A second successful setup used JDK 21. The minimum versions imposed by the
+The clean-build baseline is Node.js 24.19.0, pnpm 11.19.0, Go 1.25.3, and JDK 17. A second successful setup used JDK 21. The minimum versions imposed by the
 project are Node.js 22.12, Go 1.22, and Java 17.
 
 ## 1. Install the prerequisites
@@ -92,6 +91,28 @@ pnpm test
 pnpm relay:test
 pnpm mudlet:package
 ```
+
+## Formatting
+
+The repository uses Prettier for TypeScript, TSX, JavaScript, CSS, JSON, YAML,
+Markdown, and HTML; StyLua for Lua 5.1; and `gofmt` for Go. The formatter
+packages are installed by `pnpm install`, while `gofmt` comes with the required
+Go toolchain.
+
+Format the entire repository before committing:
+
+```powershell
+pnpm format
+```
+
+To check formatting without changing files, run:
+
+```powershell
+pnpm format:check
+```
+
+`pnpm check` includes the non-mutating formatting check. The recommended VS
+Code extensions and format-on-save settings are committed under `.vscode`.
 
 ## 4. Run the development application
 

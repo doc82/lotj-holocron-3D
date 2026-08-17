@@ -19,8 +19,13 @@ export function ensureRelayToken(tokenPath) {
 }
 
 export function validateRelayAuth(message, expectedToken) {
-  if (!message || message.v !== 1 || message.type !== "relay_auth"
-      || typeof message.token !== "string") return false;
+  if (
+    !message ||
+    message.v !== 1 ||
+    message.type !== "relay_auth" ||
+    typeof message.token !== "string"
+  )
+    return false;
   const actual = Buffer.from(message.token, "utf8");
   const expected = Buffer.from(expectedToken, "utf8");
   return actual.length === expected.length && timingSafeEqual(actual, expected);

@@ -12,14 +12,19 @@ const siblingMuddler = path.resolve(root, "..", "AutoPilot", "muddler");
 if (!muddlerHome && fs.existsSync(siblingMuddler)) muddlerHome = siblingMuddler;
 if (!muddlerHome) throw new Error("Set MUDDLER_HOME to a Muddler distribution directory.");
 
-const candidates = process.platform === "win32"
-  ? [path.join(muddlerHome, "bin", "muddle.bat")]
-  : [path.join(muddlerHome, "bin", "muddle"), path.join(muddlerHome, "bin", "muddle.sh")];
+const candidates =
+  process.platform === "win32"
+    ? [path.join(muddlerHome, "bin", "muddle.bat")]
+    : [path.join(muddlerHome, "bin", "muddle"), path.join(muddlerHome, "bin", "muddle.sh")];
 const launcher = candidates.find(fs.existsSync);
 if (!launcher) throw new Error(`Muddler launcher was not found beneath ${muddlerHome}`);
 
 fs.mkdirSync(resources, { recursive: true });
-for (const name of ["lotj_holocron_parsers.lua", "lotj_holocron_proxy.lua", "lotj_holocron_scraper.lua"]) {
+for (const name of [
+  "lotj_holocron_parsers.lua",
+  "lotj_holocron_proxy.lua",
+  "lotj_holocron_scraper.lua",
+]) {
   fs.copyFileSync(path.join(root, "mudlet", name), path.join(resources, name));
 }
 const result = spawnSync(launcher, [], {

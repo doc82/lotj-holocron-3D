@@ -1,0 +1,7 @@
+out/
+node_modules/
+renderer/dist/
+mudlet-package/build/
+mudlet-package/.output/
+mudlet-package/src/resources/
+.pnpm-store/

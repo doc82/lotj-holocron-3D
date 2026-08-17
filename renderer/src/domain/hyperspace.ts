@@ -36,8 +36,11 @@ export function hyperspaceClearance(
   const oz = Number(observer?.z);
   const sources = snapshot?.metadata?.sources as Record<string, unknown> | undefined;
   const spatialObservedAt = Math.max(Number(sources?.radar) || 0, Number(sources?.fleetradar) || 0);
-  if (![ox, oy, oz].every(Number.isFinite) || spatialObservedAt <= 0
-      || nowSeconds - spatialObservedAt > HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS) {
+  if (
+    ![ox, oy, oz].every(Number.isFinite) ||
+    spatialObservedAt <= 0 ||
+    nowSeconds - spatialObservedAt > HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS
+  ) {
     return { known: false, allowed: false, reason: "Fresh radar clearance is required" };
   }
 
@@ -96,14 +99,26 @@ export function escapeDestinationInRange(
     return { allowed: false, distance, reason: `${knownSystemName} is out of range` };
   }
   if (requireAuthoritativeListing && !knownReading) {
-    return { allowed: false, distance, reason: "Reachability has not been confirmed by the nav computer" };
+    return {
+      allowed: false,
+      distance,
+      reason: "Reachability has not been confirmed by the nav computer",
+    };
   }
   const safeRange = conservativeJumpRange(destinations);
   if (safeRange === null) {
-    return { allowed: false, distance, reason: "Run CALC to establish the ship's hyperspace range" };
+    return {
+      allowed: false,
+      distance,
+      reason: "Run CALC to establish the ship's hyperspace range",
+    };
   }
   if (distance > safeRange + 0.05) {
-    return { allowed: false, distance, reason: `Escape destination is ${distance.toFixed(1)} pc away; confirmed range is ${safeRange.toFixed(1)} pc` };
+    return {
+      allowed: false,
+      distance,
+      reason: `Escape destination is ${distance.toFixed(1)} pc away; confirmed range is ${safeRange.toFixed(1)} pc`,
+    };
   }
   return { allowed: true, distance };
 }

@@ -31,7 +31,10 @@ let mudletSocket = null;
 
 function debug(message) {
   try {
-    fs.appendFileSync(paths.log, `${JSON.stringify({ at: new Date().toISOString(), level: "debug", message })}\n`);
+    fs.appendFileSync(
+      paths.log,
+      `${JSON.stringify({ at: new Date().toISOString(), level: "debug", message })}\n`,
+    );
   } catch {
     // A logging failure must never prevent the renderer from starting.
   }
@@ -112,7 +115,12 @@ const relayServer = net.createServer((socket) => {
       buffer = buffer.slice(newline + 1);
       if (!line.trim()) continue;
       if (Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES) {
-        reply({ v: PROTOCOL_VERSION, type: "bridge_diagnostic", level: "error", message: "oversized Mudlet message discarded" });
+        reply({
+          v: PROTOCOL_VERSION,
+          type: "bridge_diagnostic",
+          level: "error",
+          message: "oversized Mudlet message discarded",
+        });
         continue;
       }
       try {
@@ -132,7 +140,12 @@ const relayServer = net.createServer((socket) => {
         }
         host.handleMudletMessage(message);
       } catch (error) {
-        reply({ v: PROTOCOL_VERSION, type: "bridge_diagnostic", level: "error", message: `invalid JSON from Mudlet: ${error.message}` });
+        reply({
+          v: PROTOCOL_VERSION,
+          type: "bridge_diagnostic",
+          level: "error",
+          message: `invalid JSON from Mudlet: ${error.message}`,
+        });
       }
     }
   });
@@ -156,11 +169,13 @@ websocketServer.on("listening", () => {
 });
 
 websocketServer.on("connection", (client) => {
-  client.send(JSON.stringify({
-    v: PROTOCOL_VERSION,
-    type: "bridge_ready",
-    bridge: "electron-host",
-  }));
+  client.send(
+    JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: "bridge_ready",
+      bridge: "electron-host",
+    }),
+  );
   const initial = host.initialState();
   if (initial.spaceState) client.send(JSON.stringify(initial.spaceState));
   if (initial.snapshot) client.send(JSON.stringify(initial.snapshot));
@@ -174,17 +189,21 @@ websocketServer.on("connection", (client) => {
     try {
       message = JSON.parse(raw.toString());
     } catch {
-      client.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "client_error", reason: "invalid JSON" }));
+      client.send(
+        JSON.stringify({ v: PROTOCOL_VERSION, type: "client_error", reason: "invalid JSON" }),
+      );
       return;
     }
     const result = host.handleIntent(message);
     if (!result.accepted) {
-      client.send(JSON.stringify({
-        v: PROTOCOL_VERSION,
-        type: "client_error",
-        id: typeof message?.id === "string" ? message.id : undefined,
-        reason: result.reason,
-      }));
+      client.send(
+        JSON.stringify({
+          v: PROTOCOL_VERSION,
+          type: "client_error",
+          id: typeof message?.id === "string" ? message.id : undefined,
+          reason: result.reason,
+        }),
+      );
     }
   });
 });
@@ -231,12 +250,16 @@ ipcMain.handle("holocron:send-intent", (event, request) => {
     payload: request?.payload,
   };
   const error = validateIntent(message);
-  return error ? { accepted: false, reason: error } : { ...host.handleIntent(message), id: message.id };
+  return error
+    ? { accepted: false, reason: error }
+    : { ...host.handleIntent(message), id: message.id };
 });
 
 function createWindow() {
   const rendererUrl = rendererDevUrl || pathToFileURL(rendererEntry).href;
-  debug(`creating renderer window from ${rendererUrl} (production entry exists=${fs.existsSync(rendererEntry)})`);
+  debug(
+    `creating renderer window from ${rendererUrl} (production entry exists=${fs.existsSync(rendererEntry)})`,
+  );
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -295,4 +318,6 @@ if (!gotLock) {
   });
 }
 
-app.on("before-quit", () => { closing = true; });
+app.on("before-quit", () => {
+  closing = true;
+});

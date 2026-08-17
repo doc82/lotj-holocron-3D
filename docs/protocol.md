@@ -17,7 +17,7 @@ plaintext diagnostics on stderr would corrupt the stream. Use
 Every message has these fields:
 
 ```json
-{"v":1,"type":"hello"}
+{ "v": 1, "type": "hello" }
 ```
 
 - `v`: protocol version.
@@ -49,11 +49,18 @@ remain in game/world units; projection belongs to the renderer.
   "type": "system_snapshot",
   "sequence": 12,
   "observedAt": 1786359123,
-  "observer": {"id":"player-ship","x":1250,"y":-400,"z":80,"sensorArray":7,"radarRange":570},
+  "observer": {
+    "id": "player-ship",
+    "x": 1250,
+    "y": -400,
+    "z": 80,
+    "sensorArray": 7,
+    "radarRange": 570
+  },
   "entities": [
-    {"id":"ship-123","kind":"ship","name":"YT-1300","x":1500,"y":-250,"z":110}
+    { "id": "ship-123", "kind": "ship", "name": "YT-1300", "x": 1500, "y": -250, "z": 110 }
   ],
-  "metadata": {"system":"Prototype"}
+  "metadata": { "system": "Prototype" }
 }
 ```
 
@@ -73,6 +80,13 @@ fields obtained from targeted status scans such as `hull`, `shields`, `speed`,
 `target`, `lifeformScan`, `statusCard`, and `infoCard`. A lifeform scan that lacks sufficient sensors is
 represented as unavailable with its required sensor count rather than as an
 empty ship.
+
+When LotJ reports that a named ship `explodes in a blinding flash of light`,
+Mudlet removes that contact and publishes a bounded
+`metadata.shipDestructionEvents` list. Each event contains an ID, the quoted
+`shipName`, `phase: "destroyed"`, and the contact's last known world `x`, `y`,
+and `z` coordinates. Carrying the last position lets the renderer finish the
+destruction animation after the authoritative entity has left the map.
 
 ### `intent_ack`
 
@@ -101,7 +115,17 @@ Mudlet UI's personal registry. `shipSystem` is the current GMCP galactic
 location. Clients must treat all three collections as dynamic.
 
 ```json
-{"v":1,"type":"galaxy_catalog","systems":{"Esstran Sector":{"x":92,"y":12,"Dromund Kaas":{"x":0,"y":0,"z":0,"government":"Red"}}}}
+{
+  "v": 1,
+  "type": "galaxy_catalog",
+  "systems": {
+    "Esstran Sector": {
+      "x": 92,
+      "y": 12,
+      "Dromund Kaas": { "x": 0, "y": 0, "z": 0, "government": "Red" }
+    }
+  }
+}
 ```
 
 ### `shutdown`
@@ -114,7 +138,13 @@ Notifies the bridge immediately when the observer launches or lands. A landed
 notification tells clients to stop presenting the previous space scene.
 
 ```json
-{"v":1,"type":"space_state","observedAt":1786359123,"inSpace":false,"reason":"landing sequence complete"}
+{
+  "v": 1,
+  "type": "space_state",
+  "observedAt": 1786359123,
+  "inSpace": false,
+  "reason": "landing sequence complete"
+}
 ```
 
 ## Bridge to Mudlet
@@ -124,7 +154,13 @@ notification tells clients to stop presenting the previous space scene.
 Confirms that the child initialized and states its protocol version.
 
 ```json
-{"v":1,"type":"ready","bridge":"electron-host","websocketUrl":"ws://127.0.0.1:8787","renderer":"electron"}
+{
+  "v": 1,
+  "type": "ready",
+  "bridge": "electron-host",
+  "websocketUrl": "ws://127.0.0.1:8787",
+  "renderer": "electron"
+}
 ```
 
 `websocketUrl` is optional. The Electron/Mudlet pipe becomes ready immediately
@@ -137,7 +173,7 @@ Carries child-process logging without placing non-JSON text on the merged proces
 stream.
 
 ```json
-{"v":1,"type":"bridge_diagnostic","level":"info","message":"bridge started"}
+{ "v": 1, "type": "bridge_diagnostic", "level": "info", "message": "bridge started" }
 ```
 
 ### `space_state_received`
@@ -145,7 +181,7 @@ stream.
 Acknowledges receipt of `space_state` in bridges that support acknowledgements.
 
 ```json
-{"v":1,"type":"space_state_received","inSpace":false}
+{ "v": 1, "type": "space_state_received", "inSpace": false }
 ```
 
 ### `intent`
@@ -158,7 +194,7 @@ Requests a named operation. The bridge cannot provide a literal game command.
   "type": "intent",
   "id": "cmd-204",
   "action": "navigate_ship",
-  "payload": {"mode":"relative","vector":{"x":500,"y":-120,"z":900}}
+  "payload": { "mode": "relative", "vector": { "x": 500, "y": -120, "z": 900 } }
 }
 ```
 
@@ -171,6 +207,13 @@ hidden `radar` command. A valid radar response establishes the in-space state
 and starts the normal polling queue; an invalid or landed response disables ship
 scraping and clears stale contacts. The renderer retries once after each bridge
 reconnection.
+
+`set_polling_paused` accepts a boolean `paused`. Pausing preserves the bridge and
+current snapshot while cancelling scheduled polling, projectile reconciliation,
+and automatic shield command timers. The next snapshot reports
+`metadata.polling.paused`, `pausedAt`, and `pauseReason`; `active` remains false
+until an explicit resume. Manual Mudlet commands continue to be captured and
+merged while polling is paused.
 
 `navigate_ship` accepts one of three typed payloads: a non-zero `relative`
 vector, a current snapshot `targetId`, or an `away` order with a current snapshot
@@ -199,21 +242,54 @@ resumes. A stale position that LotJ rejects as too distant produces a later
 
 `target_ship` accepts only a current ship `targetId`. Mudlet resolves the ship
 name locally, interrupts only a hidden background capture, and issues LotJ's
-`target <ship name>` command. An accepted target order marks the contact as an
-enemy in both the authoritative snapshot and the renderer's persistent local
-disposition store. Supplying a literal command or arbitrary target name is not
-supported.
+`target <ship name>` command. Command acceptance is not target confirmation:
+the contact is published as the active target and marked hostile only after
+LotJ prints `Target Locked.`. Known rejection lines release the pending state
+immediately. If no terminal response arrives within twenty seconds, Mudlet
+requests `status` and completes the target intent only when the reported target
+matches; `none`, a different target, or an unusable status response rejects the
+intent. Supplying a literal command or arbitrary target name is not supported.
 
 `scan_ship` info responses are identity-checked against the requested ship.
+LotJ may expand a typed ship-name prefix in either manual `status` or `info`
+output; a canonical response name is accepted only when it begins with that
+case-insensitive prefix, while unrelated response headers are rejected.
 Only canonical overview, weapons, access-code, and systems fields with valid
 value shapes are published. Unknown labels and Mudlet prompt fields are
 discarded, and wrapped descriptive prose is normalized into one paragraph.
 
+`request_tactical_view` accepts the stable ID and current roster name of one
+non-flagship battlegroup member. Mudlet resolves that member from the active
+formation and issues `battlegroup nav <member> radar`; it never accepts a raw
+command or arbitrary ship name. The `Sending command to ...` response must name
+the requested member. Parsed radar is stored under
+`system_snapshot.metadata.tacticalViews[memberId]` with its own observer,
+system, contacts, and observation time, leaving the flagship's top-level
+observer and entities unchanged. Contact-targeted `fleet_order` payloads may
+include `viewpointMemberId`, allowing Mudlet to resolve the target only from
+that validated remote view.
+
+For battlegroup scope `selected`, `fleet_order` and hyperspace route payloads
+may include `memberIds`, an array of stable roster IDs. Mudlet resolves every ID
+against the current authoritative formation, rejects a missing or invalid member,
+deduplicates the set, and emits one native command per resolved craft. The legacy
+single-member `memberId` and `memberName` fields remain supported. A speed response
+of `You're already traveling that speed.` is terminal success and clears the
+member's awaiting order state.
+
 Target ownership is published in `system_snapshot.metadata.combatTargets`.
 Entries are keyed by command scope (`local`, `fleet`, `wings`, `squadron`, or
-`selected:<member id>`) and include the target name plus an owner label. The
+`selected:<member id>[,<member id>...]`) and include the target name plus an owner label. The
 legacy `metadata.combatTarget` remains the local cockpit's weapon target, so a
 battlegroup target order cannot overwrite the player ship's independent lock.
+
+`clear_combat_target` accepts one or more active target keys from that
+authoritative map. Mudlet resolves their current ownership rather than accepting
+a command string: local and squadron ownership sends `target none`, whole-fleet
+ownership sends `bg target all none`, and selected battlegroup ownership resolves
+each current roster member before sending `bg target <member name> none`. A
+shortcut shared by multiple owners clears each represented scope, and telemetry
+is removed only after every native clear command is accepted for dispatch.
 
 `set_autotrack` accepts a boolean `enabled`. Because LotJ's `autotrack` command
 is itself a toggle, Mudlet does not infer success from dispatch. It captures the

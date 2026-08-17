@@ -37,9 +37,8 @@ export function HyperspaceField({ engaged, className }: Props) {
     let animationFrame = 0;
     let previous = performance.now();
 
-    const clamp = (value: number, minimum: number, maximum: number) => (
-      Math.min(maximum, Math.max(minimum, value))
-    );
+    const clamp = (value: number, minimum: number, maximum: number) =>
+      Math.min(maximum, Math.max(minimum, value));
 
     const resetStar = (star: Partial<Star>, initial = false): Star => {
       const spread = Math.max(width, height);
@@ -60,9 +59,8 @@ export function HyperspaceField({ engaged, className }: Props) {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      stars = Array.from(
-        { length: Math.min(320, Math.floor((width * height) / 4200)) },
-        () => resetStar({}, true),
+      stars = Array.from({ length: Math.min(320, Math.floor((width * height) / 4200)) }, () =>
+        resetStar({}, true),
       );
     };
 
@@ -72,9 +70,7 @@ export function HyperspaceField({ engaged, className }: Props) {
       previous = now;
       const focal = Math.min(width, height) * 0.82;
       const jumpStartedAt = jumpStartedAtRef.current;
-      const jumpProgress = jumpStartedAt === null
-        ? 0
-        : clamp((now - jumpStartedAt) / 950, 0, 1);
+      const jumpProgress = jumpStartedAt === null ? 0 : clamp((now - jumpStartedAt) / 950, 0, 1);
       context.fillStyle = jumpProgress > 0 ? "rgba(1, 3, 10, 0.24)" : "rgba(1, 3, 10, 0.58)";
       context.fillRect(0, 0, width, height);
       context.lineCap = "round";

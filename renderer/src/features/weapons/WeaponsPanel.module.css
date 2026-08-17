@@ -20,7 +20,11 @@
 }
 
 .panel strong,
-.panel header span { display: block; margin: 0; font-family: ui-monospace, "Cascadia Mono", monospace; }
+.panel header span {
+  display: block;
+  margin: 0;
+  font-family: ui-monospace, "Cascadia Mono", monospace;
+}
 .panel strong {
   overflow: hidden;
   max-width: 145px;
@@ -40,8 +44,14 @@
   white-space: nowrap;
 }
 
-.weaponGrid { display: grid; gap: 6px; }
-.weaponGrid { grid-template-columns: repeat(auto-fit, minmax(21px, 1fr)); gap: 3px; }
+.weaponGrid {
+  display: grid;
+  gap: 6px;
+}
+.weaponGrid {
+  grid-template-columns: repeat(auto-fit, minmax(21px, 1fr));
+  gap: 3px;
+}
 
 .panel button {
   position: relative;
@@ -63,12 +73,31 @@
   outline: none;
   color: #fff;
   background: rgba(132, 28, 43, 0.7);
-  box-shadow: inset 0 0 14px rgba(255, 73, 94, 0.18), 0 0 10px rgba(255, 54, 76, 0.16);
+  box-shadow:
+    inset 0 0 14px rgba(255, 73, 94, 0.18),
+    0 0 10px rgba(255, 54, 76, 0.16);
 }
 
-.panel button:disabled { opacity: 0.3; cursor: not-allowed; }
-.panel button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.panel button span { position: absolute; right: 4px; bottom: 3px; color: #ff8d99; font: 700 7px ui-monospace, monospace; }
+.panel button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.panel button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.panel button span {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  color: #ff8d99;
+  font:
+    700 7px ui-monospace,
+    monospace;
+}
 
 .panel button::after {
   position: absolute;
@@ -86,35 +115,90 @@
   background: rgba(27, 5, 11, 0.98);
   transform: translateY(3px);
   transition: 100ms ease;
-  font: 700 9px/1.35 ui-monospace, monospace;
+  font:
+    700 9px/1.35 ui-monospace,
+    monospace;
   white-space: nowrap;
 }
 .panel button:hover::after,
-.panel button:focus-visible::after { opacity: 1; transform: translateY(0); }
-.panel .charging { color: #6e8990; animation: weapon-charge 900ms ease-in-out infinite alternate; }
-.panel.rumbleOdd { animation: weapons-rumble-odd 420ms ease-out; }
-.panel.rumbleEven { animation: weapons-rumble-even 420ms ease-out; }
+.panel button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+.panel .charging {
+  color: #6e8990;
+  animation: weapon-charge 900ms ease-in-out infinite alternate;
+}
+.panel.rumbleOdd {
+  animation: weapons-rumble-odd 420ms ease-out;
+}
+.panel.rumbleEven {
+  animation: weapons-rumble-even 420ms ease-out;
+}
 
-@keyframes weapons-enter { from { opacity: 0; transform: translateY(8px); } }
-@keyframes weapon-charge { to { border-color: rgba(93, 217, 255, 0.64); box-shadow: inset 0 0 13px rgba(63, 192, 231, 0.17); } }
+@keyframes weapons-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes weapon-charge {
+  to {
+    border-color: rgba(93, 217, 255, 0.64);
+    box-shadow: inset 0 0 13px rgba(63, 192, 231, 0.17);
+  }
+}
 @keyframes weapons-rumble-odd {
-  0%, 100% { transform: translateX(0); }
-  12% { transform: translateX(-8px); border-color: #ff4054; }
-  28% { transform: translateX(7px); }
-  44% { transform: translateX(-5px); }
-  60% { transform: translateX(4px); box-shadow: 0 0 34px rgba(255, 44, 72, 0.42); }
-  78% { transform: translateX(-2px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  12% {
+    transform: translateX(-8px);
+    border-color: #ff4054;
+  }
+  28% {
+    transform: translateX(7px);
+  }
+  44% {
+    transform: translateX(-5px);
+  }
+  60% {
+    transform: translateX(4px);
+    box-shadow: 0 0 34px rgba(255, 44, 72, 0.42);
+  }
+  78% {
+    transform: translateX(-2px);
+  }
 }
 @keyframes weapons-rumble-even {
-  0%, 100% { transform: translateX(0); }
-  12% { transform: translateX(8px); border-color: #ff4054; }
-  28% { transform: translateX(-7px); }
-  44% { transform: translateX(5px); }
-  60% { transform: translateX(-4px); box-shadow: 0 0 34px rgba(255, 44, 72, 0.42); }
-  78% { transform: translateX(2px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  12% {
+    transform: translateX(8px);
+    border-color: #ff4054;
+  }
+  28% {
+    transform: translateX(-7px);
+  }
+  44% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-4px);
+    box-shadow: 0 0 34px rgba(255, 44, 72, 0.42);
+  }
+  78% {
+    transform: translateX(2px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .panel.rumbleOdd,
-  .panel.rumbleEven { animation: none; border-color: #ff4054; }
+  .panel.rumbleEven {
+    animation: none;
+    border-color: #ff4054;
+  }
 }

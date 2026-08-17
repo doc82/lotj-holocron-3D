@@ -13,9 +13,10 @@ export function validateIntent(message) {
   if (typeof message.action !== "string" || !message.action) {
     return "intent action must be a non-empty string";
   }
-  if (message.payload !== undefined
-      && (!message.payload || typeof message.payload !== "object"
-        || Array.isArray(message.payload))) {
+  if (
+    message.payload !== undefined &&
+    (!message.payload || typeof message.payload !== "object" || Array.isArray(message.payload))
+  ) {
     return "intent payload must be an object";
   }
   return null;

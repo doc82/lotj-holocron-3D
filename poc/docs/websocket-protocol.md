@@ -37,7 +37,7 @@ Clients may send only a typed `intent`:
   "type": "intent",
   "id": "renderer-204",
   "action": "prototype_ping",
-  "payload": {"message":"hello from a client"}
+  "payload": { "message": "hello from a client" }
 }
 ```
 

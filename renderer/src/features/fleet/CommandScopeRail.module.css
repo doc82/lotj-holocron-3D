@@ -4,10 +4,10 @@
   bottom: 296px;
   left: 22px;
   z-index: 18;
-  width: 78px;
+  width: 39px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   pointer-events: auto;
 }
 
@@ -15,23 +15,59 @@
   margin: 0 0 2px;
   color: #5d8993;
   text-align: center;
-  font: 700 8px/1 ui-monospace, "Cascadia Mono", monospace;
+  font:
+    700 6px/1 ui-monospace,
+    "Cascadia Mono",
+    monospace;
   letter-spacing: 0.12em;
 }
 
 .rail button {
   position: relative;
-  min-height: 72px;
+  width: 39px;
+  min-height: 36px;
   display: grid;
   place-items: center;
-  gap: 3px;
+  gap: 0;
   border: 1px solid rgba(82, 220, 244, 0.28);
-  padding: 8px 4px 6px;
+  padding: 4px 2px;
   color: #709aa4;
   background: linear-gradient(145deg, rgba(8, 29, 40, 0.94), rgba(3, 15, 24, 0.9));
-  box-shadow: inset 0 0 16px rgba(42, 164, 195, 0.05), 0 5px 18px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    inset 0 0 16px rgba(42, 164, 195, 0.05),
+    0 5px 18px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   clip-path: polygon(0 7px, 7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+}
+
+.rail button::before {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 7px);
+  z-index: 30;
+  width: max-content;
+  padding: 4px 6px;
+  border: 1px solid rgba(117, 232, 255, 0.42);
+  color: #e0fbff;
+  content: attr(data-tooltip);
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(2, 13, 22, 0.96);
+  transform: translate(-3px, -50%);
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+  font:
+    700 8px/1 ui-monospace,
+    monospace;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.rail button:hover::before,
+.rail button:focus-visible::before {
+  opacity: 1;
+  transform: translate(0, -50%);
 }
 
 .rail button::after {
@@ -56,8 +92,14 @@
 .rail button[aria-pressed="true"] {
   border-color: #75e8ff;
   color: #e0fbff;
-  background: radial-gradient(circle at 50% 38%, rgba(43, 177, 220, 0.32), rgba(10, 46, 61, 0.94) 72%);
-  box-shadow: inset 0 0 22px rgba(82, 220, 244, 0.2), 0 0 18px rgba(58, 203, 244, 0.24);
+  background: radial-gradient(
+    circle at 50% 38%,
+    rgba(43, 177, 220, 0.32),
+    rgba(10, 46, 61, 0.94) 72%
+  );
+  box-shadow:
+    inset 0 0 22px rgba(82, 220, 244, 0.2),
+    0 0 18px rgba(58, 203, 244, 0.24);
 }
 
 .rail button[aria-pressed="true"]::after {
@@ -66,13 +108,49 @@
   box-shadow: 0 0 10px currentColor;
 }
 
-.rail button:disabled { opacity: 0.3; cursor: not-allowed; }
-.rail svg { width: 27px; height: 27px; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.rail strong { font: 800 8px/1.2 ui-monospace, monospace; letter-spacing: 0.07em; }
-.rail small { position: absolute; top: 4px; right: 5px; color: #5b8994; font: 700 7px ui-monospace, monospace; }
+.rail button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.rail svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.rail strong {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.rail small {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  color: #5b8994;
+  font:
+    700 6px ui-monospace,
+    monospace;
+}
 
 @media (max-width: 760px) {
-  .rail { top: 148px; bottom: 302px; left: 12px; width: 61px; gap: 5px; }
-  .rail button { min-height: 58px; }
-  .rail svg { width: 22px; height: 22px; }
+  .rail {
+    top: 148px;
+    bottom: 302px;
+    left: 12px;
+    width: 34px;
+    gap: 4px;
+  }
+  .rail button {
+    width: 34px;
+    min-height: 32px;
+  }
+  .rail svg {
+    width: 13px;
+    height: 13px;
+  }
 }

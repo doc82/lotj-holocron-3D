@@ -1,8 +1,10 @@
-local Harness = {tests = {}, suite = {}, beforeEach = nil, afterEach = nil}
+local Harness = { tests = {}, suite = {}, beforeEach = nil, afterEach = nil }
 
 local function fullName(name)
   local parts = {}
-  for _, value in ipairs(Harness.suite) do table.insert(parts, value) end
+  for _, value in ipairs(Harness.suite) do
+    table.insert(parts, value)
+  end
   table.insert(parts, name)
   return table.concat(parts, " / ")
 end
@@ -15,22 +17,37 @@ end
 
 function Harness.it(name, callback)
   table.insert(Harness.tests, {
-    name = fullName(name), callback = callback,
-    beforeEach = Harness.beforeEach, afterEach = Harness.afterEach,
+    name = fullName(name),
+    callback = callback,
+    beforeEach = Harness.beforeEach,
+    afterEach = Harness.afterEach,
   })
 end
 
-function Harness.before_each(callback) Harness.beforeEach = callback end
-function Harness.after_each(callback) Harness.afterEach = callback end
+function Harness.before_each(callback)
+  Harness.beforeEach = callback
+end
+function Harness.after_each(callback)
+  Harness.afterEach = callback
+end
 
 function Harness.equal(actual, expected, message)
-  assert(actual == expected, string.format("%s: expected %s, got %s",
-    message or "values differ", tostring(expected), tostring(actual)))
+  assert(
+    actual == expected,
+    string.format(
+      "%s: expected %s, got %s",
+      message or "values differ",
+      tostring(expected),
+      tostring(actual)
+    )
+  )
 end
 
 function Harness.matches(value, pattern, message)
-  assert(tostring(value):match(pattern), message or
-    string.format("expected %s to match %s", tostring(value), tostring(pattern)))
+  assert(
+    tostring(value):match(pattern),
+    message or string.format("expected %s to match %s", tostring(value), tostring(pattern))
+  )
 end
 
 function Harness.run(filter)
@@ -40,11 +57,17 @@ function Harness.run(filter)
     if not filter or test.name:lower():find(filter, 1, true) then
       selected = selected + 1
       local setupOk, setupFailure = true, nil
-      if test.beforeEach then setupOk, setupFailure = xpcall(test.beforeEach, debug.traceback) end
+      if test.beforeEach then
+        setupOk, setupFailure = xpcall(test.beforeEach, debug.traceback)
+      end
       local testOk, testFailure = false, setupFailure
-      if setupOk then testOk, testFailure = xpcall(test.callback, debug.traceback) end
+      if setupOk then
+        testOk, testFailure = xpcall(test.callback, debug.traceback)
+      end
       local teardownOk, teardownFailure = true, nil
-      if test.afterEach then teardownOk, teardownFailure = xpcall(test.afterEach, debug.traceback) end
+      if test.afterEach then
+        teardownOk, teardownFailure = xpcall(test.afterEach, debug.traceback)
+      end
       local ok = setupOk and testOk and teardownOk
       local failure = setupFailure or testFailure or teardownFailure
       if ok then

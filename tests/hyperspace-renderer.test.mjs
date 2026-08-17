@@ -5,7 +5,10 @@ import test from "node:test";
 test("hyperspace planners expose local, galactic, fuel-safety, and escape flows", async () => {
   const app = await readFile("renderer/src/app/App.tsx", "utf8");
   const planner = await readFile("renderer/src/features/hyperspace/HyperspacePlanner.tsx", "utf8");
-  const computer = await readFile("renderer/src/features/hyperspace/NavigationComputer.tsx", "utf8");
+  const computer = await readFile(
+    "renderer/src/features/hyperspace/NavigationComputer.tsx",
+    "utf8",
+  );
   const transit = await readFile("renderer/src/features/hyperspace/HyperspaceTransit.tsx", "utf8");
   const field = await readFile("renderer/src/features/hyperspace/HyperspaceField.tsx", "utf8");
   const scraper = await readFile("mudlet/lotj_holocron_scraper.lua", "utf8");
@@ -17,7 +20,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(app, /ROUTE APPLIES TO/);
   assert.match(app, /activeRoute as unknown as Record<string, unknown>/);
   assert.match(app, /recipientLabel=\{hyperspacePlanner\.routeScope\.recipientLabel/);
-  assert.match(planner, /FOR \{recipientLabel\.toUpperCase\(\)\}/);
+  assert.match(planner, /FOR\{" "\}\s*\{recipientLabel\.toUpperCase\(\)\}/);
   assert.match(app, /escape_hyperspace/);
   assert.match(app, /HyperspaceTransit/);
   assert.match(app, /escapePlan\.triggerGalaxy/);
