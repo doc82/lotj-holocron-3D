@@ -13,7 +13,6 @@ import {
   fleetMembersForScope,
   isDisabledShip,
   pointsIncludingClusters,
-  resolveDossierShip,
   speedLabel,
 } from "../domain/tacticalWorkspace";
 import {
@@ -28,6 +27,7 @@ import { FleetRoster } from "../features/fleet/FleetRoster";
 import type { FleetScope } from "../features/fleet/FleetRoster";
 import { CommandScopeRail } from "../features/fleet/CommandScopeRail";
 import { SquadronCommandPanel } from "../features/fleet/SquadronCommandPanel";
+import { useFleetSelection } from "../features/fleet/useFleetSelection";
 import { useCommandFeedback } from "../features/feedback/useCommandFeedback";
 import { HyperspacePlanner, type EscapePlanDraft } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
@@ -38,8 +38,10 @@ import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/
 import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
 import { TargetShortcutRail } from "../features/tactical/TargetShortcutRail";
 import { RangeMeter, type RangeReading } from "../features/telemetry/RangeMeter";
-import { ShipDossierPanel, type ShipDossierMode } from "../features/telemetry/ShipDossierPanel";
+import { ShipDossierPanel } from "../features/telemetry/ShipDossierPanel";
 import { useTelemetry } from "../features/telemetry/useTelemetry";
+import { useShipDispositions } from "../features/telemetry/useShipDispositions";
+import { useShipDossierController } from "../features/telemetry/useShipDossierController";
 import { WeaponsPanel } from "../features/weapons/WeaponsPanel";
 import styles from "./App.module.css";
 import type {
@@ -52,8 +54,6 @@ import type {
   Vector3,
   WeaponType,
 } from "../types/telemetry";
-
-const DISPOSITION_STORAGE_KEY = "holocron3d.ship-dispositions.v1";
 
 interface HyperspacePlannerRequest {
   mode: "local" | "galactic";
@@ -70,21 +70,6 @@ interface HyperspacePlannerRequest {
     | "memberSlots"
     | "recipientLabel"
   >;
-}
-
-interface ShipDossierRequest {
-  id: string;
-  name: string;
-  mode: ShipDossierMode;
-  seed: TelemetryEntity;
-}
-
-function loadDispositions(): Record<string, ShipDisposition> {
-  try {
-    return JSON.parse(localStorage.getItem(DISPOSITION_STORAGE_KEY) || "{}");
-  } catch {
-    return {};
-  }
 }
 
 function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
@@ -278,12 +263,6 @@ export function App() {
   const pollingPaused = telemetry.snapshot?.metadata?.polling?.paused === true;
   const [starting, setStarting] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedFleetMemberIds, setSelectedFleetMemberIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [viewpointMemberId, setViewpointMemberId] = useState<string | null>(null);
-  const [fleetScope, setFleetScope] = useState<FleetScope>("local");
-  const [scopeDrawerOpen, setScopeDrawerOpen] = useState(false);
   const [targetDrawerOpen, setTargetDrawerOpen] = useState(false);
   const [dismissedTargetNames, setDismissedTargetNames] = useState<Set<string>>(() => new Set());
   const [navigationFleetScope, setNavigationFleetScope] = useState<FleetScope | null>(null);
@@ -302,20 +281,13 @@ export function App() {
   const [knownMaximumSpeed, setKnownMaximumSpeed] = useState(0);
   const [navigationStatus, setNavigationStatus] = useState("");
   const [commandLocked, setCommandLocked] = useState(false);
-  const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
-  const [manualScanStatus, setManualScanStatus] = useState("");
-  const [shipDossier, setShipDossier] = useState<ShipDossierRequest | null>(null);
   const [hyperspacePlanner, setHyperspacePlanner] = useState<HyperspacePlannerRequest | null>(null);
   const [navigationRefreshBlocked, setNavigationRefreshBlocked] = useState(false);
   const [activeRoute, setActiveRoute] = useState<HyperspaceRoutePayload | null>(null);
   const [escapePlan, setEscapePlan] = useState<EscapePlanDraft | undefined>();
   const [hyperspaceEscapePending, setHyperspaceEscapePending] = useState(false);
-  const [dispositions, setDispositions] =
-    useState<Record<string, ShipDisposition>>(loadDispositions);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
-  const syncedDispositionsRef = useRef(new Map<string, ShipDisposition>());
   const pendingIntentIdsRef = useRef(new Set<string>());
-  const manualScanIntentIdsRef = useRef(new Set<string>());
   const autotrackIntentIdsRef = useRef(new Set<string>());
   const hyperspaceEscapeIntentIdsRef = useRef(new Set<string>());
   const navigationRefreshIntentIdsRef = useRef(new Set<string>());
@@ -323,9 +295,6 @@ export function App() {
   const lastObservedSpeedRef = useRef<number | null>(null);
   const lastMaximumSpeedRef = useRef<number | null>(null);
   const lastSpeedIntentRef = useRef<number | null>(null);
-  const manualScanStartSequenceRef = useRef(0);
-  const manualScanRequestTokenRef = useRef(0);
-  const manualScanTargetIdRef = useRef<string | null>(null);
   const navigationLockTokenRef = useRef(0);
   const targetLockTokenRef = useRef(0);
   const escapeTriggeredRef = useRef(false);
@@ -336,6 +305,23 @@ export function App() {
     toasts: commandToasts,
     setAlert: setCommandAlert,
   } = useCommandFeedback(fleetOrder);
+  const {
+    dispositions,
+    setDisposition: setShipDisposition,
+    markEnemy: markShipEnemy,
+  } = useShipDispositions(telemetry.connected, telemetry.snapshot);
+  const fleet = telemetry.snapshot?.metadata?.fleet;
+  const fleetSelection = useFleetSelection(fleet);
+  const {
+    scope: fleetScope,
+    drawerOpen: scopeDrawerOpen,
+    selectedMemberIds: selectedFleetMemberIds,
+    selectedMembers: selectedFleetMembers,
+    selectedMember: selectedFleetMember,
+    allMembersSelected: allFleetMembersSelected,
+    selectedScopeEmpty: selectedFleetScopeEmpty,
+    viewpointMemberId,
+  } = fleetSelection;
   const { pausePending: pollingPausePending, changePause: changePollingPause } =
     usePollingController({
       connected: telemetry.connected,
@@ -343,7 +329,6 @@ export function App() {
       starting,
       setAlert: setCommandAlert,
     });
-  const fleet = telemetry.snapshot?.metadata?.fleet;
   const viewpointMember = fleet?.members.find((member) => member.id === viewpointMemberId);
   const activeTacticalView = viewpointMemberId
     ? telemetry.snapshot?.metadata?.tacticalViews?.[viewpointMemberId]
@@ -384,13 +369,6 @@ export function App() {
   const localName = String(localObserver?.name || observer.name);
   const expandedCluster = findScenePoint(scene, expandedClusterId);
   const selected = findScenePoint(scene, hoveredMemberId) ?? findScenePoint(scene, selectedId);
-  const selectedFleetMembers =
-    fleet?.members.filter((member) => selectedFleetMemberIds.has(member.id)) ?? [];
-  const selectedFleetMember = selectedFleetMembers[0];
-  const allFleetMembersSelected = Boolean(
-    fleet?.members.length && fleet.members.every((member) => selectedFleetMemberIds.has(member.id)),
-  );
-  const selectedFleetScopeEmpty = fleetScope === "selected" && selectedFleetMembers.length === 0;
   const flattenedScenePoints = useMemo(() => pointsIncludingClusters(scene.points), [scene.points]);
   const reportedTargetShortcuts = useMemo<TacticalTargetShortcut[]>(
     () =>
@@ -438,25 +416,6 @@ export function App() {
   const fleetCommandMode = fleet?.active === true && fleetScope !== "local";
   const formationCommandsEnabled = fleet ? canCommandFormation(fleet, localName) : false;
   useEffect(() => {
-    if (fleet?.active === true) return;
-    setFleetScope("local");
-    setSelectedFleetMemberIds(new Set());
-    setViewpointMemberId(null);
-  }, [fleet?.active]);
-  useEffect(() => {
-    if (!fleet?.active) return;
-    const available = new Set(fleet.members.map((member) => member.id));
-    setSelectedFleetMemberIds((current) => {
-      const next = new Set([...current].filter((id) => available.has(id)));
-      return next.size === current.size ? current : next;
-    });
-  }, [fleet?.active, fleet?.members]);
-  useEffect(() => {
-    if (!viewpointMemberId) return;
-    if (fleet?.members.some((member) => member.id === viewpointMemberId)) return;
-    setViewpointMemberId(null);
-  }, [fleet?.members, viewpointMemberId]);
-  useEffect(() => {
     if (!activeTacticalView?.observedAt) return;
     tacticalRef.current?.setCameraMode("player");
     tacticalRef.current?.fitSystem();
@@ -488,17 +447,23 @@ export function App() {
     selected && ["ship", "planet", "celestial", "star"].includes(selected.kind) ? selected : null;
   const navigationTarget = findScenePoint(scene, navigationTargetId);
   const selectedShip = selected?.kind === "ship" ? selected : null;
-  const dossierShip = useMemo(
-    () =>
-      resolveDossierShip({
-        request: shipDossier,
-        localName,
-        localObserver,
-        fleetMembers: fleet?.members,
-        scenePoints: flattenedScenePoints,
-      }),
-    [fleet?.members, flattenedScenePoints, localName, localObserver, shipDossier],
-  );
+  const closeTargetDrawerForDossier = useCallback(() => setTargetDrawerOpen(false), []);
+  const dossier = useShipDossierController({
+    connected: telemetry.connected,
+    landed,
+    commandLocked,
+    snapshot: telemetry.snapshot,
+    localName,
+    localObserver,
+    fleetMembers: fleet?.members,
+    scenePoints: flattenedScenePoints,
+    setAlert: setCommandAlert,
+    onOpen: closeTargetDrawerForDossier,
+  });
+  const shipDossier = dossier.request;
+  const dossierShip = dossier.ship;
+  const manualScanSource = dossier.scanSource;
+  const manualScanStatus = dossier.scanStatus;
 
   const issuerMembers = fleetMembersForScope(fleet, fleetScope, selectedFleetMembers);
   const commandIssuerLabel =
@@ -624,54 +589,23 @@ export function App() {
 
   const selectCommandScope = useCallback(
     (scope: FleetScope) => {
-      const sameScope = fleetScope === scope;
-      setFleetScope(scope);
-      if (scope === "local") {
-        setSelectedFleetMemberIds(new Set());
-        setViewpointMemberId(null);
-      } else if (fleet) {
-        const members =
-          scope === "wings" ? fleet.members.filter((member) => !member.leader) : fleet.members;
-        setSelectedFleetMemberIds(new Set(members.map((member) => member.id)));
-      }
+      fleetSelection.selectScope(scope);
       setTargetDrawerOpen(false);
-      setScopeDrawerOpen((open) => (sameScope ? !open : true));
     },
-    [fleet, fleetScope],
+    [fleetSelection],
   );
-
-  const toggleFleetMember = useCallback(
-    (member: FleetMember) => {
-      const next = new Set(selectedFleetMemberIds);
-      if (next.has(member.id)) next.delete(member.id);
-      else next.add(member.id);
-      setSelectedFleetMemberIds(next);
-      setFleetScope(
-        fleet &&
-          fleet.members.length > 0 &&
-          fleet.members.every((candidate) => next.has(candidate.id))
-          ? "all"
-          : "selected",
-      );
-    },
-    [fleet, selectedFleetMemberIds],
-  );
-
-  const selectAllFleetMembers = useCallback(() => {
-    if (!fleet) return;
-    setSelectedFleetMemberIds(new Set(fleet.members.map((member) => member.id)));
-    setFleetScope("all");
-  }, [fleet]);
+  const toggleFleetMember = fleetSelection.toggleMember;
+  const selectAllFleetMembers = fleetSelection.selectAll;
 
   const viewFleetMember = useCallback(
     async (member: FleetMember) => {
       if (member.name.trim().toLowerCase() === localName.trim().toLowerCase()) {
-        setViewpointMemberId(null);
+        fleetSelection.selectViewpoint(null);
         setSelectedId(null);
         tacticalRef.current?.setCameraMode("player");
         return;
       }
-      setViewpointMemberId(member.id);
+      fleetSelection.selectViewpoint(member.id);
       setSelectedId(null);
       setExpandedClusterId(null);
       setHoveredMemberId(null);
@@ -682,7 +616,7 @@ export function App() {
         memberName: member.name,
       });
       if (result?.accepted === false) {
-        setViewpointMemberId(null);
+        fleetSelection.selectViewpoint(null);
         setCommandAlert(
           `TACTICAL VIEW REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`,
         );
@@ -690,7 +624,7 @@ export function App() {
       }
       setCommandAlert(`TACTICAL VIEW REQUESTED // ${member.name.toUpperCase()}`);
     },
-    [localName, setCommandAlert],
+    [fleetSelection, localName, setCommandAlert],
   );
 
   const focusTargetShortcut = useCallback((target: TacticalTargetShortcut) => {
@@ -698,9 +632,9 @@ export function App() {
     setExpandedClusterId(null);
     setHoveredMemberId(null);
     setSelectedId(target.ship.id);
-    setScopeDrawerOpen(false);
+    fleetSelection.closeDrawer();
     setTargetDrawerOpen(false);
-  }, []);
+  }, [fleetSelection]);
 
   const clearTargetShortcut = useCallback(
     async (target: TacticalTargetShortcut) => {
@@ -726,10 +660,10 @@ export function App() {
   );
 
   const toggleTargetDrawer = useCallback(() => {
-    setScopeDrawerOpen(false);
-    setShipDossier(null);
+    fleetSelection.closeDrawer();
+    dossier.close();
     setTargetDrawerOpen((open) => !open);
-  }, []);
+  }, [dossier, fleetSelection]);
 
   const openHyperspacePlanner = useCallback(
     (mode: "local" | "galactic") => {
@@ -1169,69 +1103,8 @@ export function App() {
     [commitSpeed],
   );
 
-  const requestShipScan = useCallback(
-    async (ship: TelemetryEntity, source: ShipDossierMode) => {
-      const shipName = String(ship.name || "").trim();
-      if (!shipName || !telemetry.connected || landed || commandLocked || manualScanSource) return;
-      const token = manualScanRequestTokenRef.current + 1;
-      manualScanRequestTokenRef.current = token;
-      manualScanStartSequenceRef.current = telemetry.snapshot?.sequence ?? 0;
-      manualScanTargetIdRef.current = ship.id;
-      setManualScanSource(source);
-      setManualScanStatus(`${source.toUpperCase()} SCAN TRANSMITTING...`);
-      const result = await window.holocron?.sendIntent("scan_ship", {
-        targetId: ship.id,
-        targetName: shipName,
-        source,
-      });
-      if (result?.accepted === false) {
-        const message = `${source.toUpperCase()} SCAN REJECTED // ${result.reason || "UNKNOWN"}`;
-        setCommandAlert(message);
-        manualScanTargetIdRef.current = null;
-        setManualScanSource(null);
-        setManualScanStatus(message);
-        return;
-      }
-      if (result?.id) {
-        pendingIntentIdsRef.current.add(result.id);
-        manualScanIntentIdsRef.current.add(result.id);
-        setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 12_000);
-        setTimeout(() => manualScanIntentIdsRef.current.delete(result.id!), 12_000);
-      }
-      setManualScanStatus(`${source.toUpperCase()} SCAN REQUESTED // ${shipName.toUpperCase()}`);
-      setTimeout(() => {
-        if (manualScanRequestTokenRef.current !== token) return;
-        manualScanRequestTokenRef.current += 1;
-        manualScanTargetIdRef.current = null;
-        setManualScanSource(null);
-        setManualScanStatus(`${source.toUpperCase()} SCAN TIMED OUT`);
-      }, 10_000);
-    },
-    [commandLocked, landed, manualScanSource, telemetry.connected, telemetry.snapshot?.sequence],
-  );
-
-  const openShipDossier = useCallback(
-    (ship: TelemetryEntity | FleetMember, mode: ShipDossierMode) => {
-      const name = String(ship.name || "").trim();
-      if (!name) return;
-      const seed = { ...ship, kind: "ship" } as TelemetryEntity;
-      setTargetDrawerOpen(false);
-      setShipDossier({ id: ship.id, name, mode, seed });
-      setManualScanStatus("");
-      void requestShipScan(seed, mode);
-    },
-    [requestShipScan],
-  );
-
-  const changeDossierMode = useCallback(
-    (mode: ShipDossierMode) => {
-      if (!shipDossier || !dossierShip) return;
-      setShipDossier((current) => (current ? { ...current, mode } : current));
-      setManualScanStatus("");
-      void requestShipScan(dossierShip, mode);
-    },
-    [dossierShip, requestShipScan, shipDossier],
-  );
+  const openShipDossier = dossier.open;
+  const changeDossierMode = dossier.changeMode;
 
   const targetSelectedShip = useCallback(async () => {
     if (!selectedShip || !telemetry.connected || landed || commandLocked) return;
@@ -1432,19 +1305,14 @@ export function App() {
           targetIntentShipsRef.current.delete(ack.id);
           if (completedTarget) {
             targetLockTokenRef.current += 1;
-            const key = dispositionKey(completedTarget.name);
             setDismissedTargetNames((current) => {
+              const key = dispositionKey(completedTarget.name);
               if (!current.has(key)) return current;
               const next = new Set(current);
               next.delete(key);
               return next;
             });
-            setDispositions((current) => {
-              const next = { ...current, [key]: "enemy" as ShipDisposition };
-              localStorage.setItem(DISPOSITION_STORAGE_KEY, JSON.stringify(next));
-              return next;
-            });
-            syncedDispositionsRef.current.set(key, "enemy");
+            markShipEnemy(completedTarget.name);
           }
           navigationLockTokenRef.current += 1;
           setCommandLocked(false);
@@ -1460,13 +1328,6 @@ export function App() {
         targetIntentShipsRef.current.delete(ack.id);
         if (rejectedTarget) targetLockTokenRef.current += 1;
         navigationLockTokenRef.current += 1;
-        const rejectedManualScan = manualScanIntentIdsRef.current.delete(ack.id);
-        if (rejectedManualScan) {
-          manualScanRequestTokenRef.current += 1;
-          manualScanTargetIdRef.current = null;
-          setManualScanSource(null);
-          setManualScanStatus(String(ack.reason || "SHIP SCAN REJECTED").toUpperCase());
-        }
         const message = String(ack.reason || "COMMAND REJECTED").toUpperCase();
         lastSpeedIntentRef.current = null;
         setRequestedSpeed(
@@ -1480,28 +1341,8 @@ export function App() {
         setCommandLocked(false);
         setTimeout(() => setCommandAlert(""), 5_000);
       }),
-    [],
+    [markShipEnemy],
   );
-
-  useEffect(() => {
-    if (!manualScanSource || !telemetry.snapshot) return;
-    if (
-      (telemetry.snapshot.sequence ?? 0) <= manualScanStartSequenceRef.current ||
-      telemetry.snapshot.metadata?.lastSource !== manualScanSource
-    )
-      return;
-    manualScanRequestTokenRef.current += 1;
-    manualScanTargetIdRef.current = null;
-    setManualScanSource(null);
-    setManualScanStatus(`${manualScanSource.toUpperCase()} TELEMETRY UPDATED`);
-  }, [manualScanSource, telemetry.snapshot]);
-
-
-  useEffect(() => {
-    if (!manualScanStatus || manualScanSource) return;
-    const timer = setTimeout(() => setManualScanStatus(""), 5_000);
-    return () => clearTimeout(timer);
-  }, [manualScanSource, manualScanStatus]);
 
   useEffect(() => {
     if (landed || !telemetry.connected) {
@@ -1530,56 +1371,6 @@ export function App() {
     stageNavigation,
     submitNavigation,
   ]);
-  const setShipDisposition = useCallback((point: ScenePoint, disposition: ShipDisposition) => {
-    const name = point.name;
-    setDispositions((current) => {
-      const next = { ...current, [dispositionKey(name)]: disposition };
-      localStorage.setItem(DISPOSITION_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-    syncedDispositionsRef.current.set(dispositionKey(name), disposition);
-    void window.holocron?.sendIntent("set_ship_disposition", { name, disposition });
-  }, []);
-  useEffect(() => {
-    const hostileNames = (telemetry.snapshot?.entities ?? [])
-      .filter((entity) => entity.kind === "ship" && entity.disposition === "enemy")
-      .map((entity) => entity.name || entity.id);
-    if (hostileNames.length === 0) return;
-    setDispositions((current) => {
-      let changed = false;
-      const next = { ...current };
-      for (const name of hostileNames) {
-        const key = dispositionKey(name);
-        if (next[key] !== "enemy") changed = true;
-        next[key] = "enemy";
-        syncedDispositionsRef.current.set(key, "enemy");
-      }
-      if (!changed) return current;
-      localStorage.setItem(DISPOSITION_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, [telemetry.snapshot]);
-
-  useEffect(() => {
-    if (!telemetry.connected) {
-      syncedDispositionsRef.current.clear();
-      return;
-    }
-    for (const entity of telemetry.snapshot?.entities ?? []) {
-      if (entity.kind !== "ship") continue;
-      const name = entity.name || entity.id;
-      const key = dispositionKey(name);
-      if (entity.disposition === "enemy") {
-        syncedDispositionsRef.current.set(key, "enemy");
-        continue;
-      }
-      const disposition = dispositions[key];
-      if (!disposition || syncedDispositionsRef.current.get(key) === disposition) continue;
-      syncedDispositionsRef.current.set(key, disposition);
-      void window.holocron?.sendIntent("set_ship_disposition", { name, disposition });
-    }
-  }, [dispositions, telemetry.connected, telemetry.snapshot]);
-
   if (!spaceTelemetryActive)
     return (
       <>
@@ -1801,7 +1592,7 @@ export function App() {
                   type="button"
                   className={styles.closeScopeDrawer}
                   aria-label="Close command recipient roster"
-                  onClick={() => setScopeDrawerOpen(false)}
+                  onClick={fleetSelection.closeDrawer}
                 >
                   ×
                 </button>
@@ -1825,14 +1616,11 @@ export function App() {
           <ShipDossierPanel
             ship={dossierShip}
             mode={shipDossier.mode}
-            loading={
-              manualScanSource === shipDossier.mode &&
-              manualScanTargetIdRef.current === dossierShip.id
-            }
+            loading={dossier.loading}
             message={manualScanStatus}
             onModeChange={changeDossierMode}
-            onRefresh={() => void requestShipScan(dossierShip, shipDossier.mode)}
-            onClose={() => setShipDossier(null)}
+            onRefresh={dossier.refresh}
+            onClose={dossier.close}
           />
         )}
 
