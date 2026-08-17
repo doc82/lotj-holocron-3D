@@ -18,7 +18,9 @@ Jedi output. Its current capabilities include:
 - Merging ships, celestial bodies, fleet positions, distance, velocity, and
   system metadata into authoritative snapshots.
 - Detecting launch and landing state, pausing polling while landed, and clearing
-  stale space presentation.
+  stale space presentation. Automatic command output can also be explicitly
+  paused and resumed from Mudlet or the tactical UI without disconnecting the
+  bridge; the UI clearly marks the retained snapshot as potentially stale.
 - Rendering procedural low-poly 3D hulls with an observer-locked
   Homeworld-style orbit camera. Each LotJ ship class has a distinct generated
   model, and known heading vectors orient those models in three dimensions.

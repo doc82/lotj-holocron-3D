@@ -216,6 +216,21 @@ function MoveIcon() {
   );
 }
 
+function PollingControlIcon({ paused }: { paused: boolean }) {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      {paused ? (
+        <path d="M8 6v20l17-10Z" />
+      ) : (
+        <>
+          <path d="M10 7v18M22 7v18" />
+          <circle cx="16" cy="16" r="13" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 function HyperspaceIcon({ galactic = false }: { galactic?: boolean }) {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -334,6 +349,7 @@ type NavigationMode = "idle" | "vector" | "target" | "away" | "confirm";
 
 export function App() {
   const telemetry = useTelemetry();
+  const pollingPaused = telemetry.snapshot?.metadata?.polling?.paused === true;
   const [starting, setStarting] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedFleetMemberIds, setSelectedFleetMemberIds] = useState<Set<string>>(
@@ -362,6 +378,7 @@ export function App() {
   const [commandAlert, setCommandAlertValue] = useState("");
   const [commandToasts, setCommandToasts] = useState<CommandToast[]>([]);
   const [commandLocked, setCommandLocked] = useState(false);
+  const [pollingPausePending, setPollingPausePending] = useState(false);
   const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
   const [manualScanStatus, setManualScanStatus] = useState("");
   const [shipDossier, setShipDossier] = useState<ShipDossierRequest | null>(null);
@@ -411,6 +428,20 @@ export function App() {
       if (message) pushCommandToast(message);
     },
     [pushCommandToast],
+  );
+  const changePollingPause = useCallback(
+    async (paused: boolean) => {
+      if (!telemetry.connected || pollingPausePending) return;
+      setPollingPausePending(true);
+      const result = await window.holocron?.sendIntent("set_polling_paused", { paused });
+      setPollingPausePending(false);
+      if (result?.accepted === false) {
+        setCommandAlert(`POLLING CONTROL REJECTED // ${result.reason || "UNKNOWN"}`);
+        return;
+      }
+      setCommandAlert(paused ? "AUTOMATIC POLLING PAUSED" : "AUTOMATIC POLLING RESUMED");
+    },
+    [pollingPausePending, setCommandAlert, telemetry.connected],
   );
   const fleet = telemetry.snapshot?.metadata?.fleet;
   const viewpointMember = fleet?.members.find((member) => member.id === viewpointMemberId);
@@ -531,7 +562,7 @@ export function App() {
       spaceProbeRetryTimerRef.current = null;
       return;
     }
-    if (starting || spaceProbeSentRef.current) return;
+    if (starting || pollingPaused || spaceProbeSentRef.current) return;
 
     spaceProbeSentRef.current = true;
     void window.holocron?.sendIntent("probe_space").then((result) => {
@@ -544,7 +575,7 @@ export function App() {
         setTimeout(() => spaceProbeIntentIdsRef.current.delete(result.id!), 60_000);
       }
     });
-  }, [scheduleSpaceProbeRetry, spaceProbeAttempt, starting, telemetry.connected]);
+  }, [pollingPaused, scheduleSpaceProbeRetry, spaceProbeAttempt, starting, telemetry.connected]);
 
   const selectContact = useCallback((id: string | null) => {
     if (!id || id === "player-ship") {
@@ -1058,24 +1089,30 @@ export function App() {
   }, [activeRoute, escapePlan, plotHyperspace]);
 
   useEffect(() => {
-    if (hyperspaceState.phase !== "calculating") return;
+    if (pollingPaused || hyperspaceState.phase !== "calculating") return;
     const timer = setInterval(
       () => void window.holocron?.sendIntent("refresh_navigation", { command: "calc" }),
       5_000,
     );
     return () => clearInterval(timer);
-  }, [hyperspaceState.phase]);
+  }, [hyperspaceState.phase, pollingPaused]);
 
   useEffect(() => {
-    if (!activeRoute || hyperspaceState.phase !== "ready" || hyperdriveClearance.known) return;
+    if (
+      pollingPaused ||
+      !activeRoute ||
+      hyperspaceState.phase !== "ready" ||
+      hyperdriveClearance.known
+    )
+      return;
     const refreshClearance = () => void window.holocron?.sendIntent("probe_space");
     refreshClearance();
     const timer = setInterval(refreshClearance, 5_000);
     return () => clearInterval(timer);
-  }, [activeRoute, hyperdriveClearance.known, hyperspaceState.phase]);
+  }, [activeRoute, hyperdriveClearance.known, hyperspaceState.phase, pollingPaused]);
 
   useEffect(() => {
-    if (!hyperspacePlanner || navigationRefreshBlocked) return;
+    if (pollingPaused || !hyperspacePlanner || navigationRefreshBlocked) return;
     const needsRange = navigationDestinations.length === 0;
     const needsCatalog = hyperspacePlanner.mode === "galactic" && galaxyCatalogSize === 0;
     const needsPosition = !currentGalaxyPosition;
@@ -1099,6 +1136,7 @@ export function App() {
     hyperspacePlanner,
     navigationDestinations.length,
     navigationRefreshBlocked,
+    pollingPaused,
   ]);
 
   useEffect(() => {
@@ -1110,6 +1148,7 @@ export function App() {
       arrivalRefreshAtRef.current = null;
       return;
     }
+    if (pollingPaused) return;
 
     // A completed route is no longer actionable. Remove its computer panel as
     // soon as arrival is confirmed, even while destination telemetry refreshes.
@@ -1147,6 +1186,7 @@ export function App() {
     escapePlan,
     hyperspaceState.arrivedAt,
     hyperspaceState.phase,
+    pollingPaused,
     telemetry.snapshot?.metadata?.navigation?.arrivalRefreshedAt,
   ]);
 
@@ -1727,6 +1767,7 @@ export function App() {
 
   useEffect(() => {
     const handleNavigationKey = (event: KeyboardEvent) => {
+      if (pollingPaused) return;
       if (event.key.toLowerCase() === "m" && navigationMode === "idle") beginVectorCourse();
       else if (event.key === "Escape" && navigationMode !== "idle") cancelNavigation();
       else if (event.key === "Enter" && ["confirm", "target", "away"].includes(navigationMode))
@@ -1735,7 +1776,14 @@ export function App() {
     };
     window.addEventListener("keydown", handleNavigationKey);
     return () => window.removeEventListener("keydown", handleNavigationKey);
-  }, [beginVectorCourse, cancelNavigation, navigationMode, stageNavigation, submitNavigation]);
+  }, [
+    beginVectorCourse,
+    cancelNavigation,
+    navigationMode,
+    pollingPaused,
+    stageNavigation,
+    submitNavigation,
+  ]);
   const setShipDisposition = useCallback((point: ScenePoint, disposition: ShipDisposition) => {
     const name = point.name;
     setDispositions((current) => {
@@ -1829,6 +1877,27 @@ export function App() {
         />
         <div className={styles.scanlines} aria-hidden="true" />
 
+        {pollingPaused && (
+          <section className={styles.pollingPausedOverlay} role="status" aria-live="assertive">
+            <div className={styles.pollingPausedIndicator}>
+              <span className={styles.pauseGlyph} aria-hidden="true">
+                II
+              </span>
+              <p>AUTOMATIC COMMAND OUTPUT SUSPENDED</p>
+              <h2>POLLING PAUSED</h2>
+              <span>TACTICAL TELEMETRY MAY BE STALE // MUDLET COMMAND WINDOW IS CLEAR</span>
+              <button
+                type="button"
+                disabled={pollingPausePending}
+                onClick={() => void changePollingPause(false)}
+              >
+                <PollingControlIcon paused />
+                {pollingPausePending ? "RESUMING..." : "RESUME POLLING"}
+              </button>
+            </div>
+          </section>
+        )}
+
         <header className={`${styles.topbar} ${styles.panel}`}>
           <div className={styles.systemIdentity}>
             <p className={styles.eyebrow}>
@@ -1915,9 +1984,22 @@ export function App() {
               </nav>
             </div>
           )}
-          <div className={styles.connection}>
-            <span className={`${styles.light} ${telemetry.connected ? styles.live : ""}`} />
-            <span>{telemetry.connectionLabel}</span>
+          <div className={styles.connectionControls}>
+            <button
+              type="button"
+              className={`${styles.pollingControl} ${pollingPaused ? styles.pollingControlPaused : ""}`}
+              disabled={pollingPausePending}
+              aria-label={pollingPaused ? "Resume automatic polling" : "Pause automatic polling"}
+              aria-pressed={pollingPaused}
+              onClick={() => void changePollingPause(!pollingPaused)}
+            >
+              <PollingControlIcon paused={pollingPaused} />
+              <span>{pollingPaused ? "RESUME" : "PAUSE"}</span>
+            </button>
+            <div className={styles.connection}>
+              <span className={`${styles.light} ${telemetry.connected ? styles.live : ""}`} />
+              <span>{telemetry.connectionLabel}</span>
+            </div>
           </div>
         </header>
 

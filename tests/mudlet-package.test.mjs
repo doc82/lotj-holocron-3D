@@ -17,6 +17,8 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   assert.match(aliases[0].regex, /profile/);
   assert.match(aliases[0].regex, /confirmations/);
   assert.match(aliases[0].regex, /debug/);
+  assert.match(aliases[0].regex, /pause/);
+  assert.match(aliases[0].regex, /resume/);
   assert.match(bootstrap, /Holocron3D\.exe/);
   assert.match(bootstrap, /Package\.setDevelopmentMode/);
   assert.match(bootstrap, /Package\.profile/);
@@ -31,6 +33,8 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   assert.match(bootstrap, /Package\.settingsPath/);
   assert.match(bootstrap, /h3d confirmations on \| off/);
   assert.match(bootstrap, /h3d debug on \| off/);
+  assert.match(bootstrap, /Package\.setPollingPaused/);
+  assert.match(bootstrap, /h3d pause \| resume/);
   assert.match(
     bootstrap,
     /if level ~= "error" and level ~= "warn" and not Package\.settings\.debug then\s+return\s+end/,

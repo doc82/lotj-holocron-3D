@@ -208,6 +208,13 @@ and starts the normal polling queue; an invalid or landed response disables ship
 scraping and clears stale contacts. The renderer retries once after each bridge
 reconnection.
 
+`set_polling_paused` accepts a boolean `paused`. Pausing preserves the bridge and
+current snapshot while cancelling scheduled polling, projectile reconciliation,
+and automatic shield command timers. The next snapshot reports
+`metadata.polling.paused`, `pausedAt`, and `pauseReason`; `active` remains false
+until an explicit resume. Manual Mudlet commands continue to be captured and
+merged while polling is paused.
+
 `navigate_ship` accepts one of three typed payloads: a non-zero `relative`
 vector, a current snapshot `targetId`, or an `away` order with a current snapshot
 `targetId`. Speed changes use a separate `set_ship_speed` intent whose numeric
@@ -244,6 +251,9 @@ matches; `none`, a different target, or an unusable status response rejects the
 intent. Supplying a literal command or arbitrary target name is not supported.
 
 `scan_ship` info responses are identity-checked against the requested ship.
+LotJ may expand a typed ship-name prefix in either manual `status` or `info`
+output; a canonical response name is accepted only when it begins with that
+case-insensitive prefix, while unrelated response headers are rejected.
 Only canonical overview, weapons, access-code, and systems fields with valid
 value shapes are published. Unknown labels and Mudlet prompt fields are
 discarded, and wrapped descriptive prose is normalized into one paragraph.

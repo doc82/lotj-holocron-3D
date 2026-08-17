@@ -177,6 +177,33 @@ Sensor Array: 1
     equal(fixture.timers[timer].seconds, fixture.scraper.USER_IDLE_POLL_DELAY_SECONDS)
   end)
 
+  it("pauses every automatic command source and resumes on demand", function()
+    local timer = beginPolling()
+    assert(fixture.timers[timer])
+
+    local paused, pauseError = fixture.intentHandlers.set_polling_paused({ paused = true })
+    assert(paused, pauseError)
+    local pausedState = fixture.scraper.getPollingState()
+    equal(pausedState.enabled, true)
+    equal(pausedState.paused, true)
+    equal(pausedState.active, false)
+    equal(pausedState.timerId, nil)
+    equal(fixture.timers[timer], nil)
+    equal(fixture:lastSnapshot().metadata.polling.paused, true)
+
+    fixture.scraper.handleProjectileSummary("1 projectile, 1 incoming")
+    equal(#fixture.commands, 0)
+
+    local resumed, resumeError = fixture.intentHandlers.set_polling_paused({ paused = false })
+    assert(resumed, resumeError)
+    local resumedState = fixture.scraper.getPollingState()
+    equal(resumedState.paused, false)
+    equal(resumedState.active, true)
+    assert(resumedState.timerId and fixture.timers[resumedState.timerId])
+    fixture:tick(resumedState.timerId)
+    assert(#fixture.commands > 0)
+  end)
+
   it("stops completely and cancels its active timer", function()
     local timer = beginPolling()
     assert(fixture.timers[timer])

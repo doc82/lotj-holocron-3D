@@ -52,6 +52,8 @@ framed.
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `h3d start`                 | Start or reconnect telemetry and launch the desktop app if needed.                                                                       |
 | `h3d stop`                  | Stop polling and close the relay connection.                                                                                             |
+| `h3d pause`                 | Suspend automatic command output without disconnecting the bridge, leaving a clear window for manual Mudlet commands.                    |
+| `h3d resume`                | Resume automatic telemetry polling after a manual command window.                                                                        |
 | `h3d status`                | Show bridge and polling state.                                                                                                           |
 | `h3d confirmations on\|off` | Persistently enable or suppress successful `h3d` command confirmations; warnings and errors remain visible.                              |
 | `h3d debug on\|off`         | Persistently enable or suppress detailed parser, snapshot, and bridge diagnostics. Debug output defaults to off.                         |
@@ -66,6 +68,10 @@ framed.
 
 The older `lua dofile(...)` launcher is no longer needed for normal use. It is
 preserved under `poc/` solely for regression work.
+
+The tactical UI exposes the same pause/resume control. While paused, a prominent
+warning covers the command surface because the displayed tactical state may be
+stale; the bridge remains connected and the warning includes a resume button.
 
 ## Performance profiling
 

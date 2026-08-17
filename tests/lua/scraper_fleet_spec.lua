@@ -207,6 +207,33 @@ Command sent.]]
     equal(fixture:entity("Impostor"), nil)
   end)
 
+  it("captures a canonical status response returned for an abbreviated enemy ship name", function()
+    assert(fixture.scraper.applyResult({
+      source = "radar",
+      entities = {
+        { id = "abomination", name = "Abomination", kind = "ship", x = 100, y = 0, z = 0 },
+      },
+    }, "radar"))
+    assert(fixture.scraper.setDisposition("Abomination", "enemy"))
+    assert(fixture.scraper.setPollingPaused(true, "fixture"))
+
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "status ab")
+    assert(fixture.scraper.active and not fixture.scraper.active.polled)
+    for outputLine in
+      ([[
+Readout for Imperial-II Class Star Destroyer 'Abomination':
+Hull: 712/1000 Shields: 400/500
+]] .. "\n"):gmatch("(.-)\n")
+    do
+      fixture.scraper.captureLine(outputLine)
+    end
+    assert(fixture.scraper.finishCapture("fixture"))
+
+    equal(fixture:entity("Abomination").hull.current, 712)
+    equal(fixture:entity("Abomination").disposition, "enemy")
+    equal(fixture:entity("ab"), nil)
+  end)
+
   it("infers squadron leadership after observer status arrives", function()
     fixture.scraper.state.observer.name = "Previous Carrier"
     assert(fixture.scraper.applyResult({

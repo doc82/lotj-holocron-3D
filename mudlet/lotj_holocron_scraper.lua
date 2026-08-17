@@ -37,6 +37,9 @@ local Scraper = {
   lastCapture = nil,
   polling = {
     enabled = false,
+    paused = false,
+    pausedAt = nil,
+    pauseReason = nil,
     resumeWhenInSpace = false,
     index = 1,
     timerId = nil,
@@ -138,6 +141,15 @@ end
 
 local function normalizedCommand(command)
   return trim(command):lower():gsub("%s+", " ")
+end
+
+local function responseNameMatchesRequest(requestedName, parsedName)
+  local requested = trim(requestedName):lower()
+  local parsed = trim(parsedName):lower()
+  if requested == "" or parsed == "" then
+    return false
+  end
+  return parsed == requested or parsed:sub(1, #requested) == requested
 end
 
 local function automaticCommandRepeatDelay(command, now)
@@ -1026,7 +1038,7 @@ local function applyStatus(result, sentCommand)
   if
     not isObserver
     and requestedName
-    and (parsedName == "" or parsedName:lower() ~= trim(requestedName):lower())
+    and not responseNameMatchesRequest(requestedName, parsedName)
   then
     return false,
       "status response identity mismatch; expected "
@@ -1120,7 +1132,7 @@ local function applyInfo(result, sentCommand)
   local requestedName = trim(sentCommand):match("^%S+%s+(.+)$")
   local parsedName = trim(result.name)
   local observerName = trim(Scraper.state.observer and Scraper.state.observer.name)
-  if requestedName and parsedName:lower() ~= trim(requestedName):lower() then
+  if requestedName and not responseNameMatchesRequest(requestedName, parsedName) then
     return false,
       "info response identity mismatch; expected "
         .. requestedName
@@ -1599,7 +1611,9 @@ function Scraper.setInSpace(inSpace, reason)
 
   if Scraper.state.metadata.polling then
     Scraper.state.metadata.polling.enabled = Scraper.polling.enabled
-    Scraper.state.metadata.polling.active = Scraper.polling.enabled and inSpace
+    Scraper.state.metadata.polling.active = Scraper.polling.enabled
+      and not Scraper.polling.paused
+      and inSpace
   end
 
   if not changed then
@@ -2272,7 +2286,11 @@ function Scraper.handleHyperspaceLine(text)
       extra.fuelAvailable = tonumber((available:gsub(",", "")))
     end
     publishHyperspace("fuel_warning", extra)
-    if Scraper.hyperspace.initiatedByHolocron and not Scraper.hyperspace.acknowledgedFuelRisk then
+    if
+      not Scraper.polling.paused
+      and Scraper.hyperspace.initiatedByHolocron
+      and not Scraper.hyperspace.acknowledgedFuelRisk
+    then
       Scraper.polling.dispatching = true
       pcall(send, "calc stop", false)
       Scraper.polling.dispatching = false
@@ -2567,6 +2585,9 @@ local function dispatchHyperspacePlot(payload, message)
 end
 
 local function dispatchNavigationRefresh(payload, message)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   if Scraper.active then
     return false,
       Scraper.active.polled and "another telemetry refresh is active"
@@ -3138,7 +3159,12 @@ local function updatePollingMetadata(command)
   Scraper.state = Scraper.state or freshState()
   Scraper.state.metadata.polling = {
     enabled = Scraper.polling.enabled,
-    active = Scraper.polling.enabled and Scraper.state.metadata.inSpace == true,
+    active = Scraper.polling.enabled
+      and not Scraper.polling.paused
+      and Scraper.state.metadata.inSpace == true,
+    paused = Scraper.polling.paused == true,
+    pausedAt = Scraper.polling.pausedAt,
+    pauseReason = Scraper.polling.pauseReason,
     command = command,
     commandGapSeconds = Scraper.polling.commandGapSeconds,
     cycleDelaySeconds = Scraper.polling.cycleDelaySeconds,
@@ -3230,7 +3256,7 @@ end
 
 local function pollOnce()
   Scraper.polling.timerId = nil
-  if not Scraper.polling.enabled then
+  if not Scraper.polling.enabled or Scraper.polling.paused then
     return
   end
   if Scraper.pendingCommandKind then
@@ -3406,7 +3432,7 @@ end
 
 scheduleNextPoll = function(delay)
   cancelPollTimer()
-  if not Scraper.polling.enabled then
+  if not Scraper.polling.enabled or Scraper.polling.paused then
     return
   end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
@@ -3446,7 +3472,7 @@ function Scraper.handleSectorArrival(text)
 end
 
 requestProjectileRadarReconciliation = function()
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+  if Scraper.polling.paused or not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false
   end
   local repeatDelay = automaticCommandRepeatDelay("radar projectiles")
@@ -3575,6 +3601,9 @@ end
 function Scraper.stopPolling()
   cancelPollTimer()
   Scraper.polling.enabled = false
+  Scraper.polling.paused = false
+  Scraper.polling.pausedAt = nil
+  Scraper.polling.pauseReason = nil
   Scraper.polling.resumeWhenInSpace = false
   Scraper.polling.dispatching = false
   if Scraper.state then
@@ -3585,8 +3614,71 @@ end
 
 function Scraper.getPollingState()
   local state = copyTable(Scraper.polling)
-  state.active = state.enabled and Scraper.state and Scraper.state.metadata.inSpace == true or false
+  state.active = state.enabled
+      and not state.paused
+      and Scraper.state
+      and Scraper.state.metadata.inSpace == true
+    or false
   return state
+end
+
+function Scraper.setPollingPaused(paused, reason)
+  paused = paused == true
+  if Scraper.polling.paused == paused then
+    if Scraper.state then
+      updatePollingMetadata(nil)
+      Scraper.publish()
+    end
+    return true
+  end
+
+  Scraper.polling.paused = paused
+  Scraper.polling.pausedAt = paused and os.time() or nil
+  Scraper.polling.pauseReason = paused and (trim(reason) ~= "" and trim(reason) or "manual") or nil
+
+  if paused then
+    cancelPollTimer()
+    safeKill("killTimer", Scraper.combat.projectileReconcileTimerId)
+    Scraper.combat.projectileReconcileTimerId = nil
+    safeKill("killTimer", Scraper.shields.damageTimerId)
+    safeKill("killTimer", Scraper.shields.actionTimerId)
+    Scraper.shields.damageTimerId = nil
+    Scraper.shields.actionTimerId = nil
+    if Scraper.active and Scraper.active.polled then
+      abandonCapture("polling paused")
+    end
+    if Scraper.pendingCommandKind == "target" and completeTargetLock then
+      completeTargetLock("rejected", "Polling paused before the target lock was confirmed.")
+    end
+    local shieldIntentId = Scraper.shields.manualIntentId
+    Scraper.shields.manualIntentId = nil
+    Scraper.shields.recharging = false
+    Scraper.shields.awaiting = false
+    Scraper.shields.attempts = 0
+    Scraper.shields.statusPending = false
+    Scraper.shields.checkForRecharge = false
+    if Scraper.state then
+      Scraper.state.metadata.shieldRecharging = false
+      Scraper.state.metadata.shieldRechargeAttempts = 0
+      Scraper.state.metadata.shieldStatusPending = false
+    end
+    if shieldIntentId and Scraper.proxy and type(Scraper.proxy.publishIntentAck) == "function" then
+      Scraper.proxy.publishIntentAck(
+        shieldIntentId,
+        "rejected",
+        "Polling paused before shield recharge completed."
+      )
+    end
+  elseif Scraper.polling.enabled and Scraper.state and Scraper.state.metadata.inSpace == true then
+    scheduleNextPoll(0.25)
+  end
+
+  if Scraper.state then
+    updatePollingMetadata(nil)
+    Scraper.publish()
+  end
+  diagnostic("info", paused and "telemetry polling paused" or "telemetry polling resumed")
+  return true
 end
 
 local function resolvePendingCommand(status, reason, pollDelay)
@@ -3631,6 +3723,9 @@ local function holdPollingForCommand(intentId, seconds, timeoutReason, kind)
 end
 
 local function commandGateError()
+  if Scraper.polling.paused then
+    return "automatic polling is paused; resume polling before using Holocron3D commands"
+  end
   if Scraper.pendingCommandKind == "target" then
     return "target lock is still concentrating; wait for Target Locked."
   end
@@ -3672,7 +3767,7 @@ local function finishShieldRecharge(status, reason)
 end
 
 requestShieldStatus = function(checkForRecharge)
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+  if Scraper.polling.paused or not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false
   end
   if Scraper.pendingCommandKind == "target" or Scraper.active then
@@ -3724,6 +3819,9 @@ requestShieldStatus = function(checkForRecharge)
 end
 
 local function beginShieldRecharge(intentId)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "shield recharge is unavailable while landed"
   end
@@ -3752,7 +3850,7 @@ local function beginShieldRecharge(intentId)
 end
 
 sendRechargeAttempt = function()
-  if not Scraper.shields.recharging or Scraper.shields.awaiting then
+  if Scraper.polling.paused or not Scraper.shields.recharging or Scraper.shields.awaiting then
     return
   end
   if Scraper.pendingCommandKind == "target" or Scraper.shields.statusPending then
@@ -4030,7 +4128,7 @@ function Scraper.handleShipGmcp()
 end
 
 ensureShieldsOn = function()
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+  if Scraper.polling.paused or not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false
   end
   if Scraper.pendingCommandKind == "target" then
@@ -4198,6 +4296,9 @@ local function armAutotrackTimeout()
 end
 
 local function sendAutotrackToggle()
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   Scraper.polling.dispatching = true
   local sent, sendResult, sendError = pcall(send, "autotrack", false)
   Scraper.polling.dispatching = false
@@ -4309,6 +4410,12 @@ end
 
 local function requestPendingTargetStatus()
   Scraper.combat.targetReconcileTimerId = nil
+  if Scraper.polling.paused then
+    if completeTargetLock then
+      completeTargetLock("rejected", "Polling paused before the target lock was confirmed.")
+    end
+    return false
+  end
   if Scraper.pendingCommandKind ~= "target" then
     return false
   end
@@ -5568,6 +5675,9 @@ local function dispatchFleetOrder(payload, message)
 end
 
 dispatchSpaceProbe = function(_, message)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
   local gateError = commandGateError()
   if gateError then
     return false, gateError
@@ -5904,6 +6014,12 @@ function Scraper.setup(proxy, options)
   proxy.scraper = Scraper
   if type(proxy.registerIntentHandler) == "function" then
     proxy.registerIntentHandler("probe_space", dispatchSpaceProbe)
+    proxy.registerIntentHandler("set_polling_paused", function(payload)
+      if type(payload.paused) ~= "boolean" then
+        return false, "polling paused must be a boolean"
+      end
+      return Scraper.setPollingPaused(payload.paused, "renderer")
+    end)
     proxy.registerIntentHandler("set_ship_disposition", function(payload)
       return Scraper.setDisposition(trim(payload.name), trim(payload.disposition):lower())
     end)

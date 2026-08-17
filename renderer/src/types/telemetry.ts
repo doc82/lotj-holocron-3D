@@ -80,6 +80,10 @@ export interface Observer extends TelemetryEntity {
 
 export interface PollingState {
   enabled?: boolean;
+  active?: boolean;
+  paused?: boolean;
+  pausedAt?: number;
+  pauseReason?: string;
   command?: string;
 }
 

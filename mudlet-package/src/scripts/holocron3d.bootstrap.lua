@@ -1,7 +1,7 @@
 lotjHolocron3DPackage = lotjHolocron3DPackage or {}
 
 local Package = lotjHolocron3DPackage
-Package.VERSION = "0.1.6"
+Package.VERSION = "0.1.7"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
 Package.settingsPath = getMudletHomeDir() .. "/holocron3d-settings.txt"
@@ -289,6 +289,25 @@ function Package.start()
   return true
 end
 
+function Package.setPollingPaused(paused)
+  local scraper = lotjHolocron3D and lotjHolocron3D.scraper
+  if not scraper or type(scraper.setPollingPaused) ~= "function" then
+    say("yellow", "telemetry must be running before polling can be paused or resumed")
+    return nil, "telemetry is not running"
+  end
+  local changed, changeError = scraper.setPollingPaused(paused == true, "mudlet")
+  if not changed then
+    say("red", "could not change polling state: " .. tostring(changeError))
+    return nil, changeError
+  end
+  confirmation(
+    paused and "yellow" or "green",
+    paused and "telemetry polling paused; manual commands have a clear output window"
+      or "telemetry polling resumed"
+  )
+  return true
+end
+
 function Package.status()
   local connected = lotjHolocron3D and lotjHolocron3D.isRunning and lotjHolocron3D.isRunning()
   local polling = lotjHolocron3D
@@ -297,10 +316,11 @@ function Package.status()
     and lotjHolocron3D.scraper.getPollingState()
   say(connected and "green" or "yellow", connected and "bridge connected" or "bridge stopped")
   if polling then
-    local pollingMessage = not polling.enabled and "telemetry polling disabled"
+    local pollingMessage = polling.paused and "telemetry polling PAUSED"
+      or not polling.enabled and "telemetry polling disabled"
       or polling.active and "telemetry polling active"
       or "telemetry polling armed; waiting for confirmed space activity"
-    say("cyan", pollingMessage)
+    say(polling.paused and "yellow" or "cyan", pollingMessage)
   end
   local devExecutable = readDevExecutable()
   say(
@@ -481,6 +501,12 @@ function Package.command(action, argument)
   if action == "stop" then
     return Package.stop()
   end
+  if action == "pause" then
+    return Package.setPollingPaused(true)
+  end
+  if action == "resume" then
+    return Package.setPollingPaused(false)
+  end
   if action == "status" then
     return Package.status()
   end
@@ -506,8 +532,9 @@ function Package.command(action, argument)
   end
   say(
     "cyan",
-    "commands: h3d start | stop | status | snapshot | profile | dev | confirmations | debug | help"
+    "commands: h3d start | stop | pause | resume | status | snapshot | profile | dev | confirmations | debug | help"
   )
+  say("cyan", "polling: h3d pause | resume")
   say("cyan", "profiling: h3d profile start | report | stop")
   say("cyan", "development: h3d dev on <repository path> | h3d dev off")
   say("cyan", "output: h3d confirmations on | off // h3d debug on | off")

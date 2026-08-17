@@ -842,6 +842,22 @@ test("reconnecting hydrates missing player telemetry before combat polling", asy
   );
 });
 
+test("polling can be paused from the tactical UI with a prominent stale-telemetry warning", async () => {
+  const [app, appCss, telemetry, scraper] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/app/App.module.css", "utf8"),
+    readFile("renderer/src/types/telemetry.ts", "utf8"),
+    readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+  ]);
+  assert.match(telemetry, /paused\?: boolean/);
+  assert.match(app, /sendIntent\("set_polling_paused"/);
+  assert.match(app, /AUTOMATIC COMMAND OUTPUT SUSPENDED/);
+  assert.match(app, /POLLING PAUSED/);
+  assert.match(appCss, /\.pollingPausedOverlay/);
+  assert.match(scraper, /registerIntentHandler\("set_polling_paused"/);
+  assert.match(scraper, /function Scraper\.setPollingPaused/);
+});
+
 test("shield automation activates on launch and safely recharges to full", async () => {
   const [app, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
