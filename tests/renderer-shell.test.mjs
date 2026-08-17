@@ -231,15 +231,16 @@ test("contacts expose persistent disposition controls, shaped markers, and rich 
 });
 
 test("selected ships receive a gold planar ring while formation colors use purple and target red", async () => {
-  const [app, canvas, engine, scene] = await Promise.all([
+  const [app, canvas, engine, scene, workspace] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("renderer/src/domain/scene.ts", "utf8"),
+    readFile("renderer/src/domain/tacticalWorkspace.ts", "utf8"),
   ]);
   assert.match(app, /selectedId=\{selectedId\}/);
-  assert.match(app, /formationMember: entity\.kind === "ship" && formationNames\.has\(key\)/);
-  assert.match(app, /combatTarget: entity\.kind === "ship" && activeTargetKeys\.has\(key\)/);
+  assert.match(workspace, /formationMember: entity\.kind === "ship" && formationNames\.has\(key\)/);
+  assert.match(workspace, /combatTarget: entity\.kind === "ship" && activeTargetKeys\.has\(key\)/);
   assert.match(canvas, /engineRef\.current\?\.setSelectedId\(selectedId\)/);
   assert.match(engine, /private readonly selectionBuffer/);
   assert.match(engine, /private rebuildSelectionBuffer\(now: number\)/);

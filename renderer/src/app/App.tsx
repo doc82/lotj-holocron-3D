@@ -5,6 +5,18 @@ import { formationCenter, resolveFormationOrigins } from "../domain/coursePlot";
 import { canCommandFormation } from "../domain/fleet";
 import { hyperspaceClearance } from "../domain/hyperspace";
 import {
+  aggregateReading,
+  buildTacticalSnapshot,
+  classifyTacticalSnapshot,
+  detailRows,
+  dispositionKey,
+  fleetMembersForScope,
+  isDisabledShip,
+  pointsIncludingClusters,
+  resolveDossierShip,
+  speedLabel,
+} from "../domain/tacticalWorkspace";
+import {
   buildTacticalTargetShortcuts,
   type TacticalTargetShortcut,
 } from "../domain/tacticalTargets";
@@ -40,7 +52,6 @@ import type {
 } from "../types/telemetry";
 
 const DISPOSITION_STORAGE_KEY = "holocron3d.ship-dispositions.v1";
-const dispositionKey = (name: string) => name.trim().toLowerCase();
 
 interface CommandToast {
   id: number;
@@ -72,20 +83,6 @@ interface ShipDossierRequest {
   seed: TelemetryEntity;
 }
 
-function aggregateReading(readings: Array<SpeedReading | undefined>): SpeedReading | undefined {
-  const known = readings.filter(
-    (reading) =>
-      Number.isFinite(reading?.current) &&
-      Number.isFinite(reading?.maximum) &&
-      Number(reading?.maximum) > 0,
-  );
-  if (known.length === 0) return undefined;
-  return {
-    current: known.reduce((sum, reading) => sum + Number(reading?.current), 0),
-    maximum: known.reduce((sum, reading) => sum + Number(reading?.maximum), 0),
-  };
-}
-
 function commandToastTone(message: string): CommandToast["tone"] {
   if (/REJECT|BLOCK|FAIL|TIMED OUT|LOST|REQUIRES|SELECT A|CANNOT/.test(message)) return "error";
   if (/WAIT|AWAIT|TRANSMITTING|TARGETING|TRACKING/.test(message)) return "warning";
@@ -99,66 +96,6 @@ function loadDispositions(): Record<string, ShipDisposition> {
   } catch {
     return {};
   }
-}
-
-function speedLabel(speed: ScenePoint["speed"]): string {
-  if (typeof speed === "object" && speed) {
-    return `${formatCoordinate(speed.current)} / ${formatCoordinate(speed.maximum)}`;
-  }
-  return speed === undefined ? "—" : formatCoordinate(speed);
-}
-
-function isDisabledShip(point: TelemetryEntity): boolean {
-  return (
-    String(point.condition || "")
-      .trim()
-      .toLowerCase() === "disabled"
-  );
-}
-
-function detailRows(point: ScenePoint): Array<[string, string]> {
-  const worldCoordinates = point.worldPosition.map(formatCoordinate).join(" / ");
-  const rows: Array<[string, string]> = [];
-  if (point.id === "player-ship") {
-    rows.push(["WORLD XYZ", worldCoordinates], ["CAMERA FOCUS", "LOCKED"]);
-  } else {
-    rows.push(["SYSTEM XYZ", worldCoordinates]);
-  }
-  if (point.distance !== undefined) rows.push(["PROXIMITY", formatCoordinate(point.distance)]);
-  if (point.speed !== undefined && typeof point.speed !== "object") {
-    rows.push(["VELOCITY", speedLabel(point.speed)]);
-  }
-  if (point.heading && typeof point.heading === "object") {
-    rows.push([
-      "HEADING",
-      [point.heading.x, point.heading.y, point.heading.z].map(formatCoordinate).join(" / "),
-    ]);
-  }
-  if (point.position) rows.push(["FORMATION", point.position]);
-  if (point.condition) rows.push(["CONDITION", String(point.condition)]);
-  if (point.energy !== undefined && typeof point.energy !== "object") {
-    rows.push(["ENERGY", formatCoordinate(point.energy)]);
-  }
-  if (point.target) rows.push(["TARGET", String(point.target)]);
-  if (point.lifeforms) rows.push(["LIFEFORMS", String(point.lifeforms)]);
-  if (point.lifeformScan && typeof point.lifeformScan === "object") {
-    const scan = point.lifeformScan as {
-      available?: boolean;
-      requiredSensors?: number;
-      value?: string;
-    };
-    rows.push([
-      "LIFEFORMS",
-      scan.available === false
-        ? `UNKNOWN // NEED ${formatCoordinate(scan.requiredSensors)} SENSORS`
-        : String(scan.value || "DETECTED"),
-    ]);
-  }
-  return rows;
-}
-
-function pointsIncludingClusters(points: ScenePoint[]): ScenePoint[] {
-  return points.flatMap((point) => (point.members ? [point, ...point.members] : [point]));
 }
 
 function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
@@ -448,74 +385,14 @@ export function App() {
   const activeTacticalView = viewpointMemberId
     ? telemetry.snapshot?.metadata?.tacticalViews?.[viewpointMemberId]
     : undefined;
-  const tacticalSnapshot = useMemo<SystemSnapshot | null>(() => {
-    if (!telemetry.snapshot || !viewpointMemberId) return telemetry.snapshot;
-    const member = telemetry.snapshot.metadata?.fleet?.members.find(
-      (candidate) => candidate.id === viewpointMemberId,
-    );
-    if (!member) return telemetry.snapshot;
-    const view = telemetry.snapshot.metadata?.tacticalViews?.[viewpointMemberId];
-    return {
-      ...telemetry.snapshot,
-      observedAt: view?.observedAt ?? telemetry.snapshot.observedAt,
-      observer: view?.observer ?? {
-        ...member,
-        id: member.id,
-        kind: "ship",
-        x: 0,
-        y: 0,
-        z: 0,
-      },
-      entities: view?.entities ?? [],
-      metadata: {
-        ...telemetry.snapshot.metadata,
-        system: view?.system || member.system || member.location || "Remote sector",
-        activeTacticalViewMemberId: viewpointMemberId,
-      },
-    };
-  }, [telemetry.snapshot, viewpointMemberId]);
-  const classifiedSnapshot = useMemo(() => {
-    const rootSnapshot = telemetry.snapshot;
-    if (!tacticalSnapshot || !rootSnapshot) return null;
-    const formationNames = new Set(
-      (rootSnapshot.metadata?.fleet?.members ?? []).map((member) => dispositionKey(member.name)),
-    );
-    const reportedTarget = String(
-      rootSnapshot.metadata?.combatTarget || rootSnapshot.observer?.target || "",
-    ).trim();
-    const activeTargetKeys = new Set(
-      Object.values(rootSnapshot.metadata?.combatTargets || {})
-        .map((target) => String(target?.targetName || "").trim())
-        .filter((target) => target !== "" && target.toLowerCase() !== "none")
-        .map(dispositionKey),
-    );
-    if (reportedTarget !== "" && reportedTarget.toLowerCase() !== "none") {
-      activeTargetKeys.add(dispositionKey(reportedTarget));
-    }
-    return {
-      ...tacticalSnapshot,
-      observer: tacticalSnapshot.observer
-        ? {
-            ...tacticalSnapshot.observer,
-            formationMember: true,
-          }
-        : tacticalSnapshot.observer,
-      entities: tacticalSnapshot.entities?.map((entity) => {
-        const key = dispositionKey(entity.name || entity.id);
-        return {
-          ...entity,
-          formationMember: entity.kind === "ship" && formationNames.has(key),
-          combatTarget: entity.kind === "ship" && activeTargetKeys.has(key),
-          disposition:
-            entity.kind === "ship"
-              ? entity.disposition === "enemy"
-                ? "enemy"
-                : dispositions[key] || entity.disposition || "neutral"
-              : entity.disposition,
-        };
-      }),
-    };
-  }, [dispositions, tacticalSnapshot, telemetry.snapshot]);
+  const tacticalSnapshot = useMemo(
+    () => buildTacticalSnapshot(telemetry.snapshot, viewpointMemberId),
+    [telemetry.snapshot, viewpointMemberId],
+  );
+  const classifiedSnapshot = useMemo(
+    () => classifyTacticalSnapshot(tacticalSnapshot, telemetry.snapshot, dispositions),
+    [dispositions, tacticalSnapshot, telemetry.snapshot],
+  );
   const scene = useMemo(() => buildScene(classifiedSnapshot), [classifiedSnapshot]);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
@@ -704,38 +581,19 @@ export function App() {
     selected && ["ship", "planet", "celestial", "star"].includes(selected.kind) ? selected : null;
   const navigationTarget = findScenePoint(scene, navigationTargetId);
   const selectedShip = selected?.kind === "ship" ? selected : null;
-  const dossierShip = useMemo<TelemetryEntity | null>(() => {
-    if (!shipDossier) return null;
-    const wantedName = shipDossier.name.trim().toLowerCase();
-    if (shipDossier.id === "player-ship" || localName.trim().toLowerCase() === wantedName) {
-      return { ...shipDossier.seed, ...localObserver, id: "player-ship", kind: "ship" };
-    }
-    const member = fleet?.members.find(
-      (candidate) =>
-        candidate.id === shipDossier.id || candidate.name.trim().toLowerCase() === wantedName,
-    );
-    const point = flattenedScenePoints.find(
-      (candidate) =>
-        candidate.id === shipDossier.id || candidate.name.trim().toLowerCase() === wantedName,
-    );
-    return {
-      ...shipDossier.seed,
-      ...(member as TelemetryEntity | undefined),
-      ...point,
-      id: point?.id || member?.id || shipDossier.id,
-      name: point?.name || member?.name || shipDossier.name,
-      kind: "ship",
-    };
-  }, [fleet?.members, flattenedScenePoints, localName, localObserver, shipDossier]);
+  const dossierShip = useMemo(
+    () =>
+      resolveDossierShip({
+        request: shipDossier,
+        localName,
+        localObserver,
+        fleetMembers: fleet?.members,
+        scenePoints: flattenedScenePoints,
+      }),
+    [fleet?.members, flattenedScenePoints, localName, localObserver, shipDossier],
+  );
 
-  const issuerMembers =
-    !fleet?.active || fleetScope === "local"
-      ? []
-      : fleetScope === "selected"
-        ? selectedFleetMembers
-        : fleetScope === "wings"
-          ? fleet.members.filter((member) => !member.leader)
-          : fleet.members;
+  const issuerMembers = fleetMembersForScope(fleet, fleetScope, selectedFleetMembers);
   const commandIssuerLabel =
     fleetScope === "local" || !fleet?.active
       ? localName
