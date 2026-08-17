@@ -73,27 +73,41 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     const [courseLabel, setCourseLabel] = useState<CourseLabel | null>(null);
     const [playerShipLabel, setPlayerShipLabel] = useState<PlayerShipLabel | null>(null);
     const [fidelity, setFidelity] = useState<TacticalFidelity>("strategic");
+    const callbacksRef = useRef({
+      onSelect,
+      onMovementVector,
+      onMovementCommit,
+      onMovementCancel,
+      onCameraModeChange,
+    });
+    callbacksRef.current = {
+      onSelect,
+      onMovementVector,
+      onMovementCommit,
+      onMovementCancel,
+      onCameraModeChange,
+    };
 
     useEffect(() => {
       if (!canvasRef.current) return;
       const engine = new TacticalEngine(canvasRef.current, {
-        onSelect,
+        onSelect: (id) => callbacksRef.current.onSelect(id),
         onTooltip: setTooltip,
         onClusterLabels: setClusterLabels,
         onCourseLabel: setCourseLabel,
         onPlayerShipLabel: setPlayerShipLabel,
         onFidelityChange: setFidelity,
-        onCameraModeChange,
-        onMovementVector,
-        onMovementCommit,
-        onMovementCancel,
+        onCameraModeChange: (mode) => callbacksRef.current.onCameraModeChange(mode),
+        onMovementVector: (vector) => callbacksRef.current.onMovementVector(vector),
+        onMovementCommit: () => callbacksRef.current.onMovementCommit(),
+        onMovementCancel: () => callbacksRef.current.onMovementCancel(),
       });
       engineRef.current = engine;
       return () => {
         engine.dispose();
-        engineRef.current = null;
+        if (engineRef.current === engine) engineRef.current = null;
       };
-    }, [onCameraModeChange, onMovementCancel, onMovementCommit, onMovementVector, onSelect]);
+    }, []);
 
     useEffect(() => {
       if (snapshot) engineRef.current?.setSnapshot(snapshot);

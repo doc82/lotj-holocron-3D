@@ -122,6 +122,28 @@ test("tactical rendering sleeps while the scene is idle", async () => {
   );
 });
 
+test("camera mode and radar visibility survive React callback churn and telemetry refreshes", async () => {
+  const [app, canvas] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+  ]);
+  const engineLifecycle = canvas.slice(
+    canvas.indexOf("useEffect(() => {\n      if (!canvasRef.current)"),
+    canvas.indexOf("useEffect(() => {\n      if (snapshot)"),
+  );
+  const tacticalViewActivation = app.slice(
+    app.indexOf("const activeTacticalViewReady"),
+    app.indexOf("const observerSpeed"),
+  );
+
+  assert.match(canvas, /const callbacksRef = useRef/);
+  assert.match(canvas, /onSelect: \(id\) => callbacksRef\.current\.onSelect\(id\)/);
+  assert.match(engineLifecycle, /}, \[\]\);/);
+  assert.doesNotMatch(engineLifecycle, /onCameraModeChange, onMovementCancel/);
+  assert.match(tacticalViewActivation, /activatedViewpointRef\.current === viewpointMemberId/);
+  assert.doesNotMatch(tacticalViewActivation, /setCameraMode\("player"\)/);
+});
+
 test("tactical renderer uses a toggleable sensor-range bubble instead of a floor grid", async () => {
   const [engine, app] = await Promise.all([
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),

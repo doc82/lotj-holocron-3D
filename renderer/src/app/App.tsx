@@ -171,12 +171,26 @@ export function App() {
     telemetry.snapshot?.metadata?.inSpace === true;
   const fleetCommandMode = fleet?.active === true && fleetScope !== "local";
   const formationCommandsEnabled = fleet ? canCommandFormation(fleet, localName) : false;
+  const activeTacticalViewReady = Boolean(activeTacticalView?.observedAt);
+  const activatedViewpointRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeTacticalView?.observedAt) return;
-    tacticalRef.current?.setCameraMode("player");
+    if (!viewpointMemberId) {
+      activatedViewpointRef.current = null;
+      return;
+    }
+    if (!activeTacticalViewReady || activatedViewpointRef.current === viewpointMemberId) return;
+    activatedViewpointRef.current = viewpointMemberId;
     tacticalRef.current?.fitSystem();
-    setCommandAlert(`TACTICAL VIEW ACTIVE // ${activeTacticalView.memberName.toUpperCase()}`);
-  }, [activeTacticalView?.memberName, activeTacticalView?.observedAt, setCommandAlert]);
+    setCommandAlert(
+      `TACTICAL VIEW ACTIVE // ${(activeTacticalView?.memberName || viewpointMember?.name || "UNKNOWN").toUpperCase()}`,
+    );
+  }, [
+    activeTacticalView?.memberName,
+    activeTacticalViewReady,
+    setCommandAlert,
+    viewpointMember?.name,
+    viewpointMemberId,
+  ]);
   const observerSpeed =
     typeof localObserver?.speed === "object" && localObserver.speed
       ? Number(localObserver.speed.current) || 0
