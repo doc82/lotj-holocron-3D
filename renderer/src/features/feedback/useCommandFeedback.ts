@@ -25,10 +25,7 @@ export function useCommandFeedback(fleetOrder?: FleetOrderStatus) {
     if (!message) return;
     const id = ++toastIdRef.current;
     setToasts((current) => [...current, { id, message, tone }].slice(-4));
-    setTimeout(
-      () => setToasts((current) => current.filter((toast) => toast.id !== id)),
-      5_000,
-    );
+    setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 5_000);
   }, []);
 
   const setAlert = useCallback(

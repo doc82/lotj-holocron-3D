@@ -35,10 +35,7 @@ const snapshot = {
     fleet: {
       kind: "battlegroup",
       active: true,
-      members: [
-        { id: "fleet-1", name: "TeeHee1", leader: true },
-        remoteMember,
-      ],
+      members: [{ id: "fleet-1", name: "TeeHee1", leader: true }, remoteMember],
     },
     tacticalViews: {
       "fleet-2": {

@@ -48,9 +48,7 @@ export function useFleetSelection(fleet?: FleetStatus) {
         setViewpointMemberId(null);
       } else if (fleet) {
         const members =
-          nextScope === "wings"
-            ? fleet.members.filter((member) => !member.leader)
-            : fleet.members;
+          nextScope === "wings" ? fleet.members.filter((member) => !member.leader) : fleet.members;
         setSelectedMemberIds(new Set(members.map((member) => member.id)));
       }
       setDrawerOpen((open) => (sameScope ? !open : true));

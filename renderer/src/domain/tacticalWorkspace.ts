@@ -43,7 +43,11 @@ export function speedLabel(speed: ScenePoint["speed"]): string {
 }
 
 export function isDisabledShip(point: TelemetryEntity): boolean {
-  return String(point.condition || "").trim().toLowerCase() === "disabled";
+  return (
+    String(point.condition || "")
+      .trim()
+      .toLowerCase() === "disabled"
+  );
 }
 
 export function detailRows(point: ScenePoint): Array<[string, string]> {

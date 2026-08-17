@@ -100,11 +100,17 @@ export function useHyperspaceController({
         : Number.isFinite(Number(navigationGalaxy?.x)) &&
             Number.isFinite(Number(navigationGalaxy?.y))
           ? { x: Number(navigationGalaxy?.x), y: Number(navigationGalaxy?.y) }
-          : Number.isFinite(Number(catalogGalaxy?.x)) &&
-              Number.isFinite(Number(catalogGalaxy?.y))
+          : Number.isFinite(Number(catalogGalaxy?.x)) && Number.isFinite(Number(catalogGalaxy?.y))
             ? { x: Number(catalogGalaxy?.x), y: Number(catalogGalaxy?.y) }
             : undefined,
-    [catalogGalaxy?.x, catalogGalaxy?.y, navigationGalaxy?.x, navigationGalaxy?.y, viewpointGalaxy?.x, viewpointGalaxy?.y],
+    [
+      catalogGalaxy?.x,
+      catalogGalaxy?.y,
+      navigationGalaxy?.x,
+      navigationGalaxy?.y,
+      viewpointGalaxy?.x,
+      viewpointGalaxy?.y,
+    ],
   );
   const galaxyCatalogSize =
     Object.keys(galaxyCatalog?.systems || {}).length +
@@ -209,9 +215,17 @@ export function useHyperspaceController({
     if (remoteBattlegroupRoute) {
       setActiveRoute(null);
       setEscapePlan(undefined);
-      setAlert(`HYPERSPACE ENGAGED // ${(activeRoute?.recipientLabel || "FORMATION").toUpperCase()}`);
+      setAlert(
+        `HYPERSPACE ENGAGED // ${(activeRoute?.recipientLabel || "FORMATION").toUpperCase()}`,
+      );
     }
-  }, [activeRoute, remoteBattlegroupRoute, routeClearance.allowed, routeClearance.reason, setAlert]);
+  }, [
+    activeRoute,
+    remoteBattlegroupRoute,
+    routeClearance.allowed,
+    routeClearance.reason,
+    setAlert,
+  ]);
 
   const escape = useCallback(async () => {
     setEscapePending(true);
@@ -238,7 +252,8 @@ export function useHyperspaceController({
   }, [pollingPaused, state.phase]);
 
   useEffect(() => {
-    if (pollingPaused || !activeRoute || state.phase !== "ready" || hyperdriveClearance.known) return;
+    if (pollingPaused || !activeRoute || state.phase !== "ready" || hyperdriveClearance.known)
+      return;
     const refreshClearance = () => void window.holocron?.sendIntent("probe_space");
     refreshClearance();
     const timer = setInterval(refreshClearance, 5_000);
@@ -262,7 +277,14 @@ export function useHyperspaceController({
     void refreshMissingNavigationData();
     const timer = setInterval(refreshMissingNavigationData, 2_500);
     return () => clearInterval(timer);
-  }, [currentGalaxyPosition, galaxyCatalogSize, navigationDestinations.length, navigationRefreshBlocked, planner, pollingPaused]);
+  }, [
+    currentGalaxyPosition,
+    galaxyCatalogSize,
+    navigationDestinations.length,
+    navigationRefreshBlocked,
+    planner,
+    pollingPaused,
+  ]);
 
   useEffect(() => {
     if (state.phase !== "hyperspace") setEscapePending(false);
@@ -297,7 +319,15 @@ export function useHyperspaceController({
       "plot_hyperspace",
       escapeRoute as unknown as Record<string, unknown>,
     );
-  }, [currentGalaxyPosition?.x, currentGalaxyPosition?.y, escapePlan, pollingPaused, snapshot?.metadata?.navigation?.arrivalRefreshedAt, state.arrivedAt, state.phase]);
+  }, [
+    currentGalaxyPosition?.x,
+    currentGalaxyPosition?.y,
+    escapePlan,
+    pollingPaused,
+    snapshot?.metadata?.navigation?.arrivalRefreshedAt,
+    state.arrivedAt,
+    state.phase,
+  ]);
 
   useEffect(() => {
     if (connected) return;
@@ -324,7 +354,9 @@ export function useHyperspaceController({
         escapeIntentIdsRef.current.delete(ack.id);
         if (ack.status === "rejected") {
           setEscapePending(false);
-          setAlert(`HYPERSPACE CUTOFF REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`);
+          setAlert(
+            `HYPERSPACE CUTOFF REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`,
+          );
         }
       }),
     [setAlert],
