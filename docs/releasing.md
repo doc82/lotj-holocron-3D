@@ -51,10 +51,22 @@ public release path.
 ## 1. Prepare the release
 
 1. Start from a clean release branch and pull the intended release commit.
-2. Update the version in `package.json`, `mudlet-package/mfile`, and the Mudlet
-   bootstrap. DMG filenames read the version directly from `package.json`.
-   Search the repository for the previous version to catch other embedded
-   values:
+2. Run the appropriate synchronized version bump. A patch bump increments only
+   the third component, a minor bump resets the patch component, and a major
+   bump resets both the minor and patch components:
+
+   ```powershell
+   pnpm version:patch
+   # or
+   pnpm version:minor
+   # or
+   pnpm version:major
+   ```
+
+   The command updates `package.json`, `mudlet-package/mfile`, the Mudlet
+   bootstrap, and the Mudlet proxy together. DMG filenames read the version
+   directly from `package.json`. Search the repository for the previous version
+   to catch other embedded values:
 
    ```powershell
    rg -n "<previous-version>" -g "!pnpm-lock.yaml"
