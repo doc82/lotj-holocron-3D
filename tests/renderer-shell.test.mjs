@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile as readTextFile } from "node:fs/promises";
 import test from "node:test";
+
+async function readFile(path, encoding) {
+  const source = await readTextFile(path, encoding);
+  if (path !== "renderer/src/app/App.tsx") return source;
+  const composedViews = await Promise.all(
+    [
+      "renderer/src/app/CommandActionPanel.tsx",
+      "renderer/src/app/WorkspacePanels.tsx",
+      "renderer/src/app/TacticalChrome.tsx",
+      "renderer/src/app/TacticalIcons.tsx",
+    ].map((viewPath) => readTextFile(viewPath, encoding)),
+  );
+  return [source, ...composedViews].join("\n");
+}
 
 test("renderer includes the cinematic startup and disconnected uplink states", async () => {
   const [
@@ -62,7 +76,7 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.match(telemetry, /connectionLabel/);
   assert.match(uplink, /Waiting for uplink to your Ship, Captain/);
   assert.match(uplink, /styles\.uplink/);
-  assert.match(app, /telemetry\.connected && \(\s*<div className=\{styles\.controlStack\}>/);
+  assert.match(app, /connected && \(\s*<div className=\{styles\.controlStack\}>/);
   assert.match(app, /telemetry\.connected && \(\s*<div className=\{styles\.commandDeckFrame\}>/);
   assert.match(startupStyles, /\.title/);
   assert.match(startupStyles, /\.lotjTitle/);
@@ -186,10 +200,11 @@ test("colocated contact clusters expose counts and an expandable member grid", a
   assert.match(canvas, /tooltip\.groupSummary \|\| tooltip\.name/);
   assert.match(app, /COLOCATED CONTACTS/);
   assert.match(app, /styles\.memberGrid/);
-  assert.match(app, /onMouseEnter=.*setHoveredMemberId/);
+  assert.match(app, /onMouseEnter=\{\(\) => onHover\(member\.id\)\}/);
+  assert.match(app, /onHover=\{setHoveredMemberId\}/);
   assert.match(
     app,
-    /onClick=\{\(\) => \{[\s\S]*?setSelectedId\(member\.id\);[\s\S]*?setExpandedClusterId\(null\);/,
+    /onSelect=\{\(id\) => \{[\s\S]*?setSelectedId\(id\);[\s\S]*?setExpandedClusterId\(null\);/,
   );
 });
 
@@ -338,7 +353,8 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   );
   assert.doesNotMatch(app, /styles\.fleetBank/);
   assert.match(app, /ACTIONS \/\/ \{commandIssuerLabel\.toUpperCase\(\)\}/);
-  assert.match(app, /scopeDrawerOpen && \(\s*<aside/);
+  assert.match(app, /scopeDrawerOpen && \(\s*<FleetScopeDrawer/);
+  assert.match(app, /<aside\s+className=\{`\$\{styles\.scopeDrawer\}/);
   assert.match(app, /<FleetRoster\s+fleet=\{fleet\}/);
   assert.match(fleetRoster, /visibleMembers\.map/);
   assert.match(fleetRoster, /LOW S/);
@@ -700,7 +716,7 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   assert.match(panel, /<button\s+type="button"[\s\S]{0,100}disabled=\{disabled\}/);
   assert.doesNotMatch(panel, /disabled=\{disabled \|\| installed\.length === 0\}/);
   assert.doesNotMatch(panel, /disabled=\{disabled \|\| !available \|\| recharging \|\| depleted\}/);
-  assert.match(app, /disabled=\{landed\}\s+onFire=\{fireWeapon\}/);
+  assert.match(app, /disabled=\{landed\}\s+onFire=\{onFire\}/);
   for (const weapon of [
     "autoblaster",
     "laser",

@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("hyperspace planners expose local, galactic, fuel-safety, and escape flows", async () => {
-  const app = await readFile("renderer/src/app/App.tsx", "utf8");
+  const app = [
+    await readFile("renderer/src/app/App.tsx", "utf8"),
+    await readFile("renderer/src/app/WorkspacePanels.tsx", "utf8"),
+  ].join("\n");
   const controller = await readFile(
     "renderer/src/features/hyperspace/useHyperspaceController.ts",
     "utf8",
