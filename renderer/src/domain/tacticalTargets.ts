@@ -18,6 +18,31 @@ interface TacticalTargetShortcutInput {
 
 const targetKey = (name: string) => name.trim().toLowerCase();
 
+export function reconcileDismissedTargetNames(
+  dismissedNames: ReadonlySet<string>,
+  absentSnapshots: ReadonlyMap<string, number>,
+  reportedNames: Iterable<string>,
+  confirmationSnapshots = 2,
+): { dismissedNames: Set<string>; absentSnapshots: Map<string, number> } {
+  const reported = new Set([...reportedNames].map(targetKey));
+  const nextDismissed = new Set(dismissedNames);
+  const nextAbsent = new Map(absentSnapshots);
+  for (const name of dismissedNames) {
+    if (reported.has(name)) {
+      nextAbsent.delete(name);
+      continue;
+    }
+    const count = (nextAbsent.get(name) || 0) + 1;
+    if (count >= confirmationSnapshots) {
+      nextDismissed.delete(name);
+      nextAbsent.delete(name);
+    } else {
+      nextAbsent.set(name, count);
+    }
+  }
+  return { dismissedNames: nextDismissed, absentSnapshots: nextAbsent };
+}
+
 function ownerLabel(target: CombatTargetTrack): string {
   return (
     target.ownerLabel ||

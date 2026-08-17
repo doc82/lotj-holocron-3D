@@ -96,7 +96,7 @@ export function FleetRoster({
   scope,
   selectedMemberId,
   selectedMemberKeys,
-  viewpointMemberId,
+  viewpointMemberKey,
   onToggleMember,
   onViewMember,
   onOpenDossier,
@@ -107,7 +107,7 @@ export function FleetRoster({
   scope: FleetScope;
   selectedMemberId?: string | null;
   selectedMemberKeys?: ReadonlySet<string>;
-  viewpointMemberId?: string | null;
+  viewpointMemberKey?: string | null;
   onToggleMember?(member: FleetMember): void;
   onViewMember?(member: FleetMember): void;
   onOpenDossier(member: FleetMember, mode: ShipDossierMode): void;
@@ -241,7 +241,7 @@ export function FleetRoster({
                     }
                   : undefined
               }
-              data-viewing={member.id === viewpointMemberId}
+              data-viewing={fleetMemberSelectionKey(member) === viewpointMemberKey}
               data-selectable={Boolean(selectable)}
               data-disabled={disabled}
             >

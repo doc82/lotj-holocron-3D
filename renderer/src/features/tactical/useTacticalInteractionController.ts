@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { dispositionKey } from "../../domain/tacticalWorkspace";
-import type { TacticalTargetShortcut } from "../../domain/tacticalTargets";
+import { fleetMemberSelectionKey } from "../../domain/fleet";
+import {
+  reconcileDismissedTargetNames,
+  type TacticalTargetShortcut,
+} from "../../domain/tacticalTargets";
 import type { FleetMember } from "../../types/telemetry";
 import type { FleetScope } from "../fleet/FleetRoster";
 import type { TacticalCanvasHandle } from "./TacticalCanvas";
@@ -15,6 +19,7 @@ interface TacticalInteractionOptions {
   targetDrawerOpen: boolean;
   setTargetDrawerOpen(open: boolean | ((current: boolean) => boolean)): void;
   selectFleetScope(scope: FleetScope): void;
+  selectFleetMember(member: FleetMember): void;
   selectViewpoint(memberId: string | null): void;
   closeFleetDrawer(): void;
   closeDossier(): void;
@@ -31,6 +36,7 @@ export function useTacticalInteractionController({
   targetDrawerOpen,
   setTargetDrawerOpen,
   selectFleetScope,
+  selectFleetMember,
   selectViewpoint,
   closeFleetDrawer,
   closeDossier,
@@ -38,6 +44,7 @@ export function useTacticalInteractionController({
   clearClusterSelection,
 }: TacticalInteractionOptions) {
   const [dismissedTargetNames, setDismissedTargetNames] = useState<Set<string>>(() => new Set());
+  const dismissedTargetAbsenceRef = useRef(new Map<string, number>());
   const viewpointRequestTokenRef = useRef(0);
   const targets = useMemo(
     () =>
@@ -53,10 +60,14 @@ export function useTacticalInteractionController({
   }, [connected, targets.length]);
 
   useEffect(() => {
-    const reported = new Set(reportedTargets.map((target) => dispositionKey(target.targetName)));
     setDismissedTargetNames((current) => {
-      const next = new Set([...current].filter((target) => reported.has(target)));
-      return next.size === current.size ? current : next;
+      const reconciled = reconcileDismissedTargetNames(
+        current,
+        dismissedTargetAbsenceRef.current,
+        reportedTargets.map((target) => target.targetName),
+      );
+      dismissedTargetAbsenceRef.current = reconciled.absentSnapshots;
+      return reconciled.dismissedNames.size === current.size ? current : reconciled.dismissedNames;
     });
   }, [reportedTargets]);
 
@@ -76,21 +87,27 @@ export function useTacticalInteractionController({
     async (member: FleetMember) => {
       if (member.name.trim().toLowerCase() === localName.trim().toLowerCase()) {
         viewpointRequestTokenRef.current += 1;
+        selectFleetScope("local");
         selectViewpoint(null);
+        closeFleetDrawer();
         setSelectedId(null);
         tacticalRef.current?.setCameraMode("player");
         return;
       }
       const requestToken = viewpointRequestTokenRef.current + 1;
       viewpointRequestTokenRef.current = requestToken;
-      selectViewpoint(member.id);
+      const memberKey = fleetMemberSelectionKey(member);
+      selectFleetMember(member);
+      selectViewpoint(memberKey);
       setSelectedId(null);
       clearClusterSelection();
       tacticalRef.current?.setCameraMode("player");
       setAlert(`REQUESTING TACTICAL VIEW // ${member.name.toUpperCase()}`);
       const result = await window.holocron?.sendIntent("request_tactical_view", {
+        memberKey,
         memberId: member.id,
         memberName: member.name,
+        memberSlot: member.slot,
       });
       if (viewpointRequestTokenRef.current !== requestToken) return;
       if (result?.accepted === false) {
@@ -100,7 +117,17 @@ export function useTacticalInteractionController({
       }
       setAlert(`TACTICAL VIEW REQUESTED // ${member.name.toUpperCase()}`);
     },
-    [clearClusterSelection, localName, selectViewpoint, setAlert, setSelectedId, tacticalRef],
+    [
+      clearClusterSelection,
+      closeFleetDrawer,
+      localName,
+      selectFleetMember,
+      selectFleetScope,
+      selectViewpoint,
+      setAlert,
+      setSelectedId,
+      tacticalRef,
+    ],
   );
 
   const focusTarget = useCallback(
@@ -127,7 +154,9 @@ export function useTacticalInteractionController({
         setAlert(`TARGET CLEAR REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
         return;
       }
-      setDismissedTargetNames((current) => new Set(current).add(dispositionKey(target.targetName)));
+      const targetName = dispositionKey(target.targetName);
+      dismissedTargetAbsenceRef.current.delete(targetName);
+      setDismissedTargetNames((current) => new Set(current).add(targetName));
       setTargetDrawerOpen(false);
       setAlert(`TARGET CLEARED // ${target.targetName.toUpperCase()}`);
     },
@@ -135,6 +164,7 @@ export function useTacticalInteractionController({
   );
 
   const restoreTarget = useCallback((name: string) => {
+    dismissedTargetAbsenceRef.current.delete(dispositionKey(name));
     setDismissedTargetNames((current) => {
       const key = dispositionKey(name);
       if (!current.has(key)) return current;

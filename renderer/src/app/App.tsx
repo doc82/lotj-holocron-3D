@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { buildScene, findScenePoint } from "../domain/scene";
 import { resolveFormationOrigins } from "../domain/coursePlot";
-import { canCommandFormation } from "../domain/fleet";
+import { canCommandFormation, fleetMemberForSelectionKey } from "../domain/fleet";
 import {
   aggregateReading,
   buildTacticalSnapshot,
   classifyTacticalSnapshot,
   fleetMembersForScope,
   pointsIncludingClusters,
-  speedLabel,
+  tacticalViewForMember,
 } from "../domain/tacticalWorkspace";
 import {
   buildTacticalTargetShortcuts,
@@ -22,7 +22,7 @@ import { UplinkNotice } from "../features/connection/UplinkNotice";
 import type { FleetScope } from "../features/fleet/FleetRoster";
 import { CommandScopeRail } from "../features/fleet/CommandScopeRail";
 import { useFleetSelection } from "../features/fleet/useFleetSelection";
-import { useCommandFeedback } from "../features/feedback/useCommandFeedback";
+import { commandToastTone, useCommandFeedback } from "../features/feedback/useCommandFeedback";
 import { HyperspacePlanner } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
@@ -83,7 +83,7 @@ export function App() {
     selectedMember: selectedFleetMember,
     allMembersSelected: allFleetMembersSelected,
     selectedScopeEmpty: selectedFleetScopeEmpty,
-    viewpointMemberId,
+    viewpointMemberKey,
   } = fleetSelection;
   const { pausePending: pollingPausePending, changePause: changePollingPause } =
     usePollingController({
@@ -92,13 +92,11 @@ export function App() {
       starting,
       setAlert: setCommandAlert,
     });
-  const viewpointMember = fleet?.members.find((member) => member.id === viewpointMemberId);
-  const activeTacticalView = viewpointMemberId
-    ? telemetry.snapshot?.metadata?.tacticalViews?.[viewpointMemberId]
-    : undefined;
+  const viewpointMember = fleetMemberForSelectionKey(fleet?.members ?? [], viewpointMemberKey);
+  const activeTacticalView = tacticalViewForMember(telemetry.snapshot, viewpointMemberKey);
   const tacticalSnapshot = useMemo(
-    () => buildTacticalSnapshot(telemetry.snapshot, viewpointMemberId),
-    [telemetry.snapshot, viewpointMemberId],
+    () => buildTacticalSnapshot(telemetry.snapshot, viewpointMemberKey),
+    [telemetry.snapshot, viewpointMemberKey],
   );
   const classifiedSnapshot = useMemo(
     () => classifyTacticalSnapshot(tacticalSnapshot, telemetry.snapshot, dispositions),
@@ -174,12 +172,12 @@ export function App() {
   const activeTacticalViewReady = Boolean(activeTacticalView?.observedAt);
   const activatedViewpointRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!viewpointMemberId) {
+    if (!viewpointMemberKey) {
       activatedViewpointRef.current = null;
       return;
     }
-    if (!activeTacticalViewReady || activatedViewpointRef.current === viewpointMemberId) return;
-    activatedViewpointRef.current = viewpointMemberId;
+    if (!activeTacticalViewReady || activatedViewpointRef.current === viewpointMemberKey) return;
+    activatedViewpointRef.current = viewpointMemberKey;
     tacticalRef.current?.fitSystem();
     setCommandAlert(
       `TACTICAL VIEW ACTIVE // ${(activeTacticalView?.memberName || viewpointMember?.name || "UNKNOWN").toUpperCase()}`,
@@ -189,7 +187,7 @@ export function App() {
     activeTacticalViewReady,
     setCommandAlert,
     viewpointMember?.name,
-    viewpointMemberId,
+    viewpointMemberKey,
   ]);
   const observerSpeed =
     typeof localObserver?.speed === "object" && localObserver.speed
@@ -221,7 +219,6 @@ export function App() {
   });
   const shipDossier = dossier.request;
   const dossierShip = dossier.ship;
-  const manualScanSource = dossier.scanSource;
   const manualScanStatus = dossier.scanStatus;
   const tacticalInteractions = useTacticalInteractionController({
     connected: telemetry.connected,
@@ -232,6 +229,7 @@ export function App() {
     targetDrawerOpen,
     setTargetDrawerOpen,
     selectFleetScope: fleetSelection.selectScope,
+    selectFleetMember: fleetSelection.selectOnlyMember,
     selectViewpoint: fleetSelection.selectViewpoint,
     closeFleetDrawer: fleetSelection.closeDrawer,
     closeDossier: dossier.close,
@@ -309,13 +307,12 @@ export function App() {
     fleetCommandMode,
     fleetScope,
     selectedFleetMembers,
-    viewpointMemberId,
+    viewpointMemberKey,
     movementOriginsForScope,
     clearTransientSelection,
   });
   const navigationMode = navigation.mode;
   const pendingNavigationMode = navigation.commandMode;
-  const navigationFleetScope = navigation.fleetScope;
   const navigationTarget = navigation.navigationTarget;
   const courseVector = navigation.vector;
   const requestedSpeed = navigation.requestedSpeed;
@@ -378,7 +375,7 @@ export function App() {
     fleet,
     fleetScope,
     selectedFleetMembers,
-    viewpointMemberId,
+    viewpointMemberKey,
     autotrackDesired,
     autotrackPending,
     shieldRecharging,
@@ -468,11 +465,11 @@ export function App() {
         <TacticalCanvas
           ref={tacticalRef}
           snapshot={classifiedSnapshot}
-          observerLabel={viewpointMemberId ? "REMOTE VIEW" : "YOUR SHIP"}
+          observerLabel={viewpointMemberKey ? "REMOTE VIEW" : "YOUR SHIP"}
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
-          combatEvents={viewpointMemberId ? [] : combatEvents}
-          jumpEvents={viewpointMemberId ? [] : telemetry.snapshot?.metadata?.shipJumpEvents}
+          combatEvents={viewpointMemberKey ? [] : combatEvents}
+          jumpEvents={viewpointMemberKey ? [] : telemetry.snapshot?.metadata?.shipJumpEvents}
           destructionEvents={telemetry.snapshot?.metadata?.shipDestructionEvents}
           selectedId={selectedId}
           onSelect={selectContact}
@@ -493,8 +490,8 @@ export function App() {
         <TacticalHeader
           connected={telemetry.connected}
           identity={
-            viewpointMemberId
-              ? `REMOTE UPLINK // ${activeTacticalView ? "LIVE" : "AWAITING RADAR"} // ${viewpointMember?.name || viewpointMemberId}`
+            viewpointMemberKey
+              ? `REMOTE UPLINK // ${activeTacticalView ? "LIVE" : "AWAITING RADAR"} // ${viewpointMember?.name || viewpointMemberKey}`
               : "HOLOCRON 3D // LIVE TACTICAL"
           }
           systemName={telemetry.snapshot ? scene.system : "Awaiting telemetry"}
@@ -542,7 +539,7 @@ export function App() {
             localName={localName}
             scope={fleetScope}
             selectedMemberKeys={selectedFleetMemberKeys}
-            viewpointMemberId={viewpointMemberId}
+            viewpointMemberKey={viewpointMemberKey}
             allMembersSelected={allFleetMembersSelected}
             onSelectAll={selectAllFleetMembers}
             onClose={fleetSelection.closeDrawer}
@@ -628,6 +625,16 @@ export function App() {
 
         {telemetry.connected && (
           <div className={styles.commandDeckFrame}>
+            {commandAlert && (
+              <div
+                className={styles.commandAlert}
+                data-tone={commandToastTone(commandAlert)}
+                role="status"
+                aria-live="polite"
+              >
+                {commandAlert}
+              </div>
+            )}
             {commandToasts.length > 0 && (
               <div className={styles.commandToasts} role="log" aria-live="polite">
                 {commandToasts.map((toast) => (

@@ -140,7 +140,7 @@ test("camera mode and radar visibility survive React callback churn and telemetr
   assert.match(canvas, /onSelect: \(id\) => callbacksRef\.current\.onSelect\(id\)/);
   assert.match(engineLifecycle, /}, \[\]\);/);
   assert.doesNotMatch(engineLifecycle, /onCameraModeChange, onMovementCancel/);
-  assert.match(tacticalViewActivation, /activatedViewpointRef\.current === viewpointMemberId/);
+  assert.match(tacticalViewActivation, /activatedViewpointRef\.current === viewpointMemberKey/);
   assert.doesNotMatch(tacticalViewActivation, /setCameraMode\("player"\)/);
 });
 
@@ -172,7 +172,7 @@ test("fleet hyperspace departures render as ship-specific tactical effects", asy
   assert.match(canvas, /pushJumpEvent/);
   assert.match(
     app,
-    /jumpEvents=\{viewpointMemberId \? \[\] : telemetry\.snapshot\?\.metadata\?\.shipJumpEvents\}/,
+    /jumpEvents=\{viewpointMemberKey \? \[\] : telemetry\.snapshot\?\.metadata\?\.shipJumpEvents\}/,
   );
 });
 
@@ -359,6 +359,10 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     app,
     /commandToasts\.length > 0 && \(\s*<div className=\{styles\.commandToasts\} role="log"/,
   );
+  assert.match(
+    app,
+    /commandAlert && \([\s\S]*?className=\{styles\.commandAlert\}[\s\S]*?role="status"/,
+  );
   assert.match(app, /styles\.selectedVessel/);
   assert.match(app, /styles\.vesselRanges/);
   assert.match(app, /RangeMeter\s+label="SPEED"/);
@@ -493,22 +497,34 @@ test("ship resource meters share palettes, values, and overflow-safe card layout
 });
 
 test("battlegroup members can open isolated remote tactical views", async () => {
-  const [app, roster, telemetry, scraper] = await Promise.all([
+  const [app, roster, telemetry, scraper, interactions, fleetSelection] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/fleet/FleetRoster.tsx", "utf8"),
     readFile("renderer/src/types/telemetry.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
+    readFile("renderer/src/features/tactical/useTacticalInteractionController.ts", "utf8"),
+    readFile("renderer/src/features/fleet/useFleetSelection.ts", "utf8"),
   ]);
   assert.match(telemetry, /tacticalViews\?: Record<string, TacticalView>/);
   assert.match(roster, /Camera lock/);
   assert.match(roster, /onViewMember\?\(member: FleetMember\)/);
   assert.match(roster, /onToggleMember\?\(member: FleetMember\)/);
-  assert.match(app, /sendIntent\("request_tactical_view"/);
-  assert.match(app, /viewpointMemberId/);
-  assert.match(app, /observerLabel=\{viewpointMemberId \? "REMOTE VIEW" : "YOUR SHIP"\}/);
+  assert.match(roster, /fleetMemberSelectionKey\(member\) === viewpointMemberKey/);
+  assert.match(interactions, /sendIntent\("request_tactical_view"/);
+  assert.match(interactions, /selectFleetMember\(member\);\s*selectViewpoint\(memberKey\)/);
+  assert.match(
+    interactions,
+    /selectFleetScope\("local"\);\s*selectViewpoint\(null\);\s*closeFleetDrawer\(\)/,
+  );
+  assert.match(
+    fleetSelection,
+    /setSelectedMemberKeys\(new Set\(\[fleetMemberSelectionKey\(member\)\]\)\);\s*setScope\("selected"\)/,
+  );
+  assert.match(app, /viewpointMemberKey/);
+  assert.match(app, /observerLabel=\{viewpointMemberKey \? "REMOTE VIEW" : "YOUR SHIP"\}/);
   assert.match(scraper, /registerIntentHandler\("request_tactical_view"/);
-  assert.match(scraper, /remoteViewMemberId/);
-  assert.match(scraper, /metadata\.tacticalViews\[memberId\]/);
+  assert.match(scraper, /remoteViewMemberKey/);
+  assert.match(scraper, /metadata\.tacticalViews\[memberKey\]/);
 });
 
 test("player navigation supports vector, target, away, and speed orders", async () => {

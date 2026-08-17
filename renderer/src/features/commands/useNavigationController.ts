@@ -24,7 +24,7 @@ interface NavigationControllerOptions {
   fleetCommandMode: boolean;
   fleetScope: FleetScope;
   selectedFleetMembers: FleetMember[];
-  viewpointMemberId: string | null;
+  viewpointMemberKey: string | null;
   movementOriginsForScope(scope: FleetScope | null): Vector3[];
   clearTransientSelection(): void;
 }
@@ -44,7 +44,7 @@ export function useNavigationController({
   fleetCommandMode,
   fleetScope,
   selectedFleetMembers,
-  viewpointMemberId,
+  viewpointMemberKey,
   movementOriginsForScope,
   clearTransientSelection,
 }: NavigationControllerOptions) {
@@ -170,7 +170,7 @@ export function useNavigationController({
           payload.memberSlot = selectedFleetMembers[0].slot;
         }
       }
-      if (viewpointMemberId) payload.viewpointMemberId = viewpointMemberId;
+      if (viewpointMemberKey) payload.viewpointMemberKey = viewpointMemberKey;
     }
     const result = await window.holocron?.sendIntent(
       state.fleetScope ? "fleet_order" : "navigate_ship",
@@ -215,7 +215,7 @@ export function useNavigationController({
     state.requestedSpeed,
     state.vector,
     tacticalRef,
-    viewpointMemberId,
+    viewpointMemberKey,
   ]);
 
   const commitSpeed = useCallback(

@@ -9,6 +9,7 @@ import type {
   TelemetryEntity,
 } from "../types/telemetry";
 import type { ScenePoint } from "./scene";
+import { fleetMemberForSelectionKey } from "./fleet.ts";
 
 function formatCoordinate(value: unknown): string {
   const numeric = Number(value);
@@ -97,14 +98,15 @@ export function pointsIncludingClusters(points: ScenePoint[]): ScenePoint[] {
 
 export function buildTacticalSnapshot(
   snapshot: SystemSnapshot | null,
-  viewpointMemberId: string | null,
+  viewpointMemberKey: string | null,
 ): SystemSnapshot | null {
-  if (!snapshot || !viewpointMemberId) return snapshot;
-  const member = snapshot.metadata?.fleet?.members.find(
-    (candidate) => candidate.id === viewpointMemberId,
+  if (!snapshot || !viewpointMemberKey) return snapshot;
+  const member = fleetMemberForSelectionKey(
+    snapshot.metadata?.fleet?.members ?? [],
+    viewpointMemberKey,
   );
   if (!member) return snapshot;
-  const view = snapshot.metadata?.tacticalViews?.[viewpointMemberId];
+  const view = tacticalViewForMember(snapshot, viewpointMemberKey);
   return {
     ...snapshot,
     observedAt: view?.observedAt ?? snapshot.observedAt,
@@ -120,9 +122,37 @@ export function buildTacticalSnapshot(
     metadata: {
       ...snapshot.metadata,
       system: view?.system || member.system || member.location || "Remote sector",
-      activeTacticalViewMemberId: viewpointMemberId,
+      activeTacticalViewMemberId: member.id,
+      activeTacticalViewMemberKey: viewpointMemberKey,
     },
   };
+}
+
+export function tacticalViewForMember(
+  snapshot: SystemSnapshot | null,
+  viewpointMemberKey: string | null,
+) {
+  if (!snapshot || !viewpointMemberKey) return undefined;
+  const member = fleetMemberForSelectionKey(
+    snapshot.metadata?.fleet?.members ?? [],
+    viewpointMemberKey,
+  );
+  if (!member) return undefined;
+  const views = snapshot.metadata?.tacticalViews;
+  if (!views) return undefined;
+  const wantedName = dispositionKey(member.name);
+  return (
+    views[viewpointMemberKey] ||
+    Object.values(views).find((view) => dispositionKey(view.memberName) === wantedName) ||
+    views[member.id] ||
+    Object.values(views).find(
+      (view) =>
+        view.memberId === member.id &&
+        (member.slot === undefined ||
+          view.memberSlot === undefined ||
+          view.memberSlot === member.slot),
+    )
+  );
 }
 
 export function classifyTacticalSnapshot(
@@ -192,12 +222,14 @@ export function resolveDossierShip({
   if (request.id === "player-ship" || dispositionKey(localName) === wantedName) {
     return { ...request.seed, ...localObserver, id: "player-ship", kind: "ship" };
   }
-  const member = fleetMembers?.find(
-    (candidate) => candidate.id === request.id || dispositionKey(candidate.name) === wantedName,
+  const memberByName = fleetMembers?.find(
+    (candidate) => dispositionKey(candidate.name) === wantedName,
   );
-  const point = scenePoints.find(
-    (candidate) => candidate.id === request.id || dispositionKey(candidate.name) === wantedName,
+  const member = memberByName || fleetMembers?.find((candidate) => candidate.id === request.id);
+  const pointByName = scenePoints.find(
+    (candidate) => dispositionKey(candidate.name) === wantedName,
   );
+  const point = pointByName || scenePoints.find((candidate) => candidate.id === request.id);
   return {
     ...request.seed,
     ...(member as TelemetryEntity | undefined),

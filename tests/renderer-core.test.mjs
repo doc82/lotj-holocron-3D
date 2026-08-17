@@ -36,7 +36,10 @@ import {
   planCombatEvent,
   planDestructionEvent,
 } from "../renderer/src/domain/combat.ts";
-import { buildTacticalTargetShortcuts } from "../renderer/src/domain/tacticalTargets.ts";
+import {
+  buildTacticalTargetShortcuts,
+  reconcileDismissedTargetNames,
+} from "../renderer/src/domain/tacticalTargets.ts";
 import {
   normalizeShipDescription,
   sanitizedStatusSections,
@@ -72,6 +75,29 @@ test("fleet selection treats ships with colliding transport ids as separate card
     ["TeeHee2", "TeeHee3"],
   );
   assert.equal(next.size, 2, "one card click should deselect exactly one ship");
+});
+
+test("target dismissals survive transient polling gaps and reset after confirmed absence", () => {
+  const dismissed = new Set(["isd45"]);
+  const firstGap = reconcileDismissedTargetNames(dismissed, new Map(), []);
+  assert.deepEqual([...firstGap.dismissedNames], ["isd45"]);
+  assert.equal(firstGap.absentSnapshots.get("isd45"), 1);
+
+  const restored = reconcileDismissedTargetNames(
+    firstGap.dismissedNames,
+    firstGap.absentSnapshots,
+    ["ISD45"],
+  );
+  assert.deepEqual([...restored.dismissedNames], ["isd45"]);
+  assert.equal(restored.absentSnapshots.size, 0);
+
+  const absentOnce = reconcileDismissedTargetNames(restored.dismissedNames, new Map(), []);
+  const absentTwice = reconcileDismissedTargetNames(
+    absentOnce.dismissedNames,
+    absentOnce.absentSnapshots,
+    [],
+  );
+  assert.equal(absentTwice.dismissedNames.size, 0);
 });
 
 test("formation movement lines share one destination", () => {

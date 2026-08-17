@@ -12,7 +12,7 @@ export function useFleetSelection(fleet?: FleetStatus) {
   const [scope, setScope] = useState<FleetScope>("local");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedMemberKeys, setSelectedMemberKeys] = useState<Set<string>>(() => new Set());
-  const [viewpointMemberId, setViewpointMemberId] = useState<string | null>(null);
+  const [viewpointMemberKey, setViewpointMemberKey] = useState<string | null>(null);
 
   const selectedMembers = useMemo(
     () => fleetMembersMatchingSelection(fleet?.members ?? [], selectedMemberKeys),
@@ -27,7 +27,7 @@ export function useFleetSelection(fleet?: FleetStatus) {
     if (fleet?.active === true) return;
     setScope("local");
     setSelectedMemberKeys(new Set());
-    setViewpointMemberId(null);
+    setViewpointMemberKey(null);
   }, [fleet?.active]);
 
   useEffect(() => {
@@ -40,10 +40,12 @@ export function useFleetSelection(fleet?: FleetStatus) {
   }, [fleet?.active, fleet?.members]);
 
   useEffect(() => {
-    if (!viewpointMemberId) return;
-    if (fleet?.members.some((member) => member.id === viewpointMemberId)) return;
-    setViewpointMemberId(null);
-  }, [fleet?.members, viewpointMemberId]);
+    if (!viewpointMemberKey) return;
+    if (fleet?.members.some((member) => fleetMemberSelectionKey(member) === viewpointMemberKey)) {
+      return;
+    }
+    setViewpointMemberKey(null);
+  }, [fleet?.members, viewpointMemberKey]);
 
   const selectScope = useCallback(
     (nextScope: FleetScope) => {
@@ -51,7 +53,7 @@ export function useFleetSelection(fleet?: FleetStatus) {
       setScope(nextScope);
       if (nextScope === "local") {
         setSelectedMemberKeys(new Set());
-        setViewpointMemberId(null);
+        setViewpointMemberKey(null);
       } else if (fleet) {
         const members =
           nextScope === "wings" ? fleet.members.filter((member) => !member.leader) : fleet.members;
@@ -83,6 +85,12 @@ export function useFleetSelection(fleet?: FleetStatus) {
     setScope("all");
   }, [fleet]);
 
+  const selectOnlyMember = useCallback((member: FleetMember) => {
+    setSelectedMemberKeys(new Set([fleetMemberSelectionKey(member)]));
+    setScope("selected");
+    setDrawerOpen(true);
+  }, []);
+
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
   return {
@@ -93,11 +101,12 @@ export function useFleetSelection(fleet?: FleetStatus) {
     selectedMember: selectedMembers[0],
     allMembersSelected,
     selectedScopeEmpty: scope === "selected" && selectedMembers.length === 0,
-    viewpointMemberId,
+    viewpointMemberKey,
     selectScope,
     toggleMember,
     selectAll,
-    selectViewpoint: setViewpointMemberId,
+    selectOnlyMember,
+    selectViewpoint: setViewpointMemberKey,
     closeDrawer,
   } as const;
 }

@@ -26,6 +26,14 @@ export function fleetMemberSelectionKey(member: Pick<FleetMember, "id" | "name">
   return name ? `name:${name}` : `id:${normalizedName(member.id)}`;
 }
 
+export function fleetMemberForSelectionKey(
+  members: FleetMember[],
+  selectionKey: string | null,
+): FleetMember | undefined {
+  if (!selectionKey) return undefined;
+  return members.find((member) => fleetMemberSelectionKey(member) === selectionKey);
+}
+
 export function fleetMembersMatchingSelection(
   members: FleetMember[],
   selectionKeys: ReadonlySet<string>,

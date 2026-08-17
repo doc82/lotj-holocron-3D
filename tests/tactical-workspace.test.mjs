@@ -51,16 +51,17 @@ const snapshot = {
 };
 
 test("remote tactical snapshots replace the observer without mutating root telemetry", () => {
-  const remote = buildTacticalSnapshot(snapshot, "fleet-2");
+  const remote = buildTacticalSnapshot(snapshot, "name:teehee3");
 
   assert.equal(remote.observer.name, "TeeHee3");
   assert.equal(remote.observedAt, 120);
   assert.equal(remote.metadata.activeTacticalViewMemberId, "fleet-2");
+  assert.equal(remote.metadata.activeTacticalViewMemberKey, "name:teehee3");
   assert.equal(snapshot.observer.name, "TeeHee1");
 });
 
 test("tactical classification preserves formation, target, and user dispositions", () => {
-  const remote = buildTacticalSnapshot(snapshot, "fleet-2");
+  const remote = buildTacticalSnapshot(snapshot, "name:teehee3");
   const classified = classifyTacticalSnapshot(remote, snapshot, { isd45: "ally" });
 
   assert.equal(classified.observer.formationMember, true);
@@ -94,4 +95,41 @@ test("dossier resolution merges refreshed fleet data into the requested ship", (
   assert.equal(dossier.name, "TeeHee3");
   assert.equal(dossier.condition, "disabled");
   assert.equal(dossier.kind, "ship");
+});
+
+test("remote views and dossiers prefer ship names when transport ids collide", () => {
+  const collidingSnapshot = {
+    ...snapshot,
+    metadata: {
+      ...snapshot.metadata,
+      fleet: {
+        ...snapshot.metadata.fleet,
+        members: [
+          { id: "shared-id", name: "TeeHee1", leader: true },
+          { ...remoteMember, id: "shared-id" },
+        ],
+      },
+      tacticalViews: {
+        "name:teehee3": {
+          ...snapshot.metadata.tacticalViews["fleet-2"],
+          memberId: "shared-id",
+        },
+      },
+    },
+  };
+  const remote = buildTacticalSnapshot(collidingSnapshot, "name:teehee3");
+  assert.equal(remote.observer.name, "TeeHee3");
+
+  const dossier = resolveDossierShip({
+    request: {
+      id: "shared-id",
+      name: "TeeHee3",
+      seed: { id: "shared-id", name: "TeeHee3" },
+    },
+    localName: "TeeHee1",
+    localObserver,
+    fleetMembers: collidingSnapshot.metadata.fleet.members,
+    scenePoints: [],
+  });
+  assert.equal(dossier.name, "TeeHee3");
 });

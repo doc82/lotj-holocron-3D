@@ -302,7 +302,10 @@ export interface SystemSnapshot {
     fleet?: FleetStatus;
     fleetOrder?: FleetOrderStatus;
     tacticalViews?: Record<string, TacticalView>;
+    activeTacticalViewMemberId?: string;
+    activeTacticalViewMemberKey?: string;
     lastRemoteViewMemberId?: string;
+    lastRemoteViewMemberKey?: string;
     lastRemoteViewObservedAt?: number;
     formations?: {
       battlegroup?: FleetStatus;

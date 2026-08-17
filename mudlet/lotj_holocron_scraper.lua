@@ -735,14 +735,29 @@ local function findEntity(entity)
   return nil
 end
 
-local function findTacticalViewEntity(viewpointMemberId, entity)
-  local wantedView = trim(viewpointMemberId):lower()
+local function findTacticalViewEntity(viewpointMemberKey, entity)
+  local wantedView = trim(viewpointMemberKey):lower()
   if wantedView == "" then
     return nil
   end
   local views = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.tacticalViews
     or {}
   local view = views[wantedView]
+  if type(view) ~= "table" then
+    local wantedName = wantedView:match("^name:(.+)$")
+    for _, candidate in pairs(views) do
+      if
+        type(candidate) == "table"
+        and (
+          (wantedName and trim(candidate.memberName):lower() == wantedName)
+          or trim(candidate.memberId):lower() == wantedView
+        )
+      then
+        view = candidate
+        break
+      end
+    end
+  end
   if type(view) ~= "table" then
     return nil
   end
@@ -760,8 +775,12 @@ local function findTacticalViewEntity(viewpointMemberId, entity)
 end
 
 local function findPayloadTarget(payload)
-  if trim(payload.viewpointMemberId) ~= "" then
-    return findTacticalViewEntity(payload.viewpointMemberId, { id = trim(payload.targetId) })
+  local viewpointMemberKey = trim(payload.viewpointMemberKey)
+  if viewpointMemberKey == "" then
+    viewpointMemberKey = trim(payload.viewpointMemberId)
+  end
+  if viewpointMemberKey ~= "" then
+    return findTacticalViewEntity(viewpointMemberKey, { id = trim(payload.targetId) })
   end
   return findEntity({ id = trim(payload.targetId) })
 end
@@ -1344,7 +1363,11 @@ local function applyRemoteRadarResult(result, capture)
   end
   local memberId = trim(capture.remoteViewMemberId):lower()
   local memberName = trim(capture.remoteViewMemberName)
-  if memberId == "" or memberName == "" then
+  local memberKey = trim(capture.remoteViewMemberKey):lower()
+  if memberKey == "" and memberName ~= "" then
+    memberKey = "name:" .. memberName:lower()
+  end
+  if memberId == "" or memberName == "" or memberKey == "" then
     return nil, "remote tactical view capture is missing its formation member"
   end
   local responseName = trim(capture.remoteResponseMemberName)
@@ -1358,7 +1381,7 @@ local function applyRemoteRadarResult(result, capture)
   local metadata = Scraper.state.metadata or {}
   metadata.tacticalViews = metadata.tacticalViews or {}
   Scraper.state.metadata = metadata
-  local previous = metadata.tacticalViews[memberId]
+  local previous = metadata.tacticalViews[memberKey] or metadata.tacticalViews[memberId]
   local observer = copyTable(capture.remoteViewMember or {})
   if type(previous) == "table" and type(previous.observer) == "table" then
     mergeMissing(observer, previous.observer)
@@ -1386,7 +1409,7 @@ local function applyRemoteRadarResult(result, capture)
     end
   end
 
-  metadata.tacticalViews[memberId] = {
+  metadata.tacticalViews[memberKey] = {
     memberId = memberId,
     memberName = memberName,
     memberSlot = capture.remoteViewMemberSlot,
@@ -1397,6 +1420,7 @@ local function applyRemoteRadarResult(result, capture)
     stale = false,
   }
   metadata.lastRemoteViewMemberId = memberId
+  metadata.lastRemoteViewMemberKey = memberKey
   metadata.lastRemoteViewObservedAt = os.time()
   return true
 end
@@ -2393,45 +2417,80 @@ local function validateSystemCoordinate(value)
   return value >= 0 and math.floor(value + 0.5) or math.ceil(value - 0.5)
 end
 
+local function formationMemberKey(member)
+  local name = trim(member and member.name):lower()
+  if name ~= "" then
+    return "name:" .. name
+  end
+  return "id:" .. trim(member and member.id):lower()
+end
+
+local function findFormationMember(fleet, wantedName, wantedSlot, wantedId)
+  wantedName = trim(wantedName):lower()
+  wantedId = trim(wantedId):lower()
+  wantedSlot = tonumber(wantedSlot)
+  if wantedName ~= "" then
+    for _, member in ipairs(fleet.members or {}) do
+      if trim(member.name):lower() == wantedName then
+        return member
+      end
+    end
+  end
+  if wantedSlot then
+    for _, member in ipairs(fleet.members or {}) do
+      if tonumber(member.slot) == wantedSlot then
+        return member
+      end
+    end
+  end
+  if wantedId ~= "" then
+    for _, member in ipairs(fleet.members or {}) do
+      if trim(member.id):lower() == wantedId then
+        return member
+      end
+    end
+  end
+  return nil
+end
+
 local function selectedFormationMembers(payload, fleet)
   local selected, seen = {}, {}
+  local requestedNames = type(payload.memberNames) == "table" and payload.memberNames or nil
   local requestedIds = type(payload.memberIds) == "table" and payload.memberIds or nil
-  if requestedIds and #requestedIds > 0 then
-    if #requestedIds > 64 then
+  local requestedSlots = type(payload.memberSlots) == "table" and payload.memberSlots or nil
+  local requestedCount = requestedNames and #requestedNames or 0
+  if requestedCount == 0 then
+    requestedCount = requestedIds and #requestedIds or 0
+  end
+  if requestedCount > 0 then
+    if requestedCount > 64 then
       return nil, "too many formation members were selected"
     end
-    for _, rawId in ipairs(requestedIds) do
-      local wantedId = trim(rawId):lower()
-      local found
-      if wantedId == "" then
+    for index = 1, requestedCount do
+      local wantedName = requestedNames and requestedNames[index] or nil
+      local wantedId = requestedIds and requestedIds[index] or nil
+      local wantedSlot = requestedSlots and requestedSlots[index] or nil
+      if requestedNames and trim(wantedName) == "" then
+        return nil, "a selected formation member name is invalid"
+      end
+      if not requestedNames and trim(wantedId) == "" then
         return nil, "a selected formation member id is invalid"
       end
-      for _, member in ipairs(fleet.members or {}) do
-        if trim(member.id):lower() == wantedId then
-          found = member
-          break
-        end
-      end
+      local found = findFormationMember(fleet, wantedName, wantedSlot, wantedId)
       if not found then
         return nil, "a selected formation member is no longer available"
       end
-      local key = trim(found.id):lower()
+      local key = formationMemberKey(found)
       if not seen[key] then
         seen[key] = true
         table.insert(selected, found)
       end
     end
   else
-    local wantedId = trim(payload.memberId):lower()
-    local wantedName = trim(payload.memberName):lower()
-    for _, member in ipairs(fleet.members or {}) do
-      if
-        (wantedId ~= "" and trim(member.id):lower() == wantedId)
-        or (wantedName ~= "" and trim(member.name):lower() == wantedName)
-      then
-        table.insert(selected, member)
-        break
-      end
+    local found =
+      findFormationMember(fleet, payload.memberName, payload.memberSlot, payload.memberId)
+    if found then
+      table.insert(selected, found)
     end
   end
   if #selected == 0 then
@@ -4804,18 +4863,8 @@ local function dispatchTacticalViewRequest(payload, message)
     return false, "only the battlegroup flagship can request a wing tactical view"
   end
 
-  local wantedId = trim(payload.memberId):lower()
-  local wantedName = trim(payload.memberName):lower()
-  local member
-  for _, candidate in ipairs(fleet.members or {}) do
-    if
-      (wantedId ~= "" and trim(candidate.id):lower() == wantedId)
-      or (wantedName ~= "" and trim(candidate.name):lower() == wantedName)
-    then
-      member = candidate
-      break
-    end
-  end
+  local member =
+    findFormationMember(fleet, payload.memberName, payload.memberSlot, payload.memberId)
   if not member then
     return false, "the selected battlegroup member is no longer available"
   end
@@ -4838,6 +4887,7 @@ local function dispatchTacticalViewRequest(payload, message)
     polled = true,
     pollDelay = Scraper.polling.commandGapSeconds,
     intentId = message and message.id or nil,
+    remoteViewMemberKey = formationMemberKey(member),
     remoteViewMemberId = trim(member.id or member.name):lower(),
     remoteViewMemberName = trim(member.name),
     remoteViewMemberSlot = member.slot,
@@ -4966,18 +5016,22 @@ local function dispatchClearCombatTarget(payload)
       local memberId = trim(member.id):lower()
       local memberName = trim(member.name):lower()
       local requested = false
-      for _, ownerId in ipairs(requestedIds) do
-        if memberId ~= "" and memberId == trim(ownerId):lower() then
-          requested = true
+      if #requestedNames > 0 then
+        for _, ownerName in ipairs(requestedNames) do
+          if memberName ~= "" and memberName == trim(ownerName):lower() then
+            requested = true
+          end
+        end
+      else
+        for _, ownerId in ipairs(requestedIds) do
+          if memberId ~= "" and memberId == trim(ownerId):lower() then
+            requested = true
+          end
         end
       end
-      for _, ownerName in ipairs(requestedNames) do
-        if memberName ~= "" and memberName == trim(ownerName):lower() then
-          requested = true
-        end
-      end
-      if requested and not seenMembers[memberId ~= "" and memberId or memberName] then
-        seenMembers[memberId ~= "" and memberId or memberName] = true
+      local memberKey = formationMemberKey(member)
+      if requested and not seenMembers[memberKey] then
+        seenMembers[memberKey] = true
         table.insert(members, member)
       end
     end
@@ -5513,15 +5567,16 @@ local function dispatchFleetOrder(payload, message)
         targetKey = "wings"
         targetDetails.ownerLabel = "WING TARGET"
       else
-        local ownerIds, ownerNames = {}, {}
+        local ownerIds, ownerNames, ownerKeys = {}, {}, {}
         for _, member in ipairs(selectedMembers) do
           table.insert(ownerIds, trim(member.id or member.name):lower())
           table.insert(ownerNames, trim(member.name))
+          table.insert(ownerKeys, trim(member.name or member.id):lower())
           if trim(member.name):lower() == observerName:lower() then
             localTarget = true
           end
         end
-        targetKey = "selected:" .. table.concat(ownerIds, ",")
+        targetKey = "selected:" .. table.concat(ownerKeys, ",")
         targetDetails.ownerIds = ownerIds
         targetDetails.ownerNames = ownerNames
         if #selectedMembers == 1 then

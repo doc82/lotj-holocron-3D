@@ -17,7 +17,7 @@ interface ShipCommandControllerOptions {
   fleet?: FleetStatus;
   fleetScope: FleetScope;
   selectedFleetMembers: FleetMember[];
-  viewpointMemberId: string | null;
+  viewpointMemberKey: string | null;
   autotrackDesired: boolean;
   autotrackPending: boolean;
   shieldRecharging: boolean;
@@ -38,7 +38,7 @@ export function useShipCommandController({
   fleet,
   fleetScope,
   selectedFleetMembers,
-  viewpointMemberId,
+  viewpointMemberKey,
   autotrackDesired,
   autotrackPending,
   shieldRecharging,
@@ -125,7 +125,7 @@ export function useShipCommandController({
           payload.memberSlot = selectedFleetMembers[0].slot;
         }
       }
-      if (viewpointMemberId) payload.viewpointMemberId = viewpointMemberId;
+      if (viewpointMemberKey) payload.viewpointMemberKey = viewpointMemberKey;
       if (order === "target") {
         if (!selectedShip) {
           setAlert("FLEET TARGET ORDER REQUIRES A SELECTED SHIP");
@@ -158,7 +158,7 @@ export function useShipCommandController({
       selectedShip,
       scheduleTimeout,
       setAlert,
-      viewpointMemberId,
+      viewpointMemberKey,
     ],
   );
 
