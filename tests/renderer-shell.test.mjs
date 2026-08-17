@@ -11,6 +11,7 @@ async function readFile(path, encoding) {
       "renderer/src/app/WorkspacePanels.tsx",
       "renderer/src/app/TacticalChrome.tsx",
       "renderer/src/app/TacticalIcons.tsx",
+      "renderer/src/features/tactical/useTacticalInteractionController.ts",
     ].map((viewPath) => readTextFile(viewPath, encoding)),
   );
   return [source, ...composedViews].join("\n");

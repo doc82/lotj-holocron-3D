@@ -7,7 +7,6 @@ import {
   aggregateReading,
   buildTacticalSnapshot,
   classifyTacticalSnapshot,
-  dispositionKey,
   fleetMembersForScope,
   pointsIncludingClusters,
   speedLabel,
@@ -33,6 +32,7 @@ import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
 import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
 import { TargetShortcutRail } from "../features/tactical/TargetShortcutRail";
+import { useTacticalInteractionController } from "../features/tactical/useTacticalInteractionController";
 import type { RangeReading } from "../features/telemetry/RangeMeter";
 import { ShipDossierPanel } from "../features/telemetry/ShipDossierPanel";
 import { useTelemetry } from "../features/telemetry/useTelemetry";
@@ -47,7 +47,7 @@ import {
   FleetScopeDrawer,
   SelectedTargetPanel,
 } from "./WorkspacePanels";
-import type { FleetMember, Vector3 } from "../types/telemetry";
+import type { Vector3 } from "../types/telemetry";
 
 export function App() {
   const telemetry = useTelemetry();
@@ -55,7 +55,6 @@ export function App() {
   const [starting, setStarting] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [targetDrawerOpen, setTargetDrawerOpen] = useState(false);
-  const [dismissedTargetNames, setDismissedTargetNames] = useState<Set<string>>(() => new Set());
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
   const [hoveredMemberId, setHoveredMemberId] = useState<string | null>(null);
   const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
@@ -154,13 +153,6 @@ export function App() {
       telemetry.snapshot?.observer?.target,
     ],
   );
-  const targetShortcuts = useMemo(
-    () =>
-      reportedTargetShortcuts.filter(
-        (target) => !dismissedTargetNames.has(dispositionKey(target.targetName)),
-      ),
-    [dismissedTargetNames, reportedTargetShortcuts],
-  );
   const selectedFleetScenePoint = selectedFleetMember
     ? (flattenedScenePoints.find(
         (point) =>
@@ -185,19 +177,6 @@ export function App() {
     tacticalRef.current?.fitSystem();
     setCommandAlert(`TACTICAL VIEW ACTIVE // ${activeTacticalView.memberName.toUpperCase()}`);
   }, [activeTacticalView?.memberName, activeTacticalView?.observedAt, setCommandAlert]);
-  useEffect(() => {
-    if (targetShortcuts.length > 1 && telemetry.connected) return;
-    setTargetDrawerOpen(false);
-  }, [targetShortcuts.length, telemetry.connected]);
-  useEffect(() => {
-    const reported = new Set(
-      reportedTargetShortcuts.map((target) => dispositionKey(target.targetName)),
-    );
-    setDismissedTargetNames((current) => {
-      const next = new Set([...current].filter((target) => reported.has(target)));
-      return next.size === current.size ? current : next;
-    });
-  }, [reportedTargetShortcuts]);
   const observerSpeed =
     typeof localObserver?.speed === "object" && localObserver.speed
       ? Number(localObserver.speed.current) || 0
@@ -209,6 +188,10 @@ export function App() {
   const navigableTarget =
     selected && ["ship", "planet", "celestial", "star"].includes(selected.kind) ? selected : null;
   const selectedShip = selected?.kind === "ship" ? selected : null;
+  const clearTransientSelection = useCallback(() => {
+    setExpandedClusterId(null);
+    setHoveredMemberId(null);
+  }, []);
   const closeTargetDrawerForDossier = useCallback(() => setTargetDrawerOpen(false), []);
   const dossier = useShipDossierController({
     connected: telemetry.connected,
@@ -226,6 +209,22 @@ export function App() {
   const dossierShip = dossier.ship;
   const manualScanSource = dossier.scanSource;
   const manualScanStatus = dossier.scanStatus;
+  const tacticalInteractions = useTacticalInteractionController({
+    connected: telemetry.connected,
+    localName,
+    reportedTargets: reportedTargetShortcuts,
+    tacticalRef,
+    setAlert: setCommandAlert,
+    targetDrawerOpen,
+    setTargetDrawerOpen,
+    selectFleetScope: fleetSelection.selectScope,
+    selectViewpoint: fleetSelection.selectViewpoint,
+    closeFleetDrawer: fleetSelection.closeDrawer,
+    closeDossier: dossier.close,
+    setSelectedId,
+    clearClusterSelection: clearTransientSelection,
+  });
+  const targetShortcuts = tacticalInteractions.targets;
 
   const issuerMembers = fleetMembersForScope(fleet, fleetScope, selectedFleetMembers);
   const commandIssuerLabel =
@@ -281,10 +280,6 @@ export function App() {
     [fleet, flattenedScenePoints, observer, selectedFleetMembers],
   );
 
-  const clearTransientSelection = useCallback(() => {
-    setExpandedClusterId(null);
-    setHoveredMemberId(null);
-  }, []);
   const navigation = useNavigationController({
     connected: telemetry.connected,
     landed,
@@ -357,15 +352,7 @@ export function App() {
   const shieldRecharging = telemetry.snapshot?.metadata?.shieldRecharging === true;
   const shieldStatusPending = telemetry.snapshot?.metadata?.shieldStatusPending === true;
   const autoRechargeEnabled = telemetry.snapshot?.metadata?.autoRechargeEnabled !== false;
-  const restoreTarget = useCallback((name: string) => {
-    setDismissedTargetNames((current) => {
-      const key = dispositionKey(name);
-      if (!current.has(key)) return current;
-      const next = new Set(current);
-      next.delete(key);
-      return next;
-    });
-  }, []);
+  const restoreTarget = tacticalInteractions.restoreTarget;
   const shipCommands = useShipCommandController({
     connected: telemetry.connected,
     landed,
@@ -412,86 +399,13 @@ export function App() {
   const navigationDestinations = hyperspace.navigationDestinations;
   const currentGalaxyPosition = hyperspace.currentGalaxyPosition;
 
-  const selectCommandScope = useCallback(
-    (scope: FleetScope) => {
-      fleetSelection.selectScope(scope);
-      setTargetDrawerOpen(false);
-    },
-    [fleetSelection],
-  );
+  const selectCommandScope = tacticalInteractions.selectCommandScope;
   const toggleFleetMember = fleetSelection.toggleMember;
   const selectAllFleetMembers = fleetSelection.selectAll;
-
-  const viewFleetMember = useCallback(
-    async (member: FleetMember) => {
-      if (member.name.trim().toLowerCase() === localName.trim().toLowerCase()) {
-        fleetSelection.selectViewpoint(null);
-        setSelectedId(null);
-        tacticalRef.current?.setCameraMode("player");
-        return;
-      }
-      fleetSelection.selectViewpoint(member.id);
-      setSelectedId(null);
-      setExpandedClusterId(null);
-      setHoveredMemberId(null);
-      tacticalRef.current?.setCameraMode("player");
-      setCommandAlert(`REQUESTING TACTICAL VIEW // ${member.name.toUpperCase()}`);
-      const result = await window.holocron?.sendIntent("request_tactical_view", {
-        memberId: member.id,
-        memberName: member.name,
-      });
-      if (result?.accepted === false) {
-        fleetSelection.selectViewpoint(null);
-        setCommandAlert(
-          `TACTICAL VIEW REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`,
-        );
-        return;
-      }
-      setCommandAlert(`TACTICAL VIEW REQUESTED // ${member.name.toUpperCase()}`);
-    },
-    [fleetSelection, localName, setCommandAlert],
-  );
-
-  const focusTargetShortcut = useCallback(
-    (target: TacticalTargetShortcut) => {
-      if (!target.ship?.id) return;
-      setExpandedClusterId(null);
-      setHoveredMemberId(null);
-      setSelectedId(target.ship.id);
-      fleetSelection.closeDrawer();
-      setTargetDrawerOpen(false);
-    },
-    [fleetSelection],
-  );
-
-  const clearTargetShortcut = useCallback(
-    async (target: TacticalTargetShortcut) => {
-      const targetKeys = [...new Set(target.owners.map((owner) => owner.key).filter(Boolean))];
-      if (targetKeys.length === 0) {
-        setCommandAlert("TARGET CLEAR REJECTED // TARGET OWNERSHIP IS UNKNOWN");
-        return;
-      }
-      setCommandAlert(`CLEARING TARGET // ${target.targetName.toUpperCase()}`);
-      const result = await window.holocron?.sendIntent("clear_combat_target", { targetKeys });
-      if (result?.accepted === false) {
-        setCommandAlert(
-          `TARGET CLEAR REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`,
-        );
-        return;
-      }
-      const key = dispositionKey(target.targetName);
-      setDismissedTargetNames((current) => new Set(current).add(key));
-      setTargetDrawerOpen(false);
-      setCommandAlert(`TARGET CLEARED // ${target.targetName.toUpperCase()}`);
-    },
-    [setCommandAlert],
-  );
-
-  const toggleTargetDrawer = useCallback(() => {
-    fleetSelection.closeDrawer();
-    dossier.close();
-    setTargetDrawerOpen((open) => !open);
-  }, [dossier, fleetSelection]);
+  const viewFleetMember = tacticalInteractions.viewFleetMember;
+  const focusTargetShortcut = tacticalInteractions.focusTarget;
+  const clearTargetShortcut = tacticalInteractions.clearTarget;
+  const toggleTargetDrawer = tacticalInteractions.toggleTargetDrawer;
 
   const openHyperspacePlanner = hyperspace.openPlanner;
   const plotHyperspace = hyperspace.plot;
