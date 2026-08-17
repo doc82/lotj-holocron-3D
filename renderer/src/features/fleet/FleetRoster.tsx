@@ -6,6 +6,7 @@ import type {
   SpeedReading,
 } from "../../types/telemetry";
 import type { ShipDossierMode } from "../telemetry/ShipDossierPanel";
+import { fleetMemberSelectionKey } from "../../domain/fleet";
 import styles from "./FleetRoster.module.css";
 
 function RosterActionIcon({ type }: { type: "view" | "status" | "info" }) {
@@ -94,7 +95,7 @@ export function FleetRoster({
   localName,
   scope,
   selectedMemberId,
-  selectedMemberIds,
+  selectedMemberKeys,
   viewpointMemberId,
   onToggleMember,
   onViewMember,
@@ -105,7 +106,7 @@ export function FleetRoster({
   localName: string;
   scope: FleetScope;
   selectedMemberId?: string | null;
-  selectedMemberIds?: ReadonlySet<string>;
+  selectedMemberKeys?: ReadonlySet<string>;
   viewpointMemberId?: string | null;
   onToggleMember?(member: FleetMember): void;
   onViewMember?(member: FleetMember): void;
@@ -157,8 +158,8 @@ export function FleetRoster({
       : scope === "wings"
         ? fleet.members.filter((member) => !member.leader)
         : fleet.members;
-  const selectedMembers = selectedMemberIds
-    ? fleet.members.filter((member) => selectedMemberIds.has(member.id))
+  const selectedMembers = selectedMemberKeys
+    ? fleet.members.filter((member) => selectedMemberKeys.has(fleetMemberSelectionKey(member)))
     : selectedMemberId
       ? fleet.members.filter((member) => member.id === selectedMemberId)
       : visibleMembers;
@@ -214,7 +215,8 @@ export function FleetRoster({
               : `${autopilot === undefined ? "UNKNOWN" : autopilot ? "ON" : "OFF"}` +
                 (autopilotOrder?.status === "rejected" ? " // REJECTED" : "");
           const selectedForCommand =
-            selectedMemberIds?.has(member.id) ?? member.id === selectedMemberId;
+            selectedMemberKeys?.has(fleetMemberSelectionKey(member)) ??
+            member.id === selectedMemberId;
           const selectable = Boolean(
             fleet.kind === "battlegroup" && scope !== "local" && onToggleMember,
           );
@@ -223,7 +225,7 @@ export function FleetRoster({
           };
           return (
             <article
-              key={member.id}
+              key={fleetMemberSelectionKey(member)}
               className={`${styles.member} ${selectedForCommand ? styles.activeMember : ""}`}
               aria-label={member.name}
               aria-checked={selectable ? selectedForCommand : undefined}

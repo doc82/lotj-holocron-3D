@@ -13,7 +13,7 @@ export function FleetScopeDrawer({
   fleetOrder,
   localName,
   scope,
-  selectedMemberIds,
+  selectedMemberKeys,
   viewpointMemberId,
   allMembersSelected,
   onSelectAll,
@@ -27,7 +27,7 @@ export function FleetScopeDrawer({
   fleetOrder?: FleetOrderStatus;
   localName: string;
   scope: FleetScope;
-  selectedMemberIds: Set<string>;
+  selectedMemberKeys: Set<string>;
   viewpointMemberId: string | null;
   allMembersSelected: boolean;
   onSelectAll(): void;
@@ -76,7 +76,7 @@ export function FleetScopeDrawer({
         fleetOrder={fleetOrder}
         localName={localName}
         scope={scope}
-        selectedMemberIds={selectedMemberIds}
+        selectedMemberKeys={selectedMemberKeys}
         viewpointMemberId={viewpointMemberId}
         onToggleMember={onToggleMember}
         onViewMember={onViewMember}

@@ -1,34 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import {
+  fleetMemberSelectionKey,
+  fleetMembersMatchingSelection,
+  toggleFleetMemberSelection,
+} from "../../domain/fleet";
 import type { FleetMember, FleetStatus } from "../../types/telemetry";
 import type { FleetScope } from "./FleetRoster";
 
 export function useFleetSelection(fleet?: FleetStatus) {
   const [scope, setScope] = useState<FleetScope>("local");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(() => new Set());
+  const [selectedMemberKeys, setSelectedMemberKeys] = useState<Set<string>>(() => new Set());
   const [viewpointMemberId, setViewpointMemberId] = useState<string | null>(null);
 
   const selectedMembers = useMemo(
-    () => fleet?.members.filter((member) => selectedMemberIds.has(member.id)) ?? [],
-    [fleet?.members, selectedMemberIds],
+    () => fleetMembersMatchingSelection(fleet?.members ?? [], selectedMemberKeys),
+    [fleet?.members, selectedMemberKeys],
   );
   const allMembersSelected = Boolean(
-    fleet?.members.length && fleet.members.every((member) => selectedMemberIds.has(member.id)),
+    fleet?.members.length &&
+    fleet.members.every((member) => selectedMemberKeys.has(fleetMemberSelectionKey(member))),
   );
 
   useEffect(() => {
     if (fleet?.active === true) return;
     setScope("local");
-    setSelectedMemberIds(new Set());
+    setSelectedMemberKeys(new Set());
     setViewpointMemberId(null);
   }, [fleet?.active]);
 
   useEffect(() => {
     if (!fleet?.active) return;
-    const available = new Set(fleet.members.map((member) => member.id));
-    setSelectedMemberIds((current) => {
-      const next = new Set([...current].filter((id) => available.has(id)));
+    const available = new Set(fleet.members.map(fleetMemberSelectionKey));
+    setSelectedMemberKeys((current) => {
+      const next = new Set([...current].filter((key) => available.has(key)));
       return next.size === current.size ? current : next;
     });
   }, [fleet?.active, fleet?.members]);
@@ -44,12 +50,12 @@ export function useFleetSelection(fleet?: FleetStatus) {
       const sameScope = scope === nextScope;
       setScope(nextScope);
       if (nextScope === "local") {
-        setSelectedMemberIds(new Set());
+        setSelectedMemberKeys(new Set());
         setViewpointMemberId(null);
       } else if (fleet) {
         const members =
           nextScope === "wings" ? fleet.members.filter((member) => !member.leader) : fleet.members;
-        setSelectedMemberIds(new Set(members.map((member) => member.id)));
+        setSelectedMemberKeys(new Set(members.map(fleetMemberSelectionKey)));
       }
       setDrawerOpen((open) => (sameScope ? !open : true));
     },
@@ -58,24 +64,22 @@ export function useFleetSelection(fleet?: FleetStatus) {
 
   const toggleMember = useCallback(
     (member: FleetMember) => {
-      const next = new Set(selectedMemberIds);
-      if (next.has(member.id)) next.delete(member.id);
-      else next.add(member.id);
-      setSelectedMemberIds(next);
+      const next = toggleFleetMemberSelection(selectedMemberKeys, member);
+      setSelectedMemberKeys(next);
       setScope(
         fleet &&
           fleet.members.length > 0 &&
-          fleet.members.every((candidate) => next.has(candidate.id))
+          fleet.members.every((candidate) => next.has(fleetMemberSelectionKey(candidate)))
           ? "all"
           : "selected",
       );
     },
-    [fleet, selectedMemberIds],
+    [fleet, selectedMemberKeys],
   );
 
   const selectAll = useCallback(() => {
     if (!fleet) return;
-    setSelectedMemberIds(new Set(fleet.members.map((member) => member.id)));
+    setSelectedMemberKeys(new Set(fleet.members.map(fleetMemberSelectionKey)));
     setScope("all");
   }, [fleet]);
 
@@ -84,7 +88,7 @@ export function useFleetSelection(fleet?: FleetStatus) {
   return {
     scope,
     drawerOpen,
-    selectedMemberIds,
+    selectedMemberKeys,
     selectedMembers,
     selectedMember: selectedMembers[0],
     allMembersSelected,

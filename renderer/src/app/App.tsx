@@ -78,7 +78,7 @@ export function App() {
   const {
     scope: fleetScope,
     drawerOpen: scopeDrawerOpen,
-    selectedMemberIds: selectedFleetMemberIds,
+    selectedMemberKeys: selectedFleetMemberKeys,
     selectedMembers: selectedFleetMembers,
     selectedMember: selectedFleetMember,
     allMembersSelected: allFleetMembersSelected,
@@ -541,7 +541,7 @@ export function App() {
             fleetOrder={telemetry.snapshot?.metadata?.fleetOrder}
             localName={localName}
             scope={fleetScope}
-            selectedMemberIds={selectedFleetMemberIds}
+            selectedMemberKeys={selectedFleetMemberKeys}
             viewpointMemberId={viewpointMemberId}
             allMembersSelected={allFleetMembersSelected}
             onSelectAll={selectAllFleetMembers}

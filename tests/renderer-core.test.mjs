@@ -24,7 +24,13 @@ import {
   formationDestination,
   resolveFormationOrigins,
 } from "../renderer/src/domain/coursePlot.ts";
-import { canCommandFormation, localFormationRole } from "../renderer/src/domain/fleet.ts";
+import {
+  canCommandFormation,
+  fleetMemberSelectionKey,
+  fleetMembersMatchingSelection,
+  localFormationRole,
+  toggleFleetMemberSelection,
+} from "../renderer/src/domain/fleet.ts";
 import {
   combatVisualStyle,
   planCombatEvent,
@@ -49,6 +55,23 @@ test("squadron leadership is inferred from the local roster member", () => {
   assert.equal(localFormationRole(fleet, "heehee"), "lead");
   assert.equal(canCommandFormation(fleet, "HeeHee"), true);
   assert.equal(canCommandFormation(fleet, "Hhee2"), false);
+});
+
+test("fleet selection treats ships with colliding transport ids as separate cards", () => {
+  const members = [
+    { id: "unknown", name: "TeeHee1" },
+    { id: "unknown", name: "TeeHee2" },
+    { id: "teehee3", name: "TeeHee3" },
+  ];
+  const allSelected = new Set(members.map(fleetMemberSelectionKey));
+
+  const next = toggleFleetMemberSelection(allSelected, members[0]);
+
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, next).map((member) => member.name),
+    ["TeeHee2", "TeeHee3"],
+  );
+  assert.equal(next.size, 2, "one card click should deselect exactly one ship");
 });
 
 test("formation movement lines share one destination", () => {

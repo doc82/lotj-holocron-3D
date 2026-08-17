@@ -410,11 +410,11 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   );
   assert.match(fleetRoster, /scope === "wings"/);
   assert.match(shipCommands, /payload\.memberIds = selectedFleetMembers\.map/);
-  assert.match(fleetSelection, /setSelectedMemberIds/);
+  assert.match(fleetSelection, /setSelectedMemberKeys/);
   assert.match(app, /onToggleMember=\{toggleFleetMember\}/);
   assert.match(app, /aria-label="Select all fleet craft"/);
   assert.match(fleetRoster, /role=\{selectable \? "checkbox"/);
-  assert.match(fleetRoster, /selectedMemberIds\?\.has\(member\.id\)/);
+  assert.match(fleetRoster, /selectedMemberKeys\?\.has\(fleetMemberSelectionKey\(member\)\)/);
   assert.match(fleetRoster, /RosterActionIcon type="view"/);
   assert.match(fleetRoster, /RosterActionIcon type="status"/);
   assert.match(fleetRoster, /RosterActionIcon type="info"/);
