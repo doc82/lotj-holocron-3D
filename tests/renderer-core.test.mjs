@@ -698,6 +698,35 @@ test("exactly colocated ships and celestial bodies share a stable selectable clu
   );
 });
 
+test("the observer participates in a colocated contact cluster without losing its camera anchor", () => {
+  const scene = buildScene({
+    observer: { id: "player-ship", name: "TeeHee1", x: 0, y: 0, z: 0 },
+    entities: [
+      { id: "teehee3", name: "TeeHee3", kind: "ship", x: 0, y: 0, z: 0 },
+      { id: "korriban", name: "Korriban", kind: "planet", x: 0, y: 0, z: 0 },
+      { id: "nearby", name: "Nearby", kind: "ship", x: 0, y: 0, z: 1 },
+    ],
+  });
+
+  assert.equal(scene.points[0].kind, "observer", "the camera anchor remains a top-level point");
+  assert.equal(scene.points[0].id, "player-ship");
+  const cluster = scene.points.find((point) => point.kind === "cluster");
+  assert.ok(cluster, "the orbital position should expose a contact picker");
+  assert.equal(cluster.memberCount, 3);
+  assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.deepEqual(
+    cluster.members.map((member) => member.id),
+    ["korriban", "player-ship", "teehee3"],
+  );
+  assert.equal(
+    scene.points.some((point) => point.id === "teehee3"),
+    false,
+    "the other ship should be selected through the cluster instead of hiding under the observer",
+  );
+  assert.equal(findScenePoint(scene, "teehee3").name, "TeeHee3");
+  assert.equal(findScenePoint(scene, "korriban").kind, "planet");
+});
+
 test("camera reports motion only while it is converging", () => {
   const camera = new OrbitCamera();
   assert.equal(camera.isMoving(), false);

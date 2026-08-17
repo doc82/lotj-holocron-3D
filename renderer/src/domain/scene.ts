@@ -71,7 +71,7 @@ export function colorFor(
 export function summarizeContacts(members: Array<Pick<ScenePoint, "kind">>): string {
   const counts = { ships: 0, planets: 0, stars: 0, contacts: 0 };
   for (const member of members) {
-    if (member.kind === "ship") counts.ships += 1;
+    if (["ship", "observer"].includes(member.kind)) counts.ships += 1;
     else if (member.kind === "star") counts.stars += 1;
     else if (["planet", "celestial"].includes(member.kind)) counts.planets += 1;
     else counts.contacts += 1;
@@ -154,7 +154,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
   }
 
   const colocatedContacts = new Map<string, ScenePoint[]>();
-  for (const contact of contacts) {
+  for (const contact of [observerPoint, ...contacts]) {
     if (contact.kind === "projectile") continue;
     const key = contact.worldPosition.join(":");
     const members = colocatedContacts.get(key) ?? [];
@@ -164,7 +164,10 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const clusters = new Map<string, ScenePoint>();
   for (const [coordinateKey, unsortedMembers] of colocatedContacts) {
-    if (unsortedMembers.length === 1 || !unsortedMembers.some((member) => member.kind === "ship"))
+    if (
+      unsortedMembers.length === 1 ||
+      !unsortedMembers.some((member) => ["ship", "observer"].includes(member.kind))
+    )
       continue;
     const members = [...unsortedMembers].sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
@@ -227,6 +230,17 @@ export function findScenePoint(scene: TacticalScene, id: string | null): ScenePo
   return null;
 }
 
+function indexScenePoints(scene: TacticalScene): Map<string, ScenePoint> {
+  const pointsById = new Map<string, ScenePoint>();
+  for (const point of scene.points) {
+    if (!pointsById.has(point.id)) pointsById.set(point.id, point);
+    for (const member of point.members ?? []) {
+      if (!pointsById.has(member.id)) pointsById.set(member.id, member);
+    }
+  }
+  return pointsById;
+}
+
 function lerpVector(from: Vector3, to: Vector3, amount: number): Vector3 {
   return from.map((value, index) => value + (to[index] - value) * amount) as Vector3;
 }
@@ -257,13 +271,13 @@ export class SceneInterpolator {
 
   constructor(initialScene = buildScene(null)) {
     this.target = initialScene;
-    this.starts = new Map(initialScene.points.map((point) => [point.id, point]));
+    this.starts = indexScenePoints(initialScene);
     this.startRadius = initialScene.radius;
   }
 
   setTarget(nextScene: TacticalScene, now: number, duration = 900): void {
     const current = this.sample(now);
-    this.starts = new Map(current.points.map((point) => [point.id, point]));
+    this.starts = indexScenePoints(current);
     this.startRadius = current.radius;
     this.target = nextScene;
     this.startedAt = now;
