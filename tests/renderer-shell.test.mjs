@@ -140,13 +140,13 @@ test("fleet hyperspace departures render as ship-specific tactical effects", asy
 });
 
 test("scoped hyperspace aborts close without waiting for a local terminal echo", async () => {
-  const [app, scraper] = await Promise.all([
-    readFile("renderer/src/app/App.tsx", "utf8"),
+  const [controller, scraper] = await Promise.all([
+    readFile("renderer/src/features/hyperspace/useHyperspaceController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
   assert.match(
-    app,
-    /const stopHyperspace[\s\S]*?sendIntent\([\s\S]*?"stop_hyperspace"[\s\S]*?setActiveRoute\(null\)/,
+    controller,
+    /const stop[\s\S]*?sendIntent\([\s\S]*?"stop_hyperspace"[\s\S]*?setActiveRoute\(null\)/,
   );
   assert.match(scraper, /local function completeHyperspaceAbort/);
   assert.match(
@@ -471,7 +471,7 @@ test("battlegroup members can open isolated remote tactical views", async () => 
 });
 
 test("player navigation supports vector, target, away, and speed orders", async () => {
-  const [app, engine, scraper, drawer, drawerCss, speedControl, commandFeedback] = await Promise.all([
+  const [app, engine, scraper, drawer, drawerCss, speedControl, commandFeedback, polling] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
@@ -479,6 +479,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
     readFile("renderer/src/features/commands/NavigationDrawer.module.css", "utf8"),
     readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
     readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
+    readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
   ]);
   assert.match(app, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
@@ -487,7 +488,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(speedControl, /type="range"/);
   assert.match(app, /navigationFleetScope \? "fleet_order" : "navigate_ship"/);
   assert.match(app, /sendIntent\("set_ship_speed"/);
-  assert.match(app, /sendIntent\("probe_space"/);
+  assert.match(polling, /sendIntent\("probe_space"/);
   assert.match(app, /payload\.departureSpeed = requestedSpeed/);
   assert.match(app, /navigationMode !== "idle"/);
   assert.match(drawer, /DEPARTURE SPEED REQUIRED/);
