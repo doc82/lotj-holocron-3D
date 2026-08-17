@@ -28,6 +28,7 @@ import { FleetRoster } from "../features/fleet/FleetRoster";
 import type { FleetScope } from "../features/fleet/FleetRoster";
 import { CommandScopeRail } from "../features/fleet/CommandScopeRail";
 import { SquadronCommandPanel } from "../features/fleet/SquadronCommandPanel";
+import { useCommandFeedback } from "../features/feedback/useCommandFeedback";
 import { HyperspacePlanner, type EscapePlanDraft } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
@@ -53,12 +54,6 @@ import type {
 
 const DISPOSITION_STORAGE_KEY = "holocron3d.ship-dispositions.v1";
 
-interface CommandToast {
-  id: number;
-  message: string;
-  tone: "info" | "success" | "warning" | "error";
-}
-
 interface HyperspacePlannerRequest {
   mode: "local" | "galactic";
   origin: { x?: number; y?: number; z?: number };
@@ -81,13 +76,6 @@ interface ShipDossierRequest {
   name: string;
   mode: ShipDossierMode;
   seed: TelemetryEntity;
-}
-
-function commandToastTone(message: string): CommandToast["tone"] {
-  if (/REJECT|BLOCK|FAIL|TIMED OUT|LOST|REQUIRES|SELECT A|CANNOT/.test(message)) return "error";
-  if (/WAIT|AWAIT|TRANSMITTING|TARGETING|TRACKING/.test(message)) return "warning";
-  if (/ACCEPT|COMPLETE|TRANSMITTED|UPDATED|\bON\b|\bOFF\b/.test(message)) return "success";
-  return "info";
 }
 
 function loadDispositions(): Record<string, ShipDisposition> {
@@ -312,8 +300,6 @@ export function App() {
   const [requestedSpeed, setRequestedSpeed] = useState(0);
   const [knownMaximumSpeed, setKnownMaximumSpeed] = useState(0);
   const [navigationStatus, setNavigationStatus] = useState("");
-  const [commandAlert, setCommandAlertValue] = useState("");
-  const [commandToasts, setCommandToasts] = useState<CommandToast[]>([]);
   const [commandLocked, setCommandLocked] = useState(false);
   const [pollingPausePending, setPollingPausePending] = useState(false);
   const [manualScanSource, setManualScanSource] = useState<"status" | "info" | null>(null);
@@ -348,24 +334,12 @@ export function App() {
   const spaceProbeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const escapeTriggeredRef = useRef(false);
   const arrivalRefreshAtRef = useRef<number | null>(null);
-  const commandToastIdRef = useRef(0);
-  const lastFleetToastKeyRef = useRef("");
-  const pushCommandToast = useCallback((message: string, tone = commandToastTone(message)) => {
-    if (!message) return;
-    const id = ++commandToastIdRef.current;
-    setCommandToasts((current) => [...current, { id, message, tone }].slice(-4));
-    setTimeout(
-      () => setCommandToasts((current) => current.filter((toast) => toast.id !== id)),
-      5_000,
-    );
-  }, []);
-  const setCommandAlert = useCallback(
-    (message: string) => {
-      setCommandAlertValue(message);
-      if (message) pushCommandToast(message);
-    },
-    [pushCommandToast],
-  );
+  const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
+  const {
+    alert: commandAlert,
+    toasts: commandToasts,
+    setAlert: setCommandAlert,
+  } = useCommandFeedback(fleetOrder);
   const changePollingPause = useCallback(
     async (paused: boolean) => {
       if (!telemetry.connected || pollingPausePending) return;
@@ -396,31 +370,7 @@ export function App() {
   const scene = useMemo(() => buildScene(classifiedSnapshot), [classifiedSnapshot]);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
-  const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const finishStartup = useCallback(() => setStarting(false), []);
-
-  useEffect(() => {
-    if (!fleetOrder || !["accepted", "partial", "rejected"].includes(fleetOrder.status || ""))
-      return;
-    const reason =
-      fleetOrder.reason ||
-      Object.values(fleetOrder.results || {}).find((result) => result.reason)?.reason;
-    const key = [
-      fleetOrder.id,
-      fleetOrder.order,
-      fleetOrder.status,
-      fleetOrder.acceptedCount,
-      fleetOrder.rejectedCount,
-      reason,
-    ].join(":");
-    if (lastFleetToastKeyRef.current === key) return;
-    lastFleetToastKeyRef.current = key;
-    const message =
-      `${(fleetOrder.order || "ORDER").toUpperCase()} // ${(fleetOrder.status || "TRANSMITTED").toUpperCase()}` +
-      ` // ${fleetOrder.acceptedCount || 0} ACCEPTED // ${fleetOrder.rejectedCount || 0} REJECTED` +
-      (reason ? ` // ${reason.toUpperCase()}` : "");
-    pushCommandToast(message, fleetOrder.status === "accepted" ? "success" : "error");
-  }, [fleetOrder, pushCommandToast]);
 
   const scheduleSpaceProbeRetry = useCallback(() => {
     if (spaceProbeRetryTimerRef.current) clearTimeout(spaceProbeRetryTimerRef.current);
@@ -1603,11 +1553,6 @@ export function App() {
     setManualScanStatus(`${manualScanSource.toUpperCase()} TELEMETRY UPDATED`);
   }, [manualScanSource, telemetry.snapshot]);
 
-  useEffect(() => {
-    if (!commandAlert) return;
-    const timer = setTimeout(() => setCommandAlert(""), 5_000);
-    return () => clearTimeout(timer);
-  }, [commandAlert]);
 
   useEffect(() => {
     if (!manualScanStatus || manualScanSource) return;

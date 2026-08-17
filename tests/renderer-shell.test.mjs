@@ -296,6 +296,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     scopeRailCss,
     fleetCommands,
     squadronCommands,
+    commandFeedback,
   ] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/app/App.module.css", "utf8"),
@@ -306,6 +307,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     readFile("renderer/src/features/fleet/CommandScopeRail.module.css", "utf8"),
     readFile("renderer/src/features/fleet/FleetCommandPanel.tsx", "utf8"),
     readFile("renderer/src/features/fleet/SquadronCommandPanel.tsx", "utf8"),
+    readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
   ]);
   assert.match(app, /styles\.issuerBank/);
   assert.match(app, /styles\.commandBank/);
@@ -346,7 +348,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   assert.match(fleetRoster, /orderResult\.status\.toUpperCase/);
   assert.match(fleetRoster, /fleetOrder\?\.order !== "autopilot"/);
   assert.match(fleetRoster, /AUTOPILOT \/\/ \{autopilotLabel\}/);
-  assert.match(app, /fleetOrder\.rejectedCount/);
+  assert.match(commandFeedback, /fleetOrder\.rejectedCount/);
   assert.match(fleetCommands, /autopilotState/);
   assert.match(fleetCommands, /data-state=\{state\}/);
   assert.match(fleetRoster, /AUTOPILOT \/\/ \{autopilotLabel\}/);
@@ -413,7 +415,7 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
     css,
     /\.commandToasts \{[^}]*flex-direction: column;[^}]*gap: 5px;[^}]*transform: translateY\(calc\(-100% - 5px\)\)/s,
   );
-  assert.match(app, /\[\.\.\.current, \{ id, message, tone \}\]\.slice\(-4\)/);
+  assert.match(commandFeedback, /\[\.\.\.current, \{ id, message, tone \}\]\.slice\(-4\)/);
   assert.match(css, /\.compactReadouts dt,[^}]*font-size: 11px/s);
   assert.match(speedControl, /type="range"/);
   assert.match(css, /\.orderActions button \{[^}]*font:\s*700 10px/s);
@@ -466,13 +468,14 @@ test("battlegroup members can open isolated remote tactical views", async () => 
 });
 
 test("player navigation supports vector, target, away, and speed orders", async () => {
-  const [app, engine, scraper, drawer, drawerCss, speedControl] = await Promise.all([
+  const [app, engine, scraper, drawer, drawerCss, speedControl, commandFeedback] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
     readFile("renderer/src/features/commands/NavigationDrawer.tsx", "utf8"),
     readFile("renderer/src/features/commands/NavigationDrawer.module.css", "utf8"),
     readFile("renderer/src/features/commands/ShipSpeedControl.tsx", "utf8"),
+    readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
   ]);
   assert.match(app, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
@@ -503,8 +506,8 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(app, /onIntentAck/);
   assert.match(app, /styles\.commandToasts/);
   assert.match(
-    app,
-    /if \(!commandAlert\) return;\s*const timer = setTimeout\(\(\) => setCommandAlert\(""\), 5_000\)/,
+    commandFeedback,
+    /if \(!alert\) return;\s*const timer = setTimeout\(\(\) => setAlertValue\(""\), 5_000\)/,
   );
   assert.match(app, /setNavigationStatus\(""\);[\s\S]{0,120}setCommandAlert\(""\)/);
   assert.match(app, /label=\{`PLAYER SPEED \/\/ \$\{localName\.toUpperCase\(\)\}`\}/);
