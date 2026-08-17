@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { resolveDossierShip } from "../../domain/tacticalWorkspace";
 import type { ScenePoint } from "../../domain/scene";
+import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
 import type { FleetMember, Observer, SystemSnapshot, TelemetryEntity } from "../../types/telemetry";
 import type { ShipDossierMode } from "./ShipDossierPanel";
 
@@ -44,6 +45,7 @@ export function useShipDossierController({
   const scanStartSequenceRef = useRef(0);
   const scanRequestTokenRef = useRef(0);
   const scanTargetIdRef = useRef<string | null>(null);
+  const scheduleTimeout = useTimeoutRegistry();
 
   const ship = useMemo(
     () =>
@@ -60,7 +62,7 @@ export function useShipDossierController({
   const requestScan = useCallback(
     async (target: TelemetryEntity, source: ShipDossierMode) => {
       const shipName = String(target.name || "").trim();
-      if (!shipName || !connected || landed || commandLocked || scanSource) return;
+      if (!shipName || !connected || landed || commandLocked || scanTargetIdRef.current) return;
       const token = scanRequestTokenRef.current + 1;
       scanRequestTokenRef.current = token;
       scanStartSequenceRef.current = snapshot?.sequence ?? 0;
@@ -72,6 +74,7 @@ export function useShipDossierController({
         targetName: shipName,
         source,
       });
+      if (scanRequestTokenRef.current !== token) return;
       if (result?.accepted === false) {
         const message = `${source.toUpperCase()} SCAN REJECTED // ${result.reason || "UNKNOWN"}`;
         setAlert(message);
@@ -82,10 +85,10 @@ export function useShipDossierController({
       }
       if (result?.id) {
         scanIntentIdsRef.current.add(result.id);
-        setTimeout(() => scanIntentIdsRef.current.delete(result.id!), 12_000);
+        scheduleTimeout(() => scanIntentIdsRef.current.delete(result.id!), 12_000);
       }
       setScanStatus(`${source.toUpperCase()} SCAN REQUESTED // ${shipName.toUpperCase()}`);
-      setTimeout(() => {
+      scheduleTimeout(() => {
         if (scanRequestTokenRef.current !== token) return;
         scanRequestTokenRef.current += 1;
         scanTargetIdRef.current = null;
@@ -93,30 +96,38 @@ export function useShipDossierController({
         setScanStatus(`${source.toUpperCase()} SCAN TIMED OUT`);
       }, 10_000);
     },
-    [commandLocked, connected, landed, scanSource, setAlert, snapshot?.sequence],
+    [commandLocked, connected, landed, scheduleTimeout, setAlert, snapshot?.sequence],
   );
+
+  const cancelScan = useCallback(() => {
+    scanRequestTokenRef.current += 1;
+    scanIntentIdsRef.current.clear();
+    scanTargetIdRef.current = null;
+    setScanSource(null);
+    setScanStatus("");
+  }, []);
 
   const open = useCallback(
     (target: TelemetryEntity | FleetMember, mode: ShipDossierMode) => {
       const name = String(target.name || "").trim();
       if (!name) return;
       const seed = { ...target, kind: "ship" } as TelemetryEntity;
+      cancelScan();
       onOpen();
       setRequest({ id: target.id, name, mode, seed });
-      setScanStatus("");
       void requestScan(seed, mode);
     },
-    [onOpen, requestScan],
+    [cancelScan, onOpen, requestScan],
   );
 
   const changeMode = useCallback(
     (mode: ShipDossierMode) => {
       if (!request || !ship) return;
+      cancelScan();
       setRequest((current) => (current ? { ...current, mode } : current));
-      setScanStatus("");
       void requestScan(ship, mode);
     },
-    [request, requestScan, ship],
+    [cancelScan, request, requestScan, ship],
   );
 
   useEffect(
@@ -154,6 +165,15 @@ export function useShipDossierController({
     return () => clearTimeout(timer);
   }, [scanSource, scanStatus]);
 
+  const close = useCallback(() => {
+    cancelScan();
+    setRequest(null);
+  }, [cancelScan]);
+
+  const refresh = useCallback(() => {
+    if (ship && request) void requestScan(ship, request.mode);
+  }, [request, requestScan, ship]);
+
   return {
     request,
     ship,
@@ -161,10 +181,8 @@ export function useShipDossierController({
     scanStatus,
     loading: Boolean(scanSource === request?.mode && scanTargetIdRef.current === ship?.id),
     open,
-    close: () => setRequest(null),
+    close,
     changeMode,
-    refresh: () => {
-      if (ship && request) void requestScan(ship, request.mode);
-    },
+    refresh,
   } as const;
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useReducer, useRef, type RefObject } from "reac
 
 import { formationCenter } from "../../domain/coursePlot";
 import { findScenePoint, type ScenePoint, type TacticalScene } from "../../domain/scene";
+import { useLatestRef } from "../../hooks/useLatestRef";
+import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
 import type { FleetMember, Vector3 } from "../../types/telemetry";
 import type { FleetScope } from "../fleet/FleetRoster";
 import type { TacticalCanvasHandle } from "../tactical/TacticalCanvas";
@@ -52,6 +54,7 @@ export function useNavigationController({
   const lastMaximumSpeedRef = useRef<number | null>(null);
   const lastSpeedIntentRef = useRef<number | null>(null);
   const lockTokenRef = useRef(0);
+  const scheduleTimeout = useTimeoutRegistry();
   const maximumSpeed = observedMaximumSpeed > 0 ? observedMaximumSpeed : state.knownMaximumSpeed;
   const navigationTarget = findScenePoint(scene, state.targetId);
 
@@ -179,7 +182,7 @@ export function useNavigationController({
     }
     if (result?.id) {
       intentIdsRef.current.add(result.id);
-      setTimeout(() => intentIdsRef.current.delete(result.id!), 60_000);
+      scheduleTimeout(() => intentIdsRef.current.delete(result.id!), 60_000);
     }
     if (state.fleetScope) {
       dispatch({ type: "finish", status: "FLEET COURSE TRANSMITTED" });
@@ -190,12 +193,12 @@ export function useNavigationController({
     const lockToken = lockTokenRef.current + 1;
     lockTokenRef.current = lockToken;
     setCommandLocked(true);
-    setTimeout(() => {
+    scheduleTimeout(() => {
       if (lockTokenRef.current !== lockToken) return;
       lockTokenRef.current += 1;
       setCommandLocked(false);
       setAlert("MANEUVER CONFIRMATION TIMED OUT // CONTROLS RELEASED");
-      setTimeout(() => setAlert(""), 5_000);
+      scheduleTimeout(() => setAlert(""), 5_000);
     }, 50_000);
     dispatch({ type: "finish", status: "MANEUVER IN PROGRESS" });
     tacticalRef.current?.finishMovementPlanning();
@@ -204,6 +207,7 @@ export function useNavigationController({
     navigationTarget,
     observerSpeed,
     selectedFleetMembers,
+    scheduleTimeout,
     setAlert,
     setCommandLocked,
     state.commandMode,
@@ -247,10 +251,10 @@ export function useNavigationController({
       }
       if (result?.id) {
         intentIdsRef.current.add(result.id);
-        setTimeout(() => intentIdsRef.current.delete(result.id!), 12_000);
+        scheduleTimeout(() => intentIdsRef.current.delete(result.id!), 12_000);
       }
       setCommandLocked(true);
-      setTimeout(() => setCommandLocked(false), 1_500);
+      scheduleTimeout(() => setCommandLocked(false), 1_500);
     },
     [
       commandLocked,
@@ -258,6 +262,7 @@ export function useNavigationController({
       landed,
       maximumSpeed,
       observerSpeed,
+      scheduleTimeout,
       setAlert,
       setCommandLocked,
       state.mode,
@@ -284,13 +289,15 @@ export function useNavigationController({
     dispatch({ type: "observe-speed", speed: observerSpeed, maximum: maximumSpeed });
   }, [maximumSpeed, observerSpeed]);
 
+  const acknowledgementCallbacksRef = useLatestRef({ setAlert, setCommandLocked });
+
   useEffect(
     () =>
       window.holocron?.onIntentAck((ack) => {
         if (!ack.id || !intentIdsRef.current.has(ack.id) || ack.status === "accepted") return;
         intentIdsRef.current.delete(ack.id);
         lockTokenRef.current += 1;
-        setCommandLocked(false);
+        acknowledgementCallbacksRef.current.setCommandLocked(false);
         lastSpeedIntentRef.current = null;
         const message = String(
           ack.reason || (ack.status === "completed" ? "COMMAND COMPLETE" : "COMMAND REJECTED"),
@@ -304,10 +311,10 @@ export function useNavigationController({
               Math.min(lastMaximumSpeedRef.current ?? 0, lastObservedSpeedRef.current ?? 0),
             ),
           });
-          setAlert(message);
+          acknowledgementCallbacksRef.current.setAlert(message);
         }
       }),
-    [setAlert, setCommandLocked],
+    [],
   );
 
   useEffect(() => {
@@ -317,26 +324,43 @@ export function useNavigationController({
     cancel();
   }, [cancel, connected, landed, setCommandLocked]);
 
+  const keyboardStateRef = useLatestRef({
+    pollingPaused,
+    mode: state.mode,
+    beginVector,
+    cancel,
+    stage,
+    submit,
+  });
+
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (pollingPaused) return;
-      if (event.key.toLowerCase() === "m" && state.mode === "idle") beginVector();
-      else if (event.key === "Escape" && state.mode !== "idle") cancel();
-      else if (event.key === "Enter" && ["confirm", "target", "away"].includes(state.mode))
-        void submit();
-      else if (event.key === "Enter" && state.mode === "vector") stage();
+      const current = keyboardStateRef.current;
+      if (current.pollingPaused) return;
+      if (event.key.toLowerCase() === "m" && current.mode === "idle") current.beginVector();
+      else if (event.key === "Escape" && current.mode !== "idle") current.cancel();
+      else if (event.key === "Enter" && ["confirm", "target", "away"].includes(current.mode))
+        void current.submit();
+      else if (event.key === "Enter" && current.mode === "vector") current.stage();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [beginVector, cancel, pollingPaused, stage, state.mode, submit]);
+  }, []);
+
+  const setVector = useCallback((vector: Vector3) => dispatch({ type: "set-vector", vector }), []);
+  const setStatus = useCallback((status: string) => dispatch({ type: "set-status", status }), []);
+  const setRequestedSpeed = useCallback(
+    (speed: number) => dispatch({ type: "set-speed", speed }),
+    [],
+  );
 
   return {
     ...state,
     maximumSpeed,
     navigationTarget,
-    setVector: (vector: Vector3) => dispatch({ type: "set-vector", vector }),
-    setStatus: (status: string) => dispatch({ type: "set-status", status }),
-    setRequestedSpeed: (speed: number) => dispatch({ type: "set-speed", speed }),
+    setVector,
+    setStatus,
+    setRequestedSpeed,
     cancel,
     beginVector,
     armTarget,

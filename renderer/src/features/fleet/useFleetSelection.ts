@@ -79,6 +79,8 @@ export function useFleetSelection(fleet?: FleetStatus) {
     setScope("all");
   }, [fleet]);
 
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
   return {
     scope,
     drawerOpen,
@@ -92,6 +94,6 @@ export function useFleetSelection(fleet?: FleetStatus) {
     toggleMember,
     selectAll,
     selectViewpoint: setViewpointMemberId,
-    closeDrawer: () => setDrawerOpen(false),
+    closeDrawer,
   } as const;
 }

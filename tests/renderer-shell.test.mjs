@@ -136,7 +136,7 @@ test("camera mode and radar visibility survive React callback churn and telemetr
     app.indexOf("const observerSpeed"),
   );
 
-  assert.match(canvas, /const callbacksRef = useRef/);
+  assert.match(canvas, /const callbacksRef = useLatestRef/);
   assert.match(canvas, /onSelect: \(id\) => callbacksRef\.current\.onSelect\(id\)/);
   assert.match(engineLifecycle, /}, \[\]\);/);
   assert.doesNotMatch(engineLifecycle, /onCameraModeChange, onMovementCancel/);
@@ -645,7 +645,10 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(engine, /pushLine\(origin, destination\)/);
   assert.doesNotMatch(engine, /origins\.length > 0 \? origins :/);
   assert.match(engine, /this\.callbacks\.onCameraModeChange\(saved\.mode\)/);
-  assert.match(navigation, /event\.key === "Escape" && state\.mode !== "idle"\) cancel\(\)/);
+  assert.match(
+    navigation,
+    /event\.key === "Escape" && current\.mode !== "idle"\) current\.cancel\(\)/,
+  );
   assert.match(scraper, /course relative %d %d %d/);
   assert.match(scraper, /"course away " \.\. name/);
   assert.match(scraper, /send\("speed " \.\. tostring\(math\.floor\(requestedSpeed \+ 0\.5\)\)\)/);

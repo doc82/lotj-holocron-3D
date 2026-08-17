@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { dispositionKey } from "../../domain/tacticalWorkspace";
 import type { TacticalTargetShortcut } from "../../domain/tacticalTargets";
@@ -38,6 +38,7 @@ export function useTacticalInteractionController({
   clearClusterSelection,
 }: TacticalInteractionOptions) {
   const [dismissedTargetNames, setDismissedTargetNames] = useState<Set<string>>(() => new Set());
+  const viewpointRequestTokenRef = useRef(0);
   const targets = useMemo(
     () =>
       reportedTargets.filter(
@@ -59,6 +60,10 @@ export function useTacticalInteractionController({
     });
   }, [reportedTargets]);
 
+  useEffect(() => {
+    if (!connected) viewpointRequestTokenRef.current += 1;
+  }, [connected]);
+
   const selectCommandScope = useCallback(
     (scope: FleetScope) => {
       selectFleetScope(scope);
@@ -70,11 +75,14 @@ export function useTacticalInteractionController({
   const viewFleetMember = useCallback(
     async (member: FleetMember) => {
       if (member.name.trim().toLowerCase() === localName.trim().toLowerCase()) {
+        viewpointRequestTokenRef.current += 1;
         selectViewpoint(null);
         setSelectedId(null);
         tacticalRef.current?.setCameraMode("player");
         return;
       }
+      const requestToken = viewpointRequestTokenRef.current + 1;
+      viewpointRequestTokenRef.current = requestToken;
       selectViewpoint(member.id);
       setSelectedId(null);
       clearClusterSelection();
@@ -84,6 +92,7 @@ export function useTacticalInteractionController({
         memberId: member.id,
         memberName: member.name,
       });
+      if (viewpointRequestTokenRef.current !== requestToken) return;
       if (result?.accepted === false) {
         selectViewpoint(null);
         setAlert(`TACTICAL VIEW REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);

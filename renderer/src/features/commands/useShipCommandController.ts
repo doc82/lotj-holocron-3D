@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import type { ScenePoint } from "../../domain/scene";
+import { useLatestRef } from "../../hooks/useLatestRef";
+import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
 import type { FleetMember, FleetStatus, WeaponType } from "../../types/telemetry";
 import type { FleetScope } from "../fleet/FleetRoster";
 
@@ -49,6 +51,7 @@ export function useShipCommandController({
   const autotrackIntentIdsRef = useRef(new Set<string>());
   const targetIntentShipsRef = useRef(new Map<string, { name: string }>());
   const targetLockTokenRef = useRef(0);
+  const scheduleTimeout = useTimeoutRegistry();
 
   const targetSelectedShip = useCallback(async () => {
     if (!selectedShip || !connected || landed || commandLocked) return;
@@ -65,7 +68,7 @@ export function useShipCommandController({
     setAlert(`TRACKING ${selectedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`);
     intentIdsRef.current.add(result.id);
     targetIntentShipsRef.current.set(result.id, { name: selectedShip.name });
-    setTimeout(() => {
+    scheduleTimeout(() => {
       if (targetLockTokenRef.current !== lockToken) return;
       targetLockTokenRef.current += 1;
       intentIdsRef.current.delete(result.id!);
@@ -73,7 +76,7 @@ export function useShipCommandController({
       setCommandLocked(false);
       setAlert("TARGET LOCK TIMED OUT // CONTROLS RELEASED");
     }, 50_000);
-  }, [commandLocked, connected, landed, selectedShip, setAlert, setCommandLocked]);
+  }, [commandLocked, connected, landed, scheduleTimeout, selectedShip, setAlert, setCommandLocked]);
 
   const toggleAutotrack = useCallback(async () => {
     if (!connected || landed || autotrackPending) return;
@@ -87,11 +90,11 @@ export function useShipCommandController({
     if (!result?.id) return;
     intentIdsRef.current.add(result.id);
     autotrackIntentIdsRef.current.add(result.id);
-    setTimeout(() => {
+    scheduleTimeout(() => {
       intentIdsRef.current.delete(result.id!);
       autotrackIntentIdsRef.current.delete(result.id!);
     }, 12_000);
-  }, [autotrackDesired, autotrackPending, connected, landed, setAlert]);
+  }, [autotrackDesired, autotrackPending, connected, landed, scheduleTimeout, setAlert]);
 
   const fireWeapon = useCallback(
     async (weapon: WeaponType | "all") => {
@@ -141,7 +144,7 @@ export function useShipCommandController({
       }
       if (result?.id) {
         intentIdsRef.current.add(result.id);
-        setTimeout(() => intentIdsRef.current.delete(result.id!), 15_000);
+        scheduleTimeout(() => intentIdsRef.current.delete(result.id!), 15_000);
       }
       setAlert(`${order.replaceAll("_", " ").toUpperCase()} TRANSMITTED // ${formationLabel}`);
     },
@@ -153,6 +156,7 @@ export function useShipCommandController({
       landed,
       selectedFleetMembers,
       selectedShip,
+      scheduleTimeout,
       setAlert,
       viewpointMemberId,
     ],
@@ -176,6 +180,14 @@ export function useShipCommandController({
     }
   }, [autoRechargeEnabled, setAlert]);
 
+  const acknowledgementCallbacksRef = useLatestRef({
+    markShipEnemy,
+    restoreTarget,
+    setAlert,
+    setCommandLocked,
+    setNavigationStatus,
+  });
+
   useEffect(
     () =>
       window.holocron?.onIntentAck((ack) => {
@@ -184,7 +196,7 @@ export function useShipCommandController({
         if (autotrackIntent && ack.status !== "accepted") {
           intentIdsRef.current.delete(ack.id);
           autotrackIntentIdsRef.current.delete(ack.id);
-          setAlert(
+          acknowledgementCallbacksRef.current.setAlert(
             ack.status === "completed"
               ? String(ack.reason || "AUTOTRACK UPDATED").toUpperCase()
               : `AUTOTRACK REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`,
@@ -193,7 +205,9 @@ export function useShipCommandController({
         }
         const targetedShip = targetIntentShipsRef.current.get(ack.id);
         if (ack.status === "accepted" && targetedShip) {
-          setAlert(`TRACKING ${targetedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`);
+          acknowledgementCallbacksRef.current.setAlert(
+            `TRACKING ${targetedShip.name.toUpperCase()} // HOLDING COMMAND OUTPUT`,
+          );
           return;
         }
         if (ack.status === "completed") {
@@ -202,13 +216,17 @@ export function useShipCommandController({
           targetIntentShipsRef.current.delete(ack.id);
           if (completedTarget) {
             targetLockTokenRef.current += 1;
-            restoreTarget(completedTarget.name);
-            markShipEnemy(completedTarget.name);
+            acknowledgementCallbacksRef.current.restoreTarget(completedTarget.name);
+            acknowledgementCallbacksRef.current.markShipEnemy(completedTarget.name);
           }
-          setCommandLocked(false);
+          acknowledgementCallbacksRef.current.setCommandLocked(false);
           const completion = String(ack.reason || "COMMAND COMPLETE").toUpperCase();
-          setNavigationStatus(completion);
-          if (completedTarget) setAlert(`${completion} // ${completedTarget.name.toUpperCase()}`);
+          acknowledgementCallbacksRef.current.setNavigationStatus(completion);
+          if (completedTarget) {
+            acknowledgementCallbacksRef.current.setAlert(
+              `${completion} // ${completedTarget.name.toUpperCase()}`,
+            );
+          }
           return;
         }
         if (ack.status !== "rejected") return;
@@ -217,11 +235,11 @@ export function useShipCommandController({
         targetIntentShipsRef.current.delete(ack.id);
         if (rejectedTarget) targetLockTokenRef.current += 1;
         const message = String(ack.reason || "COMMAND REJECTED").toUpperCase();
-        setAlert(message);
-        setNavigationStatus(message);
-        setCommandLocked(false);
+        acknowledgementCallbacksRef.current.setAlert(message);
+        acknowledgementCallbacksRef.current.setNavigationStatus(message);
+        acknowledgementCallbacksRef.current.setCommandLocked(false);
       }),
-    [markShipEnemy, restoreTarget, setAlert, setCommandLocked, setNavigationStatus],
+    [],
   );
 
   return {

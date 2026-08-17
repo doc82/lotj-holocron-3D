@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
 import type { FleetOrderStatus } from "../../types/telemetry";
 
 export interface CommandToast {
@@ -20,13 +21,20 @@ export function useCommandFeedback(fleetOrder?: FleetOrderStatus) {
   const [toasts, setToasts] = useState<CommandToast[]>([]);
   const toastIdRef = useRef(0);
   const lastFleetToastKeyRef = useRef("");
+  const scheduleTimeout = useTimeoutRegistry();
 
-  const pushToast = useCallback((message: string, tone = commandToastTone(message)) => {
-    if (!message) return;
-    const id = ++toastIdRef.current;
-    setToasts((current) => [...current, { id, message, tone }].slice(-4));
-    setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 5_000);
-  }, []);
+  const pushToast = useCallback(
+    (message: string, tone = commandToastTone(message)) => {
+      if (!message) return;
+      const id = ++toastIdRef.current;
+      setToasts((current) => [...current, { id, message, tone }].slice(-4));
+      scheduleTimeout(
+        () => setToasts((current) => current.filter((toast) => toast.id !== id)),
+        5_000,
+      );
+    },
+    [scheduleTimeout],
+  );
 
   const setAlert = useCallback(
     (message: string) => {

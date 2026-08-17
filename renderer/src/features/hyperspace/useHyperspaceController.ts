@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { formationCenter } from "../../domain/coursePlot";
 import { hyperspaceClearance } from "../../domain/hyperspace";
+import { useLatestRef } from "../../hooks/useLatestRef";
 import type { FleetScope } from "../fleet/FleetRoster";
 import type {
   FleetMember,
@@ -242,6 +243,8 @@ export function useHyperspaceController({
     void plot({ ...activeRoute, acknowledgeFuelRisk: true }, escapePlan);
   }, [activeRoute, escapePlan, plot]);
 
+  const closePlanner = useCallback(() => setPlanner(null), []);
+
   useEffect(() => {
     if (pollingPaused || state.phase !== "calculating") return;
     const timer = setInterval(
@@ -337,6 +340,8 @@ export function useHyperspaceController({
     escapeTriggeredRef.current = false;
   }, [connected]);
 
+  const acknowledgementCallbacksRef = useLatestRef({ setAlert });
+
   useEffect(
     () =>
       window.holocron?.onIntentAck((ack) => {
@@ -346,7 +351,9 @@ export function useHyperspaceController({
           const reason = String(ack.reason || "");
           if (ack.status === "rejected" && reason.toLowerCase().includes("navigation computer")) {
             setNavigationRefreshBlocked(true);
-            setAlert(`NAVIGATION DATA UNAVAILABLE // ${reason.toUpperCase()}`);
+            acknowledgementCallbacksRef.current.setAlert(
+              `NAVIGATION DATA UNAVAILABLE // ${reason.toUpperCase()}`,
+            );
           }
           return;
         }
@@ -354,12 +361,12 @@ export function useHyperspaceController({
         escapeIntentIdsRef.current.delete(ack.id);
         if (ack.status === "rejected") {
           setEscapePending(false);
-          setAlert(
+          acknowledgementCallbacksRef.current.setAlert(
             `HYPERSPACE CUTOFF REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`,
           );
         }
       }),
-    [setAlert],
+    [],
   );
 
   return {
@@ -372,7 +379,7 @@ export function useHyperspaceController({
     navigationDestinations,
     currentGalaxyPosition,
     openPlanner,
-    closePlanner: () => setPlanner(null),
+    closePlanner,
     plot,
     stop,
     dismiss,

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
+
 interface PollingControllerOptions {
   connected: boolean;
   paused: boolean;
@@ -18,6 +20,9 @@ export function usePollingController({
   const probeSentRef = useRef(false);
   const probeIntentIdsRef = useRef(new Set<string>());
   const probeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const probeRequestTokenRef = useRef(0);
+  const pauseRequestTokenRef = useRef(0);
+  const scheduleTimeout = useTimeoutRegistry();
 
   const scheduleProbeRetry = useCallback(() => {
     if (probeRetryTimerRef.current) clearTimeout(probeRetryTimerRef.current);
@@ -31,10 +36,13 @@ export function usePollingController({
   const changePause = useCallback(
     async (nextPaused: boolean) => {
       if (!connected || pausePending) return;
+      const requestToken = pauseRequestTokenRef.current + 1;
+      pauseRequestTokenRef.current = requestToken;
       setPausePending(true);
       const result = await window.holocron?.sendIntent("set_polling_paused", {
         paused: nextPaused,
       });
+      if (pauseRequestTokenRef.current !== requestToken) return;
       setPausePending(false);
       if (result?.accepted === false) {
         setAlert(`POLLING CONTROL REJECTED // ${result.reason || "UNKNOWN"}`);
@@ -47,6 +55,9 @@ export function usePollingController({
 
   useEffect(() => {
     if (!connected) {
+      probeRequestTokenRef.current += 1;
+      pauseRequestTokenRef.current += 1;
+      setPausePending(false);
       probeSentRef.current = false;
       probeIntentIdsRef.current.clear();
       if (probeRetryTimerRef.current) clearTimeout(probeRetryTimerRef.current);
@@ -56,17 +67,23 @@ export function usePollingController({
     if (starting || paused || probeSentRef.current) return;
 
     probeSentRef.current = true;
+    const requestToken = probeRequestTokenRef.current + 1;
+    probeRequestTokenRef.current = requestToken;
     void window.holocron?.sendIntent("probe_space").then((result) => {
+      if (probeRequestTokenRef.current !== requestToken) return;
       if (result?.accepted === false) {
         scheduleProbeRetry();
         return;
       }
       if (result?.id) {
         probeIntentIdsRef.current.add(result.id);
-        setTimeout(() => probeIntentIdsRef.current.delete(result.id!), 60_000);
+        scheduleTimeout(() => probeIntentIdsRef.current.delete(result.id!), 60_000);
       }
     });
-  }, [connected, paused, probeAttempt, scheduleProbeRetry, starting]);
+    return () => {
+      if (probeRequestTokenRef.current === requestToken) probeRequestTokenRef.current += 1;
+    };
+  }, [connected, paused, probeAttempt, scheduleProbeRetry, scheduleTimeout, starting]);
 
   useEffect(
     () =>
@@ -89,6 +106,8 @@ export function usePollingController({
 
   useEffect(
     () => () => {
+      probeRequestTokenRef.current += 1;
+      pauseRequestTokenRef.current += 1;
       if (probeRetryTimerRef.current) clearTimeout(probeRetryTimerRef.current);
     },
     [],

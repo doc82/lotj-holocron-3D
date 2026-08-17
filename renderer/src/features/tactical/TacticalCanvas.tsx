@@ -9,6 +9,7 @@ import type {
   SystemSnapshot,
   Vector3,
 } from "../../types/telemetry";
+import { useLatestRef } from "../../hooks/useLatestRef";
 import {
   TacticalEngine,
   type ClusterLabel,
@@ -73,20 +74,13 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     const [courseLabel, setCourseLabel] = useState<CourseLabel | null>(null);
     const [playerShipLabel, setPlayerShipLabel] = useState<PlayerShipLabel | null>(null);
     const [fidelity, setFidelity] = useState<TacticalFidelity>("strategic");
-    const callbacksRef = useRef({
+    const callbacksRef = useLatestRef({
       onSelect,
       onMovementVector,
       onMovementCommit,
       onMovementCancel,
       onCameraModeChange,
     });
-    callbacksRef.current = {
-      onSelect,
-      onMovementVector,
-      onMovementCommit,
-      onMovementCancel,
-      onCameraModeChange,
-    };
 
     useEffect(() => {
       if (!canvasRef.current) return;

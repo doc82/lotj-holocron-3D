@@ -58,6 +58,12 @@ A controller should expose the smallest useful state-and-action API. Keep transi
 timeouts, bridge acknowledgements, and command-specific error recovery inside the controller that
 issued the command.
 
+Controller actions passed across feature boundaries should have stable identities. Long-lived
+resources such as bridge subscriptions, global event listeners, render engines, and animation loops
+must be owned by mount/unmount effects; route changing callbacks through a latest-value ref instead
+of rebuilding the resource. Controller-owned timeouts must also be cancelled on unmount, and async
+responses must be ignored after their request has been superseded.
+
 ## Presentation layer
 
 The app-level views under `renderer/src/app` are composable sections rather than state owners:
