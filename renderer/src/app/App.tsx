@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { buildScene, findScenePoint, formatCoordinate, type ScenePoint } from "../domain/scene";
-import { formationCenter, resolveFormationOrigins } from "../domain/coursePlot";
+import { resolveFormationOrigins } from "../domain/coursePlot";
 import { canCommandFormation } from "../domain/fleet";
 import {
   aggregateReading,
@@ -20,6 +20,7 @@ import {
 } from "../domain/tacticalTargets";
 import { NavigationDrawer } from "../features/commands/NavigationDrawer";
 import { ShipSpeedControl } from "../features/commands/ShipSpeedControl";
+import { useNavigationController } from "../features/commands/useNavigationController";
 import { UplinkNotice } from "../features/connection/UplinkNotice";
 import { FleetCommandPanel } from "../features/fleet/FleetCommandPanel";
 import { FleetRoster } from "../features/fleet/FleetRoster";
@@ -238,8 +239,6 @@ function CommandIcon({ type }: { type: CommandIconType }) {
   );
 }
 
-type NavigationMode = "idle" | "vector" | "target" | "away" | "confirm";
-
 export function App() {
   const telemetry = useTelemetry();
   const pollingPaused = telemetry.snapshot?.metadata?.polling?.paused === true;
@@ -247,30 +246,16 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [targetDrawerOpen, setTargetDrawerOpen] = useState(false);
   const [dismissedTargetNames, setDismissedTargetNames] = useState<Set<string>>(() => new Set());
-  const [navigationFleetScope, setNavigationFleetScope] = useState<FleetScope | null>(null);
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
   const [hoveredMemberId, setHoveredMemberId] = useState<string | null>(null);
   const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
-  const [navigationMode, setNavigationMode] = useState<NavigationMode>("idle");
-  const [pendingNavigationMode, setPendingNavigationMode] = useState<
-    "relative" | "target" | "away"
-  >("relative");
-  const [navigationTargetId, setNavigationTargetId] = useState<string | null>(null);
-  const [courseVector, setCourseVector] = useState<Vector3>([100, 0, 0]);
-  const [requestedSpeed, setRequestedSpeed] = useState(0);
-  const [knownMaximumSpeed, setKnownMaximumSpeed] = useState(0);
-  const [navigationStatus, setNavigationStatus] = useState("");
   const [commandLocked, setCommandLocked] = useState(false);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const pendingIntentIdsRef = useRef(new Set<string>());
   const autotrackIntentIdsRef = useRef(new Set<string>());
   const targetIntentShipsRef = useRef(new Map<string, { name: string }>());
-  const lastObservedSpeedRef = useRef<number | null>(null);
-  const lastMaximumSpeedRef = useRef<number | null>(null);
-  const lastSpeedIntentRef = useRef<number | null>(null);
-  const navigationLockTokenRef = useRef(0);
   const targetLockTokenRef = useRef(0);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const {
@@ -415,10 +400,8 @@ export function App() {
     typeof localObserver?.speed === "object" && localObserver.speed
       ? Number(localObserver.speed.maximum) || 0
       : Number(localObserver?.maximumSpeed) || 0;
-  const maximumSpeed = observedMaximumSpeed > 0 ? observedMaximumSpeed : knownMaximumSpeed;
   const navigableTarget =
     selected && ["ship", "planet", "celestial", "star"].includes(selected.kind) ? selected : null;
-  const navigationTarget = findScenePoint(scene, navigationTargetId);
   const selectedShip = selected?.kind === "ship" ? selected : null;
   const closeTargetDrawerForDossier = useCallback(() => setTargetDrawerOpen(false), []);
   const dossier = useShipDossierController({
@@ -491,6 +474,47 @@ export function App() {
     },
     [fleet, flattenedScenePoints, observer, selectedFleetMembers],
   );
+
+  const clearTransientSelection = useCallback(() => {
+    setExpandedClusterId(null);
+    setHoveredMemberId(null);
+  }, []);
+  const navigation = useNavigationController({
+    connected: telemetry.connected,
+    landed,
+    pollingPaused,
+    commandLocked,
+    setCommandLocked,
+    setAlert: setCommandAlert,
+    tacticalRef,
+    scene,
+    navigableTarget,
+    observerSpeed,
+    observedMaximumSpeed,
+    fleetCommandMode,
+    fleetScope,
+    selectedFleetMembers,
+    viewpointMemberId,
+    movementOriginsForScope,
+    clearTransientSelection,
+  });
+  const navigationMode = navigation.mode;
+  const pendingNavigationMode = navigation.commandMode;
+  const navigationFleetScope = navigation.fleetScope;
+  const navigationTarget = navigation.navigationTarget;
+  const courseVector = navigation.vector;
+  const requestedSpeed = navigation.requestedSpeed;
+  const maximumSpeed = navigation.maximumSpeed;
+  const navigationStatus = navigation.status;
+  const setCourseVector = navigation.setVector;
+  const setRequestedSpeed = navigation.setRequestedSpeed;
+  const setNavigationStatus = navigation.setStatus;
+  const cancelNavigation = navigation.cancel;
+  const beginVectorCourse = navigation.beginVector;
+  const armTargetCourse = navigation.armTarget;
+  const stageNavigation = navigation.stage;
+  const submitNavigation = navigation.submit;
+  const chooseSpeed = navigation.chooseSpeed;
 
   const chooseCameraMode = useCallback(
     (mode: TacticalCameraMode) => {
@@ -593,14 +617,17 @@ export function App() {
     [fleetSelection, localName, setCommandAlert],
   );
 
-  const focusTargetShortcut = useCallback((target: TacticalTargetShortcut) => {
-    if (!target.ship?.id) return;
-    setExpandedClusterId(null);
-    setHoveredMemberId(null);
-    setSelectedId(target.ship.id);
-    fleetSelection.closeDrawer();
-    setTargetDrawerOpen(false);
-  }, [fleetSelection]);
+  const focusTargetShortcut = useCallback(
+    (target: TacticalTargetShortcut) => {
+      if (!target.ship?.id) return;
+      setExpandedClusterId(null);
+      setHoveredMemberId(null);
+      setSelectedId(target.ship.id);
+      fleetSelection.closeDrawer();
+      setTargetDrawerOpen(false);
+    },
+    [fleetSelection],
+  );
 
   const clearTargetShortcut = useCallback(
     async (target: TacticalTargetShortcut) => {
@@ -638,212 +665,6 @@ export function App() {
   const engageHyperspace = hyperspace.engage;
   const escapeHyperspace = hyperspace.escape;
   const calculateAnyway = hyperspace.calculateAnyway;
-
-  const cancelNavigation = useCallback(() => {
-    setNavigationMode("idle");
-    setPendingNavigationMode("relative");
-    setNavigationTargetId(null);
-    setNavigationStatus("");
-    setNavigationFleetScope(null);
-    setCommandAlert("");
-    setRequestedSpeed(
-      Math.max(0, Math.min(lastMaximumSpeedRef.current ?? 0, lastObservedSpeedRef.current ?? 0)),
-    );
-    tacticalRef.current?.finishMovementPlanning();
-  }, []);
-
-  const beginVectorCourse = useCallback(() => {
-    if (!telemetry.connected || landed || commandLocked) return;
-    setExpandedClusterId(null);
-    setHoveredMemberId(null);
-    setPendingNavigationMode("relative");
-    setNavigationFleetScope(fleetCommandMode ? fleetScope : null);
-    setNavigationTargetId(null);
-    setNavigationMode("vector");
-    setNavigationStatus(
-      "MOVE CURSOR // SHIFT ELEVATION // MMB ORBIT // WASD PAN // Q/E CAMERA ELEVATION",
-    );
-    const commandScope = fleetCommandMode ? fleetScope : null;
-    tacticalRef.current?.beginMovementPlanning(
-      courseVector,
-      true,
-      movementOriginsForScope(commandScope),
-    );
-  }, [
-    commandLocked,
-    courseVector,
-    fleetCommandMode,
-    fleetScope,
-    landed,
-    movementOriginsForScope,
-    telemetry.connected,
-  ]);
-
-  const armTargetCourse = useCallback(
-    (mode: "target" | "away") => {
-      if (!navigableTarget) return;
-      setExpandedClusterId(null);
-      setHoveredMemberId(null);
-      const commandScope = fleetCommandMode ? fleetScope : null;
-      const origins = movementOriginsForScope(commandScope);
-      const center = formationCenter(origins);
-      const preview =
-        mode === "away"
-          ? (center.map((value, index) => value - navigableTarget.position3d[index]) as Vector3)
-          : (navigableTarget.position3d.map((value, index) => value - center[index]) as Vector3);
-      const multiplier = mode === "away" ? -1 : 1;
-      setPendingNavigationMode(mode);
-      setNavigationFleetScope(fleetCommandMode ? fleetScope : null);
-      setNavigationTargetId(navigableTarget.id);
-      setNavigationMode(mode);
-      setNavigationStatus(mode === "away" ? "CONFIRM REVERSE COURSE" : "CONFIRM INTERCEPT COURSE");
-      tacticalRef.current?.beginMovementPlanning(
-        Math.hypot(...preview) > 0 ? preview : [100 * multiplier, 0, 0],
-        false,
-        origins,
-      );
-    },
-    [fleetCommandMode, fleetScope, movementOriginsForScope, navigableTarget],
-  );
-
-  const stageNavigation = useCallback(() => {
-    setNavigationMode("confirm");
-    setNavigationStatus("COURSE READY // CONFIRM ORDER");
-    tacticalRef.current?.freezeMovement();
-  }, []);
-
-  const submitNavigation = useCallback(async () => {
-    if (commandLocked) {
-      setCommandAlert("NAVIGATION COMPUTER IS WAITING FOR THE CURRENT MANEUVER");
-      return;
-    }
-    if (!navigationFleetScope && observerSpeed === 0 && requestedSpeed === 0) {
-      setNavigationStatus("DEPARTURE SPEED REQUIRED // SELECT PLAYER SPEED");
-      setCommandAlert("SELECT A NON-ZERO DEPARTURE SPEED");
-      return;
-    }
-    const payload: Record<string, unknown> = { mode: pendingNavigationMode };
-    if (pendingNavigationMode === "relative")
-      payload.vector = { x: courseVector[0], y: courseVector[1], z: courseVector[2] };
-    else if (navigationTarget) payload.targetId = navigationTarget.id;
-    else {
-      setNavigationStatus("ORDER BLOCKED // TARGET CONTACT LOST");
-      return;
-    }
-    if (!navigationFleetScope && observerSpeed === 0) payload.departureSpeed = requestedSpeed;
-    setNavigationStatus("TRANSMITTING COURSE...");
-    if (navigationFleetScope) {
-      payload.scope = navigationFleetScope;
-      payload.order = "navigate";
-      if (navigationFleetScope === "selected") {
-        if (selectedFleetMembers.length === 0) {
-          setNavigationStatus("ORDER BLOCKED // SELECT AT LEAST ONE CRAFT");
-          return;
-        }
-        payload.memberIds = selectedFleetMembers.map((member) => member.id);
-        payload.memberNames = selectedFleetMembers.map((member) => member.name);
-        payload.memberSlots = selectedFleetMembers.flatMap((member) =>
-          member.slot === undefined ? [] : [member.slot],
-        );
-        if (selectedFleetMembers.length === 1) {
-          payload.memberId = selectedFleetMembers[0].id;
-          payload.memberName = selectedFleetMembers[0].name;
-          payload.memberSlot = selectedFleetMembers[0].slot;
-        }
-      }
-      if (viewpointMemberId) payload.viewpointMemberId = viewpointMemberId;
-    }
-    const result = await window.holocron?.sendIntent(
-      navigationFleetScope ? "fleet_order" : "navigate_ship",
-      payload,
-    );
-    if (result?.accepted === false) {
-      setNavigationStatus(`ORDER REJECTED // ${result.reason || "UNKNOWN"}`);
-      return;
-    }
-    if (result?.id) {
-      pendingIntentIdsRef.current.add(result.id);
-      setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 60_000);
-    }
-    if (navigationFleetScope) {
-      setNavigationStatus("FLEET COURSE TRANSMITTED");
-      setCommandAlert("FLEET COURSE TRANSMITTED // MONITOR FORMATION ROSTER");
-      setNavigationMode("idle");
-      setNavigationFleetScope(null);
-      tacticalRef.current?.finishMovementPlanning();
-      return;
-    }
-    const lockToken = navigationLockTokenRef.current + 1;
-    navigationLockTokenRef.current = lockToken;
-    setCommandLocked(true);
-    setTimeout(() => {
-      if (navigationLockTokenRef.current !== lockToken) return;
-      navigationLockTokenRef.current += 1;
-      setCommandLocked(false);
-      setCommandAlert("MANEUVER CONFIRMATION TIMED OUT // CONTROLS RELEASED");
-      setTimeout(() => setCommandAlert(""), 5_000);
-    }, 50_000);
-    setNavigationStatus("MANEUVER IN PROGRESS");
-    setNavigationMode("idle");
-    tacticalRef.current?.finishMovementPlanning();
-  }, [
-    commandLocked,
-    courseVector,
-    navigationFleetScope,
-    navigationTarget,
-    observerSpeed,
-    pendingNavigationMode,
-    requestedSpeed,
-    selectedFleetMembers,
-    viewpointMemberId,
-  ]);
-
-  const commitSpeed = useCallback(
-    async (speed: number) => {
-      const nextSpeed = Math.max(0, Math.min(maximumSpeed, Math.round(speed)));
-      if (navigationMode !== "idle" && observerSpeed === 0) {
-        setRequestedSpeed(nextSpeed);
-        setNavigationStatus(
-          nextSpeed > 0
-            ? `DEPARTURE SPEED ${nextSpeed} // READY WITH COURSE`
-            : "DEPARTURE SPEED REQUIRED // SELECT PLAYER SPEED",
-        );
-        setCommandAlert("");
-        return;
-      }
-      if (
-        !telemetry.connected ||
-        landed ||
-        commandLocked ||
-        maximumSpeed <= 0 ||
-        nextSpeed === observerSpeed ||
-        lastSpeedIntentRef.current === nextSpeed
-      )
-        return;
-      lastSpeedIntentRef.current = nextSpeed;
-      const result = await window.holocron?.sendIntent("set_ship_speed", { speed: nextSpeed });
-      if (result?.accepted === false) {
-        setCommandAlert(`SPEED ORDER REJECTED // ${result.reason || "UNKNOWN"}`);
-        lastSpeedIntentRef.current = null;
-        return;
-      }
-      if (result?.id) {
-        pendingIntentIdsRef.current.add(result.id);
-        setTimeout(() => pendingIntentIdsRef.current.delete(result.id!), 12_000);
-      }
-      setCommandLocked(true);
-      setTimeout(() => setCommandLocked(false), 1_500);
-    },
-    [commandLocked, landed, maximumSpeed, navigationMode, observerSpeed, telemetry.connected],
-  );
-
-  const chooseSpeed = useCallback(
-    (speed: number) => {
-      setRequestedSpeed(speed);
-      void commitSpeed(speed);
-    },
-    [commitSpeed],
-  );
 
   const openShipDossier = dossier.open;
   const changeDossierMode = dossier.changeMode;
@@ -986,21 +807,6 @@ export function App() {
     }
   }, [autoRechargeEnabled]);
 
-  useEffect(() => {
-    if (observedMaximumSpeed > 0 && observedMaximumSpeed !== knownMaximumSpeed) {
-      setKnownMaximumSpeed(observedMaximumSpeed);
-    }
-    if (
-      lastObservedSpeedRef.current === observerSpeed &&
-      lastMaximumSpeedRef.current === maximumSpeed
-    )
-      return;
-    lastObservedSpeedRef.current = observerSpeed;
-    lastMaximumSpeedRef.current = maximumSpeed;
-    lastSpeedIntentRef.current = null;
-    setRequestedSpeed(Math.max(0, Math.min(maximumSpeed, observerSpeed)));
-  }, [knownMaximumSpeed, maximumSpeed, observedMaximumSpeed, observerSpeed]);
-
   useEffect(
     () =>
       window.holocron?.onIntentAck((ack) => {
@@ -1036,7 +842,6 @@ export function App() {
             });
             markShipEnemy(completedTarget.name);
           }
-          navigationLockTokenRef.current += 1;
           setCommandLocked(false);
           const completion = String(ack.reason || "COMMAND COMPLETE").toUpperCase();
           setNavigationStatus(completion);
@@ -1049,15 +854,7 @@ export function App() {
         const rejectedTarget = targetIntentShipsRef.current.get(ack.id);
         targetIntentShipsRef.current.delete(ack.id);
         if (rejectedTarget) targetLockTokenRef.current += 1;
-        navigationLockTokenRef.current += 1;
         const message = String(ack.reason || "COMMAND REJECTED").toUpperCase();
-        lastSpeedIntentRef.current = null;
-        setRequestedSpeed(
-          Math.max(
-            0,
-            Math.min(lastMaximumSpeedRef.current ?? 0, lastObservedSpeedRef.current ?? 0),
-          ),
-        );
         setCommandAlert(message);
         setNavigationStatus(message);
         setCommandLocked(false);
@@ -1066,33 +863,6 @@ export function App() {
     [markShipEnemy],
   );
 
-  useEffect(() => {
-    if (landed || !telemetry.connected) {
-      navigationLockTokenRef.current += 1;
-      setCommandLocked(false);
-      cancelNavigation();
-    }
-  }, [cancelNavigation, landed, telemetry.connected]);
-
-  useEffect(() => {
-    const handleNavigationKey = (event: KeyboardEvent) => {
-      if (pollingPaused) return;
-      if (event.key.toLowerCase() === "m" && navigationMode === "idle") beginVectorCourse();
-      else if (event.key === "Escape" && navigationMode !== "idle") cancelNavigation();
-      else if (event.key === "Enter" && ["confirm", "target", "away"].includes(navigationMode))
-        void submitNavigation();
-      else if (event.key === "Enter" && navigationMode === "vector") stageNavigation();
-    };
-    window.addEventListener("keydown", handleNavigationKey);
-    return () => window.removeEventListener("keydown", handleNavigationKey);
-  }, [
-    beginVectorCourse,
-    cancelNavigation,
-    navigationMode,
-    pollingPaused,
-    stageNavigation,
-    submitNavigation,
-  ]);
   if (!spaceTelemetryActive)
     return (
       <>

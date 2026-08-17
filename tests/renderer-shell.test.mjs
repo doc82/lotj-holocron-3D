@@ -471,8 +471,21 @@ test("battlegroup members can open isolated remote tactical views", async () => 
 });
 
 test("player navigation supports vector, target, away, and speed orders", async () => {
-  const [app, engine, scraper, drawer, drawerCss, speedControl, commandFeedback, polling] = await Promise.all([
+  const [
+    app,
+    navigation,
+    reducer,
+    engine,
+    scraper,
+    drawer,
+    drawerCss,
+    speedControl,
+    commandFeedback,
+    polling,
+  ] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/features/commands/useNavigationController.ts", "utf8"),
+    readFile("renderer/src/features/commands/navigationReducer.ts", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
     readFile("renderer/src/features/commands/NavigationDrawer.tsx", "utf8"),
@@ -481,21 +494,21 @@ test("player navigation supports vector, target, away, and speed orders", async 
     readFile("renderer/src/features/feedback/useCommandFeedback.ts", "utf8"),
     readFile("renderer/src/features/polling/usePollingController.ts", "utf8"),
   ]);
-  assert.match(app, /event\.key\.toLowerCase\(\) === "m"/);
+  assert.match(navigation, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
   assert.match(app, /\{navigableTarget \? \(\s*<>/);
   assert.match(app, /SELECT TO OR AWAY \/\/ \{navigableTarget\.name\.toUpperCase\(\)\}/);
   assert.match(speedControl, /type="range"/);
-  assert.match(app, /navigationFleetScope \? "fleet_order" : "navigate_ship"/);
-  assert.match(app, /sendIntent\("set_ship_speed"/);
+  assert.match(navigation, /state\.fleetScope \? "fleet_order" : "navigate_ship"/);
+  assert.match(navigation, /sendIntent\("set_ship_speed"/);
   assert.match(polling, /sendIntent\("probe_space"/);
-  assert.match(app, /payload\.departureSpeed = requestedSpeed/);
+  assert.match(navigation, /payload\.departureSpeed = state\.requestedSpeed/);
   assert.match(app, /navigationMode !== "idle"/);
   assert.match(drawer, /DEPARTURE SPEED REQUIRED/);
-  assert.match(app, /knownMaximumSpeed/);
+  assert.match(reducer, /knownMaximumSpeed/);
   assert.match(speedControl, /AWAITING STATUS \/ INFO FOR SPEED LIMIT/);
-  assert.match(app, /setNavigationTargetId\(navigableTarget\.id\)/);
-  assert.match(app, /setNavigationTargetId\(null\)/);
+  assert.match(navigation, /targetId: navigableTarget\.id/);
+  assert.match(reducer, /targetId: null/);
   assert.match(app, /WAITING FOR CONFIRMATION/);
   assert.match(app, /CANCEL COMMAND/);
   assert.match(drawer, /aria-label="Navigation command wizard"/);
@@ -507,13 +520,14 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(drawer, /onClick=\{needsVectorLock \? onStageVector : onConfirm\}/);
   assert.match(drawer, /onClick=\{onCancel\}/);
   assert.match(drawerCss, /animation: drawer-enter/);
-  assert.match(app, /onIntentAck/);
+  assert.match(navigation, /onIntentAck/);
   assert.match(app, /styles\.commandToasts/);
   assert.match(
     commandFeedback,
     /if \(!alert\) return;\s*const timer = setTimeout\(\(\) => setAlertValue\(""\), 5_000\)/,
   );
-  assert.match(app, /setNavigationStatus\(""\);[\s\S]{0,120}setCommandAlert\(""\)/);
+  assert.match(navigation, /dispatch\(\{\s*type: "reset"/);
+  assert.match(navigation, /setAlert\(""\)/);
   assert.match(app, /label=\{`PLAYER SPEED \/\/ \$\{localName\.toUpperCase\(\)\}`\}/);
   assert.match(app, /observerStopped=\{observerSpeed === 0\}/);
   assert.match(engine, /rebuildCourseBuffer/);
@@ -540,11 +554,11 @@ test("player navigation supports vector, target, away, and speed orders", async 
     "middle-mouse camera orbit should take priority over course-vector updates",
   );
   assert.match(engine, /!this\.movementInteractive && button === 0 && !moved/);
-  assert.match(app, /SHIFT ELEVATION \/\/ MMB ORBIT/);
+  assert.match(reducer, /SHIFT ELEVATION \/\/ MMB ORBIT/);
   assert.match(engine, /onMovementCommit/);
   assert.match(engine, /publishCourseLabel/);
   assert.match(engine, /value - this\.originOffset\[index\]/);
-  assert.match(app, /SHIFT ELEVATION \/\/ MMB ORBIT/);
+  assert.match(reducer, /SHIFT ELEVATION \/\/ MMB ORBIT/);
   const canvas = await readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8");
   assert.match(canvas, /className=\{styles\.courseLabel\}/);
   assert.match(canvas, /X \{formatCoordinate\(courseLabel\.worldPosition\[0\]\)\}/);
@@ -567,16 +581,16 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(scraper, /Maneuver complete\./);
   assert.match(scraper, /publishIntentAck\(intentId, status, reason\)/);
   assert.match(scraper, /resolvePendingCommand\("rejected"/);
-  assert.match(app, /ack\.status === "completed"/);
-  assert.match(app, /MANEUVER IN PROGRESS/);
+  assert.match(navigation, /ack\.status === "completed"/);
+  assert.match(navigation, /MANEUVER IN PROGRESS/);
   assert.match(app, /CameraIcon type="player"/);
   assert.match(app, /CameraIcon type="rts"/);
   assert.match(app, /CameraIcon type="selection"/);
-  assert.match(app, /beginMovementPlanning/);
-  assert.match(app, /finishMovementPlanning/);
-  assert.match(app, /movementOriginsForScope/);
+  assert.match(navigation, /beginMovementPlanning/);
+  assert.match(navigation, /finishMovementPlanning/);
+  assert.match(navigation, /movementOriginsForScope/);
   assert.match(app, /resolveFormationOrigins/);
-  assert.match(app, /formationCenter\(origins\)/);
+  assert.match(navigation, /formationCenter\(origins\)/);
   assert.match(engine, /export type TacticalCameraMode = "player" \| "rts" \| "selection"/);
   assert.match(engine, /savedCameraState/);
   assert.match(engine, /this\.cameraMode === "rts" && \["w", "a", "s", "d", "q", "e"\]/);
@@ -588,7 +602,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(engine, /pushLine\(origin, destination\)/);
   assert.doesNotMatch(engine, /origins\.length > 0 \? origins :/);
   assert.match(engine, /this\.callbacks\.onCameraModeChange\(saved\.mode\)/);
-  assert.match(app, /event\.key === "Escape" && navigationMode !== "idle"\) cancelNavigation\(\)/);
+  assert.match(navigation, /event\.key === "Escape" && state\.mode !== "idle"\) cancel\(\)/);
   assert.match(scraper, /course relative %d %d %d/);
   assert.match(scraper, /"course away " \.\. name/);
   assert.match(scraper, /send\("speed " \.\. tostring\(math\.floor\(requestedSpeed \+ 0\.5\)\)\)/);
