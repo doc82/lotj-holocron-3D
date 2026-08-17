@@ -61,9 +61,12 @@
   height: 100%;
 }
 
-.health i,
+.hull i {
+  background: linear-gradient(90deg, #5d0714, #ff7182);
+}
+
 .shield i {
-  background: linear-gradient(90deg, #ed4356, #efca4c 45%, #4ee6a0 78%);
+  background: linear-gradient(90deg, #082b61, #72d8ff);
 }
 
 .speed i {
@@ -71,7 +74,7 @@
 }
 
 .energy i {
-  background: linear-gradient(90deg, #c44935, #efb83f 52%, #fff19b);
+  background: linear-gradient(90deg, #06452e, #71efaa);
 }
 
 .track.unknown {

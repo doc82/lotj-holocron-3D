@@ -119,7 +119,7 @@
   bottom: 316px;
   left: 72px;
   z-index: 17;
-  width: min(340px, calc(100vw - 106px));
+  width: min(390px, calc(100vw - 106px));
   padding: 15px;
   overflow: hidden;
   animation: panel-enter 180ms ease-out both;

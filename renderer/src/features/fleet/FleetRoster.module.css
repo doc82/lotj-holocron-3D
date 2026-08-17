@@ -51,9 +51,11 @@
 
 .list {
   display: grid;
+  min-width: 0;
   gap: 5px;
   max-height: min(54vh, 430px);
   padding-right: 3px;
+  overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: rgba(92, 201, 223, 0.45) rgba(4, 19, 27, 0.5);
   scrollbar-width: thin;
@@ -61,6 +63,7 @@
 
 .member {
   display: block;
+  min-width: 0;
   width: 100%;
   border: 1px solid rgba(82, 220, 244, 0.2);
   border-left: 3px solid rgba(82, 220, 244, 0.58);
@@ -108,9 +111,15 @@
   justify-content: space-between;
   gap: 8px;
 }
+.memberTop > em {
+  min-width: 0;
+  flex: 1;
+}
 .memberTools {
   display: flex;
+  min-width: 0;
   align-items: center;
+  flex: none;
   gap: 7px;
 }
 .cardActions {
@@ -180,8 +189,24 @@
   display: block;
 }
 .member > .orderResult {
+  width: 100%;
   margin-top: 3px;
+  padding: 0 0 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
   color: #e5c96f;
+  text-overflow: clip;
+  scrollbar-color: rgba(229, 201, 111, 0.58) rgba(4, 19, 27, 0.48);
+  scrollbar-width: thin;
+}
+.member > .orderResult::-webkit-scrollbar {
+  height: 3px;
+}
+.member > .orderResult::-webkit-scrollbar-track {
+  background: rgba(4, 19, 27, 0.48);
+}
+.member > .orderResult::-webkit-scrollbar-thumb {
+  background: rgba(229, 201, 111, 0.58);
 }
 .member > .orderResult[data-status="accepted"] {
   color: #5be5a1;
@@ -210,15 +235,20 @@
 }
 .meters {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
   margin-top: 4px;
 }
 .meter {
   display: grid;
+  min-width: 0;
   grid-template-columns: 8px 1fr;
   align-items: center;
   gap: 3px;
+  outline: none;
+}
+.meter[data-tone="energy"] {
+  grid-column: 1 / -1;
 }
 .meter > span {
   color: #73949b;
@@ -236,12 +266,14 @@
   display: block;
   height: 100%;
 }
-.hull,
+.hull {
+  background: linear-gradient(90deg, #5d0714, #ff7182);
+}
 .shield {
-  background: linear-gradient(90deg, #ed4356, #efca4c 45%, #4ee6a0 78%);
+  background: linear-gradient(90deg, #082b61, #72d8ff);
 }
 .energy {
-  background: linear-gradient(90deg, #c44935, #efb83f 52%, #fff19b);
+  background: linear-gradient(90deg, #06452e, #71efaa);
 }
 
 @keyframes disabled-pulse {

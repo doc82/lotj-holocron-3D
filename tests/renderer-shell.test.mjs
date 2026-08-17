@@ -217,7 +217,7 @@ test("contacts expose persistent disposition controls, shaped markers, and rich 
   assert.match(rangeMeter, /data-tooltip=\{tooltip\}/);
   assert.match(
     rangeMeter,
-    /\/\/ \$\{formatCoordinate\(reading\?\.current\)\} \/ \$\{formatCoordinate\(reading\?\.maximum\)\}/,
+    /\/\/ CURRENT \$\{formatCoordinate\(reading\?\.current\)\} \/\/ MAX \$\{formatCoordinate\(reading\?\.maximum\)\}/,
   );
   assert.match(canvas, /CLASS \{tooltip\.shipCategory\.toUpperCase\(\)\}/);
   assert.match(canvas, /RangeMeter label="SHIELD"/);
@@ -416,6 +416,33 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   assert.match(css, /\.compactReadouts dt,[^}]*font-size: 11px/s);
   assert.match(speedControl, /type="range"/);
   assert.match(css, /\.orderActions button \{[^}]*font:\s*700 10px/s);
+});
+
+test("ship resource meters share palettes, values, and overflow-safe card layouts", async () => {
+  const [appCss, roster, rosterCss, rangeMeter, rangeMeterCss, targetRail] = await Promise.all([
+    readFile("renderer/src/app/App.module.css", "utf8"),
+    readFile("renderer/src/features/fleet/FleetRoster.tsx", "utf8"),
+    readFile("renderer/src/features/fleet/FleetRoster.module.css", "utf8"),
+    readFile("renderer/src/features/telemetry/RangeMeter.tsx", "utf8"),
+    readFile("renderer/src/features/telemetry/RangeMeter.module.css", "utf8"),
+    readFile("renderer/src/features/tactical/TargetShortcutRail.tsx", "utf8"),
+  ]);
+
+  assert.match(appCss, /\.scopeDrawer \{[^}]*width: min\(390px,/s);
+  assert.match(rosterCss, /\.list \{[^}]*overflow-x: hidden;/s);
+  assert.match(rosterCss, /\.orderResult \{[^}]*overflow-x: auto;/s);
+  assert.match(rosterCss, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(rosterCss, /\.meter\[data-tone="energy"\] \{\s*grid-column: 1 \/ -1/);
+  assert.match(roster, /CURRENT \$\{formatCoordinate\(reading\?\.current\)\}/);
+  assert.match(roster, /MAX \$\{formatCoordinate\(reading\?\.maximum\)\}/);
+  assert.match(rangeMeter, /CURRENT \$\{formatCoordinate\(reading\?\.current\)\}/);
+  assert.match(targetRail, /<FleetMeter label="Hull" reading=\{ship\.hull\}/);
+
+  for (const css of [rosterCss, rangeMeterCss]) {
+    assert.match(css, /linear-gradient\(90deg, #5d0714, #ff7182\)/);
+    assert.match(css, /linear-gradient\(90deg, #082b61, #72d8ff\)/);
+    assert.match(css, /linear-gradient\(90deg, #06452e, #71efaa\)/);
+  }
 });
 
 test("battlegroup members can open isolated remote tactical views", async () => {

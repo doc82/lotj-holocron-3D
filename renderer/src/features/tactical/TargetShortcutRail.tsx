@@ -1,5 +1,6 @@
 import type { TelemetryEntity } from "../../types/telemetry";
 import type { TacticalTargetShortcut } from "../../domain/tacticalTargets";
+import { FleetMeter } from "../fleet/FleetRoster";
 import type { ShipDossierMode } from "../telemetry/ShipDossierPanel";
 import rosterStyles from "../fleet/FleetRoster.module.css";
 import styles from "./TargetShortcutRail.module.css";
@@ -11,35 +12,6 @@ function TargetGlyph() {
       <path d="M16 3v7m0 12v7M3 16h7m12 0h7" />
       <circle cx="16" cy="16" r="2" />
     </svg>
-  );
-}
-
-function percentage(ship: TacticalTargetShortcut["ship"], field: "hull" | "shields" | "energy") {
-  const reading = ship?.[field];
-  if (!reading || typeof reading !== "object") return null;
-  const current = Number(reading.current);
-  const maximum = Number(reading.maximum);
-  if (!Number.isFinite(current) || !Number.isFinite(maximum) || maximum <= 0) return null;
-  return Math.max(0, Math.min(100, (current / maximum) * 100));
-}
-
-function TargetMeter({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number | null;
-  tone: "hull" | "shield" | "energy";
-}) {
-  const tooltip = `${label} // ${value === null ? "UNKNOWN" : `${Math.round(value)}%`}`;
-  return (
-    <span className={rosterStyles.meter} title={tooltip} aria-label={tooltip}>
-      <span>{label.slice(0, 1)}</span>
-      <i>
-        <b className={rosterStyles[tone]} style={{ width: `${value ?? 0}%` }} />
-      </i>
-    </span>
   );
 }
 
@@ -130,9 +102,9 @@ function TargetCard({
       )}
       {ship && (
         <span className={rosterStyles.meters}>
-          <TargetMeter label="Hull" value={percentage(ship, "hull")} tone="hull" />
-          <TargetMeter label="Shield" value={percentage(ship, "shields")} tone="shield" />
-          <TargetMeter label="Energy" value={percentage(ship, "energy")} tone="energy" />
+          <FleetMeter label="Hull" reading={ship.hull} tone="hull" />
+          <FleetMeter label="Shield" reading={ship.shields} tone="shield" />
+          <FleetMeter label="Energy" reading={ship.energy} tone="energy" />
         </span>
       )}
     </article>

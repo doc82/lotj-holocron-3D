@@ -1,4 +1,10 @@
-import type { FleetMember, FleetOrderStatus, FleetStatus } from "../../types/telemetry";
+import { formatCoordinate } from "../../domain/scene";
+import type {
+  FleetMember,
+  FleetOrderStatus,
+  FleetStatus,
+  SpeedReading,
+} from "../../types/telemetry";
 import type { ShipDossierMode } from "../telemetry/ShipDossierPanel";
 import styles from "./FleetRoster.module.css";
 
@@ -27,8 +33,7 @@ function RosterActionIcon({ type }: { type: "view" | "status" | "info" }) {
   );
 }
 
-function percent(member: FleetMember, field: "hull" | "shields" | "energy"): number | null {
-  const reading = member[field];
+function readingPercent(reading?: SpeedReading): number | null {
   if (
     !Number.isFinite(reading?.current) ||
     !Number.isFinite(reading?.maximum) ||
@@ -38,23 +43,31 @@ function percent(member: FleetMember, field: "hull" | "shields" | "energy"): num
   return Math.max(0, Math.min(100, (Number(reading?.current) / Number(reading?.maximum)) * 100));
 }
 
-function FleetMeter({
+function percent(member: FleetMember, field: "hull" | "shields" | "energy"): number | null {
+  return readingPercent(member[field]);
+}
+
+export function FleetMeter({
   label,
-  value,
+  reading,
   tone,
 }: {
   label: string;
-  value: number | null;
+  reading?: SpeedReading;
   tone: "hull" | "shield" | "energy";
 }) {
-  const tooltip = `${label} // ${value === null ? "UNKNOWN" : `${Math.round(value)}%`}`;
+  const value = readingPercent(reading);
+  const tooltip =
+    value === null
+      ? `${label.toUpperCase()} // CURRENT UNKNOWN // MAX UNKNOWN`
+      : `${label.toUpperCase()} // CURRENT ${formatCoordinate(reading?.current)} // MAX ${formatCoordinate(reading?.maximum)}`;
   return (
-    <div className={styles.meter} title={tooltip} aria-label={tooltip}>
+    <span className={styles.meter} data-tone={tone} title={tooltip} aria-label={tooltip}>
       <span>{label.slice(0, 1)}</span>
       <i>
         <b className={styles[tone]} style={{ width: `${value ?? 0}%` }} />
       </i>
-    </div>
+    </span>
   );
 }
 
@@ -305,9 +318,9 @@ export function FleetRoster({
                 </small>
               )}
               <span className={styles.meters}>
-                <FleetMeter label="Hull" value={percent(member, "hull")} tone="hull" />
-                <FleetMeter label="Shield" value={percent(member, "shields")} tone="shield" />
-                <FleetMeter label="Energy" value={percent(member, "energy")} tone="energy" />
+                <FleetMeter label="Hull" reading={member.hull} tone="hull" />
+                <FleetMeter label="Shield" reading={member.shields} tone="shield" />
+                <FleetMeter label="Energy" reading={member.energy} tone="energy" />
               </span>
             </article>
           );

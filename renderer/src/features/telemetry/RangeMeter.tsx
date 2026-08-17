@@ -6,12 +6,12 @@ export interface RangeReading {
   maximum?: number;
 }
 
-type RangeMeterTone = "health" | "shield" | "speed" | "energy";
+type RangeMeterTone = "hull" | "shield" | "speed" | "energy";
 
 export function RangeMeter({
   label,
   reading,
-  tone = "health",
+  tone = "hull",
 }: {
   label: string;
   reading?: RangeReading;
@@ -25,8 +25,8 @@ export function RangeMeter({
     ? Math.max(0, Math.min(100, (Number(reading?.current) / Number(reading?.maximum)) * 100))
     : 0;
   const tooltip = known
-    ? `${label} // ${formatCoordinate(reading?.current)} / ${formatCoordinate(reading?.maximum)}`
-    : `${label} // UNKNOWN`;
+    ? `${label} // CURRENT ${formatCoordinate(reading?.current)} // MAX ${formatCoordinate(reading?.maximum)}`
+    : `${label} // CURRENT UNKNOWN // MAX UNKNOWN`;
 
   return (
     <div className={styles.meter} data-tooltip={tooltip} aria-label={tooltip}>
