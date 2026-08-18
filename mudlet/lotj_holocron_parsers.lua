@@ -107,6 +107,14 @@ local function classify(name, class)
   return "ship"
 end
 
+local function validShipName(name)
+  return type(name) == "string"
+    and name ~= ""
+    and #name <= 64
+    and name:find("%s") == nil
+    and name:find("'", 1, true) == nil
+end
+
 local function parseDisplayName(raw)
   raw = trim(raw:gsub("%s+%[[^%]]+%]%s*$", ""))
   -- Proximity output labels its value column at the end of the contact name.
@@ -114,9 +122,29 @@ local function parseDisplayName(raw)
   raw = trim(raw:gsub("%s+[Vv][Ee][Ll][Oo][Cc][Ii][Tt][Yy]%s*$", ""))
   local class, quoted = raw:match("^(.-)%s+'(.-)'%s*$")
   if quoted then
-    return quoted, trim(class)
+    class = trim(class)
+    quoted = trim(quoted)
+    if quoted == "" or #quoted > 160 then
+      return nil, nil, false
+    end
+    -- Player-assigned ship callsigns are one token. Celestial display names
+    -- may contain spaces, so apply this restriction only to ship classes.
+    if classify(quoted, class) == "ship" and not validShipName(quoted) then
+      return nil, nil, false
+    end
+    return quoted, class, true
   end
-  return raw, nil
+  local lower = raw:lower()
+  if
+    raw == ""
+    or #raw > 160
+    or raw:find("'", 1, true)
+    or lower:find(" enters the starsystem", 1, true)
+    or lower:find("coming out of its hyperjump", 1, true)
+  then
+    return nil, nil, false
+  end
+  return raw, nil, true
 end
 
 local function addUniqueIds(items)
@@ -151,10 +179,6 @@ local function radarSystemName(line)
   return nil
 end
 
-function Parsers.radarSystemName(line)
-  return radarSystemName(line)
-end
-
 local function resultOrError(result, recognized, command)
   if recognized == 0 then
     return nil, "no " .. command .. " data was recognized"
@@ -182,25 +206,30 @@ function Parsers.parseRadar(input)
       if label:lower():match("^your%s+coordinates%s*:") then
         result.observer = position
       else
-        local name, class = parseDisplayName(label)
-        local kind = classify(name, class)
-        -- Current LotJ radar output gives ships as Class 'Name', while
-        -- unquoted rows are celestial contacts (for example Dromund Kaas).
-        -- Radar alone cannot reliably distinguish a planet from a star.
-        if not class and kind == "ship" then
-          kind = "celestial"
+        local name, class, validName = parseDisplayName(label)
+        if validName then
+          local kind = classify(name, class)
+          -- Current LotJ radar output gives ships as Class 'Name', while
+          -- unquoted rows are celestial contacts (for example Dromund Kaas).
+          -- Radar alone cannot reliably distinguish a planet from a star.
+          if not class and kind == "ship" then
+            kind = "celestial"
+          end
+          table.insert(result.entities, {
+            name = name,
+            class = class,
+            kind = kind,
+            x = position.x,
+            y = position.y,
+            z = position.z,
+          })
+          sawEntity = true
+          recognized = recognized + 1
         end
-        table.insert(result.entities, {
-          name = name,
-          class = class,
-          kind = kind,
-          x = position.x,
-          y = position.y,
-          z = position.z,
-        })
-        sawEntity = true
       end
-      recognized = recognized + 1
+      if label:lower():match("^your%s+coordinates%s*:") then
+        recognized = recognized + 1
+      end
     elseif not sawEntity and not result.system then
       result.system = radarSystemName(line)
     end
@@ -244,15 +273,19 @@ local function parseProximity(input, velocityMode)
       end
 
       if label and value then
-        local name, class = parseDisplayName(label)
-        local entity = { name = name, class = class, kind = classify(name, class) }
-        if velocityMode then
-          entity.speed = number(value)
-        else
-          entity.distance = number(value)
+        local name, class, validName = parseDisplayName(label)
+        if validName then
+          local entity = { name = name, class = class, kind = classify(name, class) }
+          if velocityMode then
+            entity.speed = number(value)
+          else
+            entity.distance = number(value)
+          end
+          if entity.name then
+            table.insert(result.entities, entity)
+            recognized = recognized + 1
+          end
         end
-        table.insert(result.entities, entity)
-        recognized = recognized + 1
       else
         local name, distance = line:match("^(.-)%s+is%s+now%s+([%d,]+%.?%d*)%s+units?%s+away%.?$")
         if name and not velocityMode then
@@ -417,6 +450,16 @@ function Parsers.parseStatus(input)
     return nil, err
   end
 
+  -- A player command can preempt a background `info <ship>` capture while the
+  -- old response is already in flight. Never reinterpret that info dossier as
+  -- status output: its `Kill Markers:` section otherwise looks like the legacy
+  -- `Ship Name:` status header and can corrupt the observer identity.
+  for _, line in ipairs(lines) do
+    if line:match("^%[Class:%s*[^%]]+%]%s*:%s*.+$") then
+      return nil, "status output contained a ship information response"
+    end
+  end
+
   local result = { source = "status" }
   local card = { title = "SHIP STATUS", sections = {}, notices = {} }
   local sectionTitle = "FLIGHT"
@@ -455,11 +498,18 @@ function Parsers.parseStatus(input)
         local name = line:match("^(.-):$")
         if name and not STATUS_KEYS[name:lower()] then
           name = trim(name):gsub("^[Rr]eadout%s+for%s+", "")
-          result.name, result.class = parseDisplayName(name)
-          result.kind = "ship"
-          result.id = slug(result.name)
-          card.title = trim(line:gsub(":$", ""))
-          recognized = recognized + 1
+          local parsedName, parsedClass, validName = parseDisplayName(name)
+          if
+            validName
+            and classify(parsedName, parsedClass) == "ship"
+            and validShipName(parsedName)
+          then
+            result.name, result.class = parsedName, parsedClass
+            result.kind = "ship"
+            result.id = slug(result.name)
+            card.title = trim(line:gsub(":$", ""))
+            recognized = recognized + 1
+          end
         end
       end
       if
@@ -663,9 +713,15 @@ function Parsers.parseInfo(input)
         and #displayName <= 160
         and not category:find("[{}:]")
         and not displayName:find("[{}]")
-      if validHeader then
+      local parsedName, parsedClass, validName = parseDisplayName(displayName)
+      if
+        validHeader
+        and validName
+        and classify(parsedName, parsedClass) == "ship"
+        and validShipName(parsedName)
+      then
         result.shipCategory = category
-        result.name, result.class = parseDisplayName(displayName)
+        result.name, result.class = parsedName, parsedClass
         result.kind = "ship"
         result.id = slug(result.name)
         headerFound = true
@@ -944,8 +1000,16 @@ function Parsers.parseFleetRadar(input)
             or entity.z ~= nil
           )
         then
-          entity.name, entity.class = parseDisplayName(trim(entity.name))
-          entity.kind = classify(entity.name, entity.class)
+          local parsedName, parsedClass, validName = parseDisplayName(trim(entity.name))
+          if validName then
+            entity.name, entity.class = parsedName, parsedClass
+            entity.kind = classify(entity.name, entity.class)
+            if entity.kind == "ship" and not validShipName(entity.name) then
+              entity.name = nil
+            end
+          else
+            entity.name = nil
+          end
           if entity.leader then
             entity.leader = trim(entity.leader)
             if entity.leader == "" then
@@ -966,8 +1030,10 @@ function Parsers.parseFleetRadar(input)
               entity.position = tactical
             end
           end
-          table.insert(result.entities, entity)
-          recognized = recognized + 1
+          if entity.name then
+            table.insert(result.entities, entity)
+            recognized = recognized + 1
+          end
         end
       end
     end
@@ -1037,23 +1103,27 @@ function Parsers.parseBattlegroup(input)
     if slot then
       local normalizedSlot = trim(slot)
       local leader = normalizedSlot:lower() == "l"
-      local name, class = parseDisplayName(trim(display))
-      current = {
-        id = slug(name),
-        name = name,
-        class = class,
-        shipCategory = trim(category),
-        role = leader and "leader" or "wing",
-        leader = leader,
-        slot = leader and nil or tonumber(normalizedSlot),
-        position = trim(position),
-        presence = "active",
-      }
-      table.insert(result.fleet.members, current)
-      if leader then
-        result.fleet.leaderId = current.id
+      local name, class, validName = parseDisplayName(trim(display))
+      if validName and classify(name, class) == "ship" and validShipName(name) then
+        current = {
+          id = slug(name),
+          name = name,
+          class = class,
+          shipCategory = trim(category),
+          role = leader and "leader" or "wing",
+          leader = leader,
+          slot = leader and nil or tonumber(normalizedSlot),
+          position = trim(position),
+          presence = "active",
+        }
+        table.insert(result.fleet.members, current)
+        if leader then
+          result.fleet.leaderId = current.id
+        end
+        recognized = recognized + 1
+      else
+        current = nil
       end
-      recognized = recognized + 1
     elseif current then
       local energy, hull, shields, crew, system, gx, gy = line:match(
         "^Energy:%s*([%d,.]+)%%%s*|Hull:%s*([%d,.]+)%%%s*|Shields:%s*([%d,.]+)%%%s*|Crew:%s*([%d,]+)%s*|System:%s*(.-)%s+([+-]?[%d,]+)%s*/%s*([+-]?[%d,]+)%s*$"
@@ -1107,21 +1177,25 @@ function Parsers.parseSquadronStatus(input)
       local leadDisplay = line:match("^[Ll]ead:%s*(.-)%s*$")
       local memberDisplay = not leadDisplay and line:match("^(.+%s+'.-')%s*$") or nil
       if leadDisplay or memberDisplay then
-        local name, class = parseDisplayName(trim(leadDisplay or memberDisplay))
+        local name, class, validName = parseDisplayName(trim(leadDisplay or memberDisplay))
         local leader = leadDisplay ~= nil
-        current = {
-          id = slug(name),
-          name = name,
-          class = class,
-          role = leader and "lead" or "wing",
-          leader = leader,
-          presence = "active",
-        }
-        table.insert(result.fleet.members, current)
-        if leader then
-          result.fleet.leaderId = current.id
+        if validName and classify(name, class) == "ship" and validShipName(name) then
+          current = {
+            id = slug(name),
+            name = name,
+            class = class,
+            role = leader and "lead" or "wing",
+            leader = leader,
+            presence = "active",
+          }
+          table.insert(result.fleet.members, current)
+          if leader then
+            result.fleet.leaderId = current.id
+          end
+          recognized = recognized + 1
+        else
+          current = nil
         end
-        recognized = recognized + 1
       elseif current then
         local energy, shields, hull, location = line:match(
           "^Energy:%s*([%d,.]+)%%%s+Shield:%s*([%d,.]+)%%%s+Hull:%s*([%d,.]+)%%%s+Location:%s*(.-)%s*$"

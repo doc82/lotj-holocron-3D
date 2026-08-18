@@ -26,14 +26,6 @@ export function fleetMemberSelectionKey(member: Pick<FleetMember, "id" | "name">
   return name ? `name:${name}` : `id:${normalizedName(member.id)}`;
 }
 
-export function isLocalFleetMember(
-  member: Pick<FleetMember, "name">,
-  localName: string | undefined,
-): boolean {
-  const local = normalizedName(localName);
-  return local !== "" && normalizedName(member.name) === local;
-}
-
 export function fleetMemberForSelectionKey(
   members: FleetMember[],
   selectionKey: string | null,

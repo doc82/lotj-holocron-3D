@@ -8,6 +8,8 @@ import {
   galacticDistance,
   hyperspaceClearance,
   hyperspaceDestinationMarkerSize,
+  randomSectorDestinationBeyond,
+  sectorDistance,
 } from "../renderer/src/domain/hyperspace.ts";
 
 const destinations = [
@@ -22,6 +24,18 @@ test("local hyperspace coordinates clamp to the sector boundary", () => {
   assert.equal(clampSectorCoordinate(12_345.6), 12_346);
   assert.ok(hyperspaceDestinationMarkerSize(50_000) > hyperspaceDestinationMarkerSize(500));
   assert.ok(hyperspaceDestinationMarkerSize(Number.POSITIVE_INFINITY) >= 26);
+});
+
+test("random planet arrivals remain in-sector and beyond the selected minimum", () => {
+  const planet = [1_000, -2_000, 3_000];
+  const first = randomSectorDestinationBeyond(planet, 100, () => 0.5);
+  assert.ok(sectorDistance(planet, first) > 500);
+  assert.ok(first.every((coordinate) => Math.abs(coordinate) <= 50_000));
+
+  const boundaryPlanet = [50_000, 50_000, 50_000];
+  const boundaryArrival = randomSectorDestinationBeyond(boundaryPlanet, 2_000, () => 1);
+  assert.ok(sectorDistance(boundaryPlanet, boundaryArrival) > 2_000);
+  assert.ok(boundaryArrival.every((coordinate) => Math.abs(coordinate) <= 50_000));
 });
 
 test("escape planning uses the ship's conservative confirmed jump range", () => {

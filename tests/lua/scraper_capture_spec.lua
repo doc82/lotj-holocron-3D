@@ -13,7 +13,7 @@ end)
 describe("scraper capture lifecycle", function()
   it("registers protocol listeners and intent handlers in a fresh fixture", function()
     equal(#fixture.scraper.eventHandlerIds, 5)
-    equal(#fixture.scraper.stateTriggerIds, 23)
+    equal(#fixture.scraper.stateTriggerIds, 24)
     equal(fixture.gmcpRequests[1].command, "Core.Supports.Add")
     assert(type(fixture.intentHandlers.scan_ship) == "function")
     assert(type(fixture.intentHandlers.navigate_ship) == "function")
@@ -35,6 +35,24 @@ Shields: 100/150 Energy(fuel): 3916/5000
     equal(snapshot.observer.x, 10)
     equal(snapshot.observer.speed.maximum, 300)
     equal(snapshot.observer.hull.current, 140)
+  end)
+
+  it("does not let a late background info response rename the observer", function()
+    assert(fixture.scraper.applyResult({
+      source = "status",
+      name = "TeeHee1",
+      coordinates = { x = 10, y = 20, z = -5 },
+    }, "status"))
+    assert(fixture.scraper.startCapture("status", "status", { external = true }))
+    fixture.scraper.captureLine("[Class: Cruiser] : Victory-II Class Star Destroyer 'TeeHee3'")
+    fixture.scraper.captureLine("Kill Markers:")
+    fixture.scraper.captureLine("Quota: 0.00/2770.00 Value: 4109300 credit(s)")
+    fixture.scraper.captureLine("Maximum Speed: 55 Hyperspeed: 70")
+
+    local result, failure = fixture.scraper.finishCapture("prompt")
+    equal(result, nil)
+    assert(failure:find("ignored in-flight ship information response", 1, true))
+    equal(fixture.scraper.state.observer.name, "TeeHee1")
   end)
 
   it("merges info telemetry and excludes access codes", function()
@@ -105,6 +123,50 @@ YT-1300 'Wayfarer' |  | (Out) 200 30 40
     assert(fixture.deletedLines > before)
   end)
 
+  it("does not capture a sector-arrival announcement as a radar contact", function()
+    fixture.scraper.setInSpace(true, "fixture")
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
+    fixture.scraper.captureLine("Esstran Sector")
+    equal(
+      fixture.scraper.captureLine(
+        "Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at celestial 3670 3491 3402"
+      ),
+      false
+    )
+    fixture.scraper.captureLine("Victory-II Class Star Destroyer 'VSD02' 3670 3491 3402")
+    fixture.scraper.captureLine("Your Coordinates: 3510 3491 3402")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    equal(fixture:entity("VSD02").name, "VSD02")
+    equal(fixture:entity("TeeHee3"), nil)
+  end)
+
+  it("rejects malformed entities at the telemetry state boundary", function()
+    assert(fixture.scraper.applyResult({
+      source = "radar",
+      system = "Esstran Sector",
+      observer = { x = 0, y = 0, z = 0 },
+      entities = {
+        {
+          name = "Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem",
+          kind = "celestial",
+          x = 10,
+          y = 20,
+          z = 30,
+        },
+        { name = "Bad Name", kind = "ship", x = 40, y = 50, z = 60 },
+        { name = "Dromund Kaas", kind = "planet", x = 70, y = 80, z = 90 },
+      },
+    }, "radar"))
+
+    local count = 0
+    for _ in pairs(fixture.scraper.state.entities) do
+      count = count + 1
+    end
+    equal(count, 1)
+    equal(fixture:entity("Dromund Kaas").name, "Dromund Kaas")
+  end)
+
   it("landing abandons captures and clears stale contacts", function()
     assert(fixture:capture(
       "radar",
@@ -127,5 +189,23 @@ Your Coordinates: 10 20 -5
     local result, failure = fixture.scraper.finishCapture("prompt")
     equal(result, nil)
     equal(failure, "no capture is active")
+  end)
+
+  it("isolates capture diagnostics from surrounding game output", function()
+    fixture.scraper.showLastCapture()
+    equal(fixture.output[1]:sub(1, 1), "\n")
+    equal(fixture.output[1]:sub(-1), "\n")
+
+    fixture.output = {}
+    assert(fixture:capture(
+      "status",
+      [[
+Forrestal:
+Current Coordinates: 10 20 -5
+]]
+    ))
+    assert(fixture.scraper.showLastCapture())
+    equal(fixture.output[1]:sub(1, 1), "\n")
+    equal(fixture.output[#fixture.output]:sub(-1), "\n")
   end)
 end)

@@ -4,12 +4,73 @@ export const MIN_HYPERSPACE_CLEARANCE = 500;
 export const HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS = 15;
 export const SECTOR_COORDINATE_LIMIT = 50_000;
 
+export type SectorPoint = readonly [number, number, number];
+
 export function clampSectorCoordinate(value: number): number {
   const finiteValue = Number.isFinite(Number(value)) ? Number(value) : 0;
   return Math.max(
     -SECTOR_COORDINATE_LIMIT,
     Math.min(SECTOR_COORDINATE_LIMIT, Math.round(finiteValue)),
   );
+}
+
+function randomUnit(random: () => number): number {
+  const value = Number(random());
+  if (!Number.isFinite(value)) return 0.5;
+  return Math.max(0, Math.min(1 - Number.EPSILON, value));
+}
+
+export function sectorDistance(left: SectorPoint, right: SectorPoint): number {
+  return Math.hypot(right[0] - left[0], right[1] - left[1], right[2] - left[2]);
+}
+
+export function randomSectorDestinationBeyond(
+  origin: SectorPoint,
+  requestedMinimumDistance: number,
+  random: () => number = Math.random,
+): [number, number, number] {
+  const center = origin.map(clampSectorCoordinate) as [number, number, number];
+  const minimumDistance = Math.max(
+    MIN_HYPERSPACE_CLEARANCE,
+    Number.isFinite(requestedMinimumDistance) ? Math.round(requestedMinimumDistance) : 0,
+  );
+  const radialSpan = Math.max(MIN_HYPERSPACE_CLEARANCE, minimumDistance);
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const azimuth = randomUnit(random) * Math.PI * 2;
+    const vertical = randomUnit(random) * 2 - 1;
+    const horizontal = Math.sqrt(Math.max(0, 1 - vertical * vertical));
+    const distance = minimumDistance + 2 + randomUnit(random) * radialSpan;
+    const candidate: [number, number, number] = [
+      Math.round(center[0] + Math.cos(azimuth) * horizontal * distance),
+      Math.round(center[1] + vertical * distance),
+      Math.round(center[2] + Math.sin(azimuth) * horizontal * distance),
+    ];
+    if (
+      candidate.every((coordinate) => Math.abs(coordinate) <= SECTOR_COORDINATE_LIMIT) &&
+      sectorDistance(center, candidate) > minimumDistance
+    ) {
+      return candidate;
+    }
+  }
+
+  const corners = [-SECTOR_COORDINATE_LIMIT, SECTOR_COORDINATE_LIMIT].flatMap((x) =>
+    [-SECTOR_COORDINATE_LIMIT, SECTOR_COORDINATE_LIMIT].flatMap((y) =>
+      [-SECTOR_COORDINATE_LIMIT, SECTOR_COORDINATE_LIMIT].map(
+        (z) => [x, y, z] as [number, number, number],
+      ),
+    ),
+  );
+  const fallback = corners.reduce((furthest, candidate) =>
+    sectorDistance(center, candidate) > sectorDistance(center, furthest) ? candidate : furthest,
+  );
+  const maximumDistance = sectorDistance(center, fallback);
+  const distance = Math.min(maximumDistance, minimumDistance + 2 + randomUnit(random) * radialSpan);
+  return fallback.map((coordinate, index) =>
+    clampSectorCoordinate(
+      center[index] + ((coordinate - center[index]) / maximumDistance) * distance,
+    ),
+  ) as [number, number, number];
 }
 
 export function hyperspaceDestinationMarkerSize(distance: number): number {

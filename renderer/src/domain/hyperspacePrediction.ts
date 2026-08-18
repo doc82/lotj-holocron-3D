@@ -10,9 +10,14 @@ export interface MotionTrack {
   name: string;
   previous?: MotionSample;
   current: MotionSample;
+  samples?: MotionSample[];
 }
 
 export type MotionTrackMap = Map<string, MotionTrack>;
+
+export const MOTION_TRACK_SAMPLE_LIMIT = 6;
+export const MOTION_TRACK_RESET_SECONDS = 30;
+export const HYPERSPACE_REPLOT_THRESHOLD_UNITS = 50;
 
 export interface HyperspaceInterceptSolution {
   targetPosition: Vector3;
@@ -84,11 +89,23 @@ export function observeMotionTracks(
     const position = positionOf(observation.entity);
     if (current && observation.observedAt <= current.current.observedAt) continue;
     const sample = { position, observedAt: observation.observedAt };
+    const existingSamples = current?.samples?.length
+      ? current.samples
+      : current?.previous
+        ? [current.previous, current.current]
+        : current
+          ? [current.current]
+          : [];
+    const samples =
+      current && observation.observedAt - current.current.observedAt <= MOTION_TRACK_RESET_SECONDS
+        ? [...existingSamples, sample].slice(-MOTION_TRACK_SAMPLE_LIMIT)
+        : [sample];
     next.set(observation.id, {
       id: observation.id,
       name: observation.entity.name || observation.id,
-      previous: current?.current,
+      previous: samples.length > 1 ? samples[samples.length - 2] : undefined,
       current: sample,
+      samples,
     });
     changed =
       changed ||
@@ -100,12 +117,41 @@ export function observeMotionTracks(
 }
 
 export function velocityForTrack(track?: MotionTrack): Vector3 | null {
-  if (!track?.previous) return null;
-  const elapsed = track.current.observedAt - track.previous.observedAt;
-  if (!(elapsed > 0)) return null;
-  return track.current.position.map(
-    (value, index) => (value - track.previous!.position[index]) / elapsed,
-  ) as Vector3;
+  if (!track) return null;
+  const samples = track.samples?.length
+    ? track.samples
+    : track.previous
+      ? [track.previous, track.current]
+      : [];
+  if (samples.length < 2) return null;
+
+  // Least-squares velocity uses every recent authoritative fix. Additional
+  // radar hits therefore smooth small coordinate/timing errors instead of
+  // replacing the heading with only the newest two-point measurement.
+  const originTime = samples[0].observedAt;
+  const times = samples.map((sample) => sample.observedAt - originTime);
+  const meanTime = times.reduce((sum, value) => sum + value, 0) / times.length;
+  const denominator = times.reduce((sum, value) => sum + (value - meanTime) ** 2, 0);
+  if (!(denominator > 0)) return null;
+  return [0, 1, 2].map((axis) => {
+    const meanPosition =
+      samples.reduce((sum, sample) => sum + sample.position[axis], 0) / samples.length;
+    return (
+      samples.reduce(
+        (sum, sample, index) =>
+          sum + (times[index] - meanTime) * (sample.position[axis] - meanPosition),
+        0,
+      ) / denominator
+    );
+  }) as Vector3;
+}
+
+export function hyperspaceReplotRequired(
+  previous: Vector3,
+  next: Vector3,
+  threshold = HYPERSPACE_REPLOT_THRESHOLD_UNITS,
+): boolean {
+  return Math.hypot(...next.map((value, index) => value - previous[index])) > threshold;
 }
 
 function projectRaw(track: MotionTrack, seconds: number, velocity: Vector3): Vector3 {
@@ -114,16 +160,17 @@ function projectRaw(track: MotionTrack, seconds: number, velocity: Vector3): Vec
   ) as Vector3;
 }
 
-export function projectMotionTrack(
-  track: MotionTrack,
-  seconds: number,
-  velocity = velocityForTrack(track),
-): Vector3 | null {
-  if (!velocity) return null;
-  return projectRaw(track, seconds, velocity).map(Math.ceil) as Vector3;
-}
+/**
+ * The single provisional travel-time estimator used by live interception.
+ *
+ * Nothing persisted by Holocron feeds back into this function. The constants
+ * are only a baseline while we collect current-LOTJ observations; they must
+ * not be treated as a description of the game's present server code. Keeping
+ * the estimate isolated here lets us replace the baseline from measured jump
+ * logs without changing the interception solver.
+ */
+export const HYPERSPACE_TRAVEL_TIME_MODEL = "provisional-v1";
 
-/** LOTJ local-jump time model used by the Rq8.Y flight computer. */
 export function calculateHyperspaceTravelTime(
   distance: number,
   hyperspeed: number,
@@ -136,9 +183,10 @@ export function calculateHyperspaceTravelTime(
 }
 
 /**
- * Iteratively solves the same distance/time feedback loop as Rq8.Y: age the
- * radar fix, project the target by the estimated jump duration, recompute LOTJ
- * jump time, and stop once the whole-second tick stabilizes.
+ * Solves the distance/time feedback loop for a moving target: age the radar
+ * fix, project the target by the estimated jump duration, recompute that
+ * duration for the new distance, and stop once the whole-second estimate is
+ * stable. The loop depends only on calculateHyperspaceTravelTime above.
  */
 export function calculateHyperspaceIntercept({
   target,
@@ -160,9 +208,17 @@ export function calculateHyperspaceIntercept({
 
   const radarAge = Math.max(0, now - target.current.observedAt);
   const observerAge = Math.max(0, now - observer.current.observedAt);
-  const currentTarget = projectRaw(target, radarAge, targetVelocity);
   const currentObserver = projectRaw(observer, observerAge, observerVelocity);
 
+  // This is a fixed-point problem rather than a one-pass calculation:
+  //
+  //   assumed travel time -> predicted target position -> jump distance
+  //   -> recalculated travel time
+  //
+  // Start with a small seed estimate, then feed each result back into the next
+  // target projection. Ten iterations is a defensive cap;
+  // ordinary solutions stabilize in only a few passes, while the cap prevents
+  // malformed or oscillating telemetry from keeping the renderer busy.
   let travelTime = 8;
   for (let iteration = 0; iteration < 10; iteration += 1) {
     const targetPosition = projectRaw(target, radarAge + travelTime, targetVelocity);
@@ -173,6 +229,10 @@ export function calculateHyperspaceIntercept({
     );
     const nextTravelTime = calculateHyperspaceTravelTime(distance, hyperspeed, navigator);
     if (nextTravelTime === null) return null;
+
+    // The travel-time model is quantized to discrete ticks. Once recalculating
+    // from the projected destination produces the same tick, another pass
+    // would project the same position and distance, so the solution is stable.
     if (nextTravelTime === travelTime) {
       const observerPosition = projectRaw(observer, observerAge + travelTime, observerVelocity).map(
         Math.ceil,

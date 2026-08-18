@@ -31,6 +31,22 @@ Your Coordinates: 12 22 -3
     equal(result.entities[1].name, "Gore")
   end)
 
+  it("rejects arrival prose and spaced ship callsigns as radar contacts", function()
+    local result = assert(parsers.parseRadar([[
+Esstran Sector
+Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at celestial 3670 3491 3402
+Victory-II Class Star Destroyer 'Bad Name' 100 200 300
+Victory-II Class Star Destroyer 'VSD02' 3670 3491 3402
+Planet 'Dromund Kaas' 0 0 0
+Your Coordinates: 3510 3491 3402
+]]))
+    equal(#result.entities, 2)
+    equal(result.entities[1].name, "VSD02")
+    equal(result.entities[1].kind, "ship")
+    equal(result.entities[2].name, "Dromund Kaas")
+    equal(result.entities[2].kind, "planet")
+  end)
+
   it("classifies projectile radar contacts", function()
     local result = assert(parsers.parse(
       "radar projectiles",
@@ -99,6 +115,17 @@ Hull: 1286/4200 [30%]        Ship Condition: Disabled
 Shields: 1400/4200 [33%]     Energy(fuel): 35926/37500 [95%]
 ]]))
     equal(disabled.condition, "Disabled")
+  end)
+
+  it("does not reinterpret a ship information dossier as status", function()
+    local result, failure = parsers.parseStatus([[
+[Class: Cruiser] : Victory-II Class Star Destroyer 'TeeHee3'
+Kill Markers:
+Quota: 0.00/2770.00    Value: 4109300 credit(s)
+Maximum Speed: 55      Hyperspeed: 70
+]])
+    equal(result, nil)
+    assert(failure:find("ship information response", 1, true))
   end)
 
   it("splits turret summaries and ignores Mudlet prompt fields in status cards", function()
@@ -250,9 +277,9 @@ Your Coordinates: 0 0 0
     local battlegroup = assert(parsers.parse(
       "battlegroup",
       [[
-[ L ] Battleship :MC-90 Star Cruiser 'Azure Vanguard' -<Pos:Central>-
+[ L ] Battleship :MC-90 Star Cruiser 'AzureVanguard' -<Pos:Central>-
  Energy: 100%|Hull: 91%|Shields: 73%|Crew: 001|System: Corellian System 2/19
-[001] Cruiser :Thranta-Class Light Cruiser 'Cerulean Spear' -<Pos:Outer>-
+[001] Cruiser :Thranta-Class Light Cruiser 'CeruleanSpear' -<Pos:Outer>-
  Energy: 88%|Hull: 76%|Shields: 54%|Crew: 000|System: Corellian System 2/19
 ]]
     ))

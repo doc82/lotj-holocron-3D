@@ -31,7 +31,7 @@ local function diagnostic(level, message)
   end
 
   if type(debugc) == "function" then
-    debugc(string.format("[Holocron3D/%s] %s", level, message))
+    debugc(string.format("\n[Holocron3D/%s] %s\n", level, message))
   end
 end
 
@@ -371,28 +371,6 @@ function Proxy.registerIntentHandler(action, handler)
 
   Proxy.intentHandlers[action] = handler
   return true
-end
-
-function Proxy.unregisterIntentHandler(action)
-  Proxy.intentHandlers[action] = nil
-end
-
-function Proxy.registerGameCommand(action, commandBuilder)
-  if type(commandBuilder) ~= "function" then
-    return nil, "commandBuilder must be a function"
-  end
-
-  return Proxy.registerIntentHandler(action, function(payload, message)
-    local command, reason = commandBuilder(payload, message)
-    if type(command) ~= "string" or command == "" then
-      return false, reason or "command builder declined the intent"
-    end
-
-    -- The command can only originate from locally trusted Lua code. The bridge
-    -- sends typed data and is never allowed to supply this string directly.
-    send(command)
-    return true
-  end)
 end
 
 function Proxy.publishSnapshot(observer, entities, metadata)

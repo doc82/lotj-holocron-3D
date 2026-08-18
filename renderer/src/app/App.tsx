@@ -28,7 +28,6 @@ import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
 import { useHyperspaceController } from "../features/hyperspace/useHyperspaceController";
 import { ManagementMenu } from "../features/management/ManagementMenu";
-import { useHyperspaceHistory } from "../features/management/useHyperspaceHistory";
 import { usePollingController } from "../features/polling/usePollingController";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
@@ -64,7 +63,6 @@ export function App() {
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
   const [commandLocked, setCommandLocked] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
-  const hyperspaceHistory = useHyperspaceHistory();
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const {
@@ -312,7 +310,6 @@ export function App() {
     observerWorldPosition: observer.worldPosition,
     movementOriginsForScope,
     setAlert: setCommandAlert,
-    recordHyperspaceHistory: hyperspaceHistory.add,
   });
   const hyperspaceState = hyperspace.state;
   const hyperspacePlanner = hyperspace.planner;
@@ -480,13 +477,7 @@ export function App() {
   const toggleAutoRecharge = shipCommands.toggleAutoRecharge;
 
   const managementMenu = managementOpen ? (
-    <ManagementMenu
-      entries={hyperspaceHistory.entries}
-      onAdd={hyperspaceHistory.add}
-      onRemove={hyperspaceHistory.remove}
-      onClear={hyperspaceHistory.clear}
-      onClose={() => setManagementOpen(false)}
-    />
+    <ManagementMenu onClose={() => setManagementOpen(false)} />
   ) : null;
 
   if (!spaceTelemetryActive)
@@ -507,13 +498,15 @@ export function App() {
   return (
     <>
       {starting && <StartupSequence onComplete={finishStartup} />}
-      {!starting && ["hyperspace", "reentry"].includes(hyperspaceState.phase || "") && (
-        <HyperspaceTransit
-          reentry={hyperspaceState.phase === "reentry"}
-          escapePending={hyperspaceEscapePending}
-          onEscape={() => void escapeHyperspace()}
-        />
-      )}
+      {!starting &&
+        ["engaging", "hyperspace", "reentry", "arrived"].includes(hyperspaceState.phase || "") && (
+          <HyperspaceTransit
+            reentry={["reentry", "arrived"].includes(hyperspaceState.phase || "")}
+            arrived={hyperspaceState.phase === "arrived"}
+            escapePending={hyperspaceEscapePending}
+            onEscape={() => void escapeHyperspace()}
+          />
+        )}
       <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
         <TacticalCanvas
           ref={tacticalRef}
@@ -653,6 +646,7 @@ export function App() {
             state={hyperspaceState}
             escape={escapePlan}
             clearance={routeClearance}
+            trackingRecalculationPending={hyperspace.trackingRecalculationPending}
             onStop={() => void stopHyperspace()}
             onDismiss={dismissHyperspace}
             onEngage={() => void engageHyperspace()}

@@ -4,11 +4,12 @@ import test from "node:test";
 import {
   calculateHyperspaceIntercept,
   calculateHyperspaceTravelTime,
+  hyperspaceReplotRequired,
   observeMotionTracks,
   velocityForTrack,
 } from "../renderer/src/domain/hyperspacePrediction.ts";
 
-test("LOTJ hyperspace ticks include distance, even-second rounding, and the fixed delay", () => {
+test("the provisional estimator remains deterministic and isolated", () => {
   assert.equal(calculateHyperspaceTravelTime(10_000, 5), 23);
   assert.equal(calculateHyperspaceTravelTime(10_000, 5, true), 21);
   assert.equal(calculateHyperspaceTravelTime(100, 0), null);
@@ -37,7 +38,30 @@ test("motion history only advances on authoritative radar and GMCP fixes", () =>
   assert.deepEqual(velocityForTrack(second.get("target")), [10, 0, 0]);
 });
 
-test("intercept prediction ages radar and iterates distance until the LOTJ tick is stable", () => {
+test("additional radar fixes smooth the tracked heading", () => {
+  const track = {
+    id: "target",
+    name: "Target",
+    current: { position: [1_301, 0, 0], observedAt: 30 },
+    samples: [
+      { position: [999, 0, 0], observedAt: 0 },
+      { position: [1_101, 0, 0], observedAt: 10 },
+      { position: [1_199, 0, 0], observedAt: 20 },
+      { position: [1_301, 0, 0], observedAt: 30 },
+    ],
+  };
+  const velocity = velocityForTrack(track);
+  assert.ok(velocity);
+  assert.ok(Math.abs(velocity[0] - 10) < 0.05);
+});
+
+test("tracked routes replot only after moving more than fifty units", () => {
+  assert.equal(hyperspaceReplotRequired([0, 0, 0], [50, 0, 0]), false);
+  assert.equal(hyperspaceReplotRequired([0, 0, 0], [51, 0, 0]), true);
+  assert.equal(hyperspaceReplotRequired([0, 0, 0], [30, 40, 1]), true);
+});
+
+test("intercept prediction ages radar and iterates until its provisional estimate is stable", () => {
   const target = {
     id: "target",
     name: "Target",

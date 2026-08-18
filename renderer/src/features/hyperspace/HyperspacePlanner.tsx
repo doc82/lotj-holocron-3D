@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useLatestRef } from "../../hooks/useLatestRef";
-import { clampSectorCoordinate, escapeDestinationInRange } from "../../domain/hyperspace";
+import {
+  clampSectorCoordinate,
+  escapeDestinationInRange,
+  MIN_HYPERSPACE_CLEARANCE,
+  randomSectorDestinationBeyond,
+  sectorDistance,
+} from "../../domain/hyperspace";
 import type { MotionTrackMap } from "../../domain/hyperspacePrediction";
 import type {
   GalaxyCatalog,
@@ -186,6 +192,7 @@ export function HyperspacePlanner({
   const [x, setX] = useState(clampSectorCoordinate(Number(observer.x) || 0));
   const [y, setY] = useState(clampSectorCoordinate(Number(observer.y) || 0));
   const [z, setZ] = useState(clampSectorCoordinate(Number(observer.z) || 0));
+  const [tracking, setTracking] = useState<HyperspaceRoutePayload["tracking"]>();
   const [arrivalDistance, setArrivalDistance] = useState(500);
   const [escapeEnabled, setEscapeEnabled] = useState(false);
   const [escapeMode, setEscapeMode] = useState<"known" | "exact" | "random">("known");
@@ -201,6 +208,19 @@ export function HyperspacePlanner({
     setX(clampSectorCoordinate(destination[0]));
     setY(clampSectorCoordinate(destination[1]));
     setZ(clampSectorCoordinate(destination[2]));
+  }, []);
+  const updateTracking = useCallback((next: HyperspaceRoutePayload["tracking"] | undefined) => {
+    setTracking((current) => {
+      if (!current || !next) return current === next ? current : next;
+      return current.targetId === next.targetId &&
+        current.targetName === next.targetName &&
+        current.hyperspeed === next.hyperspeed &&
+        current.navigator === next.navigator &&
+        current.lastObservedAt === next.lastObservedAt &&
+        current.thresholdUnits === next.thresholdUnits
+        ? current
+        : next;
+    });
   }, []);
   const reachableEscapeSystems = useMemo(() => {
     const origin = primaryGalaxyFor(mode, selectedSystem, currentGalaxy, catalog, current);
@@ -225,25 +245,22 @@ export function HyperspacePlanner({
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  useEffect(() => {
-    if (!selectedPlanet) return;
-    const angle =
-      ((hash(`${selectedSystem?.name}/${selectedPlanet.name}/${arrivalDistance}`) % 360) *
-        Math.PI) /
-      180;
-    const elevation = (((hash(selectedPlanet.name) % 120) - 60) * Math.PI) / 180;
-    setX(
-      clampSectorCoordinate(
-        (selectedPlanet.x || 0) + Math.cos(angle) * Math.cos(elevation) * arrivalDistance,
-      ),
-    );
-    setY(clampSectorCoordinate((selectedPlanet.y || 0) + Math.sin(elevation) * arrivalDistance));
-    setZ(
-      clampSectorCoordinate(
-        (selectedPlanet.z || 0) + Math.sin(angle) * Math.cos(elevation) * arrivalDistance,
-      ),
-    );
-  }, [arrivalDistance, selectedPlanet, selectedSystem?.name]);
+  const selectedPlanetPosition = selectedPlanet
+    ? ([selectedPlanet.x || 0, selectedPlanet.y || 0, selectedPlanet.z || 0] as const)
+    : null;
+  const selectedPlanetDistance = selectedPlanetPosition
+    ? sectorDistance(selectedPlanetPosition, [x, y, z])
+    : null;
+  const planetArrivalClear =
+    selectedPlanetDistance === null || selectedPlanetDistance > MIN_HYPERSPACE_CLEARANCE;
+  const randomizePlanetDestination = useCallback(() => {
+    if (!selectedPlanetPosition) return;
+    const destination = randomSectorDestinationBeyond(selectedPlanetPosition, arrivalDistance);
+    setTracking(undefined);
+    setX(destination[0]);
+    setY(destination[1]);
+    setZ(destination[2]);
+  }, [arrivalDistance, selectedPlanetPosition]);
 
   const primaryGalaxy = primaryGalaxyFor(mode, selectedSystem, currentGalaxy, catalog, current);
 
@@ -299,6 +316,7 @@ export function HyperspacePlanner({
         galaxy: mode === "galactic" ? primaryGalaxy : undefined,
         systemName: mode === "galactic" ? selectedSystem?.name : currentSystem,
         planetName: selectedPlanet?.name,
+        tracking: mode === "local" ? tracking : undefined,
         destination: {
           x: clampSectorCoordinate(x),
           y: clampSectorCoordinate(y),
@@ -369,6 +387,7 @@ export function HyperspacePlanner({
               motionTracks={motionTracks}
               planetTargetName={selectedPlanetName}
               onDestinationChange={updateLocalDestination}
+              onTrackingChange={updateTracking}
             />
           ) : (
             <>
@@ -484,9 +503,14 @@ export function HyperspacePlanner({
           </div>
           {selectedPlanet && (
             <div className={styles.arrival}>
-              <strong>ARRIVAL STAND-OFF</strong>
-              <div>
-                {[500, 1000, 2500].map((distance) => (
+              <strong>PLANET ARRIVAL REFERENCE</strong>
+              <p>
+                {selectedPlanet.name.toUpperCase()} // {selectedPlanet.x} / {selectedPlanet.y} /{" "}
+                {selectedPlanet.z}
+              </p>
+              <small>ENTER XYZ MANUALLY, OR GENERATE A RANDOM LOCATION BEYOND THE MINIMUM.</small>
+              <div className={styles.arrivalOptions}>
+                {[500, 1000, 2000].map((distance) => (
                   <button
                     key={distance}
                     type="button"
@@ -496,6 +520,18 @@ export function HyperspacePlanner({
                     {distance.toLocaleString()} u
                   </button>
                 ))}
+              </div>
+              <button
+                type="button"
+                className={styles.randomArrival}
+                onClick={randomizePlanetDestination}
+              >
+                RANDOM LOCATION
+              </button>
+              <div className={styles.arrivalStatus} data-clear={planetArrivalClear}>
+                {planetArrivalClear
+                  ? `CURRENT SEPARATION // ${Math.round(selectedPlanetDistance || 0).toLocaleString()} u`
+                  : `MOVE DESTINATION MORE THAN ${MIN_HYPERSPACE_CLEARANCE.toLocaleString()} u FROM PLANET`}
               </div>
             </div>
           )}
@@ -623,11 +659,16 @@ export function HyperspacePlanner({
           disabled={
             catalogPending ||
             (mode === "galactic" && !selectedSystem) ||
+            !planetArrivalClear ||
             (escapeEnabled && (rangeDataPending || !escapeReachability.allowed))
           }
           onClick={submit}
         >
-          {routeEstimate?.reachable === false ? "CHECK ROUTE" : "PLOT JUMP"}
+          {routeEstimate?.reachable === false
+            ? "CHECK ROUTE"
+            : tracking
+              ? "PLOT + TRACK"
+              : "PLOT JUMP"}
         </button>
       </footer>
     </section>

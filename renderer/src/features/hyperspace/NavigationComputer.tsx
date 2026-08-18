@@ -10,6 +10,7 @@ interface Props {
   state: HyperspaceState;
   escape?: EscapePlanDraft;
   clearance: HyperspaceClearance;
+  trackingRecalculationPending?: boolean;
   onStop(): void;
   onDismiss(): void;
   onEngage(): void;
@@ -23,6 +24,7 @@ export function NavigationComputer({
   state,
   escape,
   clearance,
+  trackingRecalculationPending = false,
   onStop,
   onDismiss,
   onEngage,
@@ -53,6 +55,23 @@ export function NavigationComputer({
         <p>
           SX {fmt(destination.x)} // SY {fmt(destination.y)} // SZ {fmt(destination.z)}
         </p>
+        {route.tracking && (
+          <div className={styles.estimate}>
+            PLOT + TRACK // {route.tracking.targetName.toUpperCase()} // RECALCULATE BEYOND{" "}
+            {fmt(route.tracking.thresholdUnits)} U
+          </div>
+        )}
+        {trackingRecalculationPending && (
+          <div className={styles.countdown}>
+            <span style={{ width: "100%" }} />
+            <b>TRACK UPDATE // RECALCULATING</b>
+          </div>
+        )}
+        {phase === "calculating" && state.waitingForCalculation && (
+          <div className={styles.estimate}>
+            NAVIGATION COMPUTER STILL CALCULATING // PLEASE WAIT BEFORE ENGAGING
+          </div>
+        )}
         {Number.isFinite(state.remainingSeconds) && (
           <div className={styles.countdown}>
             <span
@@ -61,9 +80,11 @@ export function NavigationComputer({
             <b>{state.remainingSeconds}s REMAINING</b>
           </div>
         )}
-        {phase === "ready" && state.calculationEstimated === true && (
+        {phase === "ready" && (
           <div className={styles.estimate}>
-            ESTIMATED CALCULATION WINDOW COMPLETE // HYPERDRIVE COMMAND AVAILABLE
+            {state.calculationEstimated === true
+              ? "ESTIMATED CALCULATION WINDOW COMPLETE // HYPERDRIVE COMMAND AVAILABLE"
+              : "CALCULATIONS COMPLETE // HYPERDRIVE COMMAND AVAILABLE"}
           </div>
         )}
         {(state.fuelRequired || state.fuelPercent !== undefined) && (
@@ -116,7 +137,7 @@ export function NavigationComputer({
               <button
                 type="button"
                 className={styles.engage}
-                disabled={!clearance.allowed}
+                disabled={!clearance.allowed || trackingRecalculationPending}
                 onClick={() =>
                   state.insufficientFuel ? setConfirmDangerousEngage(true) : onEngage()
                 }

@@ -37,6 +37,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(controller, /plot_hyperspace/);
   assert.match(controller, /engage_hyperdrive/);
   assert.match(controller, /HYPERSPACE CALCULATION READY/);
+  assert.match(controller, /NAVIGATION COMPUTER IS STILL CALCULATING/);
   assert.match(app, /openHyperspacePlanner/);
   assert.match(controller, /routeScope/);
   assert.match(app, /ROUTE APPLIES TO/);
@@ -50,9 +51,15 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(controller, /needsPosition/);
   assert.match(controller, /command: "navstat"/);
   assert.match(controller, /refreshMissingNavigationData/);
-  assert.match(controller, /followupRadar: true/);
+  assert.match(
+    controller,
+    /\["engaging", "hyperspace", "reentry", "arrived"\]\.includes\(state\.phase \|\| "idle"\)/,
+  );
+  assert.match(controller, /HYPERDRIVE REJECTED/);
+  assert.match(controller, /plotIntentIdsRef/);
+  assert.match(controller, /ROUTE REJECTED/);
   assert.match(controller, /setActiveRoute\(null\)/);
-  assert.match(app, /\["hyperspace", "reentry"\]\.includes/);
+  assert.match(app, /\["engaging", "hyperspace", "reentry", "arrived"\]\.includes/);
   assert.match(controller, /2_500/);
   assert.match(hyperspaceDomain, /SECTOR_COORDINATE_LIMIT = 50_000/);
   assert.match(planner, /ARM ESCAPE PLAN/);
@@ -81,11 +88,17 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(localPlanner, /renderScaleWithZoom: true/);
   assert.match(planner, /clampSectorCoordinate\(numeric\(event\.target\.value\)\)/);
   assert.match(localPlanner, /point\.kind === "cluster"/);
-  assert.match(localPlanner, /PREDICT MOVING TARGET/);
+  assert.match(localPlanner, /PLOT \+ TRACK MOVING TARGET/);
   assert.match(localPlanner, /NAVIGATOR \+30%/);
   assert.match(localPlanner, /prediction:target/);
   assert.match(planner, /const updateLocalDestination = useCallback/);
   assert.match(planner, /planetTargetName=\{selectedPlanetName\}/);
+  assert.match(planner, /RANDOM LOCATION/);
+  assert.match(planner, /\[500, 1000, 2000\]/);
+  assert.match(planner, /randomSectorDestinationBeyond\(selectedPlanetPosition, arrivalDistance\)/);
+  assert.match(planner, /!planetArrivalClear/);
+  assert.doesNotMatch(planner, /if \(!selectedPlanet\) return;[\s\S]*?setX\(/);
+  assert.match(localPlanner, /if \(!selected \|\| planetTargetName\) return;/);
   assert.match(
     localPlanner,
     /if \(!planetTargetName\) return;[\s\S]*?setSelectedId\(null\)[\s\S]*?setPredictionEnabled\(false\)/,
@@ -96,6 +109,11 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(controller, /movementOriginsForScope\(planner\.routeScope\.scope \|\| "local"\)/);
   assert.match(controller, /refresh_local_hyperspace_radar/);
   assert.match(controller, /setInterval\(refreshRadar, 4_000\)/);
+  assert.match(controller, /hyperspaceReplotRequired/);
+  assert.match(controller, /TARGET MOVED/);
+  assert.match(controller, /trackingUpdate\.targetObservedAt/);
+  assert.match(planner, /PLOT \+ TRACK/);
+  assert.match(computer, /RECALCULATE BEYOND/);
   assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen\}/);
   assert.match(navigation, /!current\.keyboardEnabled/);
   assert.match(tacticalCanvas, /setKeyboardEnabled\(keyboardEnabled\)/);
@@ -107,17 +125,21 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /REMOTE_LOCAL_HYPERSPACE_CALC_SECONDS = 2/);
   assert.match(scraper, /scheduleHyperspaceCalculationEstimate/);
   assert.match(scraper, /Checking hyperspace course integrity/);
+  assert.match(scraper, /Navigation Computer is calculating the route/);
   assert.match(computer, /INSUFFICIENT FUEL/);
   assert.match(computer, /ENGAGE ANYWAY/);
   assert.match(computer, /ESTIMATED CALCULATION WINDOW COMPLETE/);
+  assert.match(computer, /CALCULATIONS COMPLETE \/\/ HYPERDRIVE COMMAND AVAILABLE/);
+  assert.match(computer, /PLEASE WAIT BEFORE ENGAGING/);
   assert.match(computer, /VERIFYING.*CLEARANCE/);
   assert.match(computer, /HYPERSPACE BLOCKED/);
-  assert.match(computer, /disabled=\{!clearance\.allowed\}/);
+  assert.match(computer, /disabled=\{!clearance\.allowed \|\| trackingRecalculationPending\}/);
   assert.match(transit, /Escape hyperspace/);
   assert.match(transit, /EMERGENCY HYPERDRIVE CUTOFF/);
   assert.match(transit, /HyperspaceField engaged/);
   assert.match(transit, /transition: "opacity 5s ease-out, filter 5s ease-out"/);
-  assert.match(transit, /reentryFadeStarted \? 0 : 1/);
+  assert.match(transit, /arrived && reentryFadeStarted \? 0 : 1/);
+  assert.match(transit, /setHidden\(true\), 5_000/);
   assert.match(field, /edgeActivation/);
   assert.match(scraper, /calc stop/);
   assert.match(scraper, /"hyper off", false/);
@@ -131,10 +153,15 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /must be at a nav computer/);
   assert.match(controller, /navigationRefreshBlocked/);
   assert.match(controller, /battlegroupClearanceExemptions/);
+  assert.match(controller, /activeRoute\.scope === "all" \|\|/);
+  assert.match(controller, /fleet\?\.active && fleet\.kind === "battlegroup"/);
   assert.match(controller, /fleet\.members\.map\(\(member\) => member\.name\)/);
   assert.match(scraper, /capture\.followupRadar/);
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);
+  assert.match(scraper, /The ship lurches slightly as it comes out of hyperspace/);
+  assert.match(scraper, /queueImmediateWorldRefresh\("own ship realspace lurch", true\)/);
+  assert.match(scraper, /completeOwnHyperspaceArrival\("fresh radar"\)/);
   assert.match(scraper, /checkHyperspaceClearance/);
   assert.match(scraper, /scopedHyperspaceCommands/);
   assert.match(

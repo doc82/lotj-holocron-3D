@@ -417,7 +417,18 @@
   font-size: 10px;
   color: #70a7b2;
 }
-.arrival div,
+.arrival p {
+  margin: 7px 0 0;
+  color: #dffaff;
+  font: 700 9px/1.4 monospace;
+}
+.arrival small {
+  display: block;
+  margin-top: 7px;
+  color: #66858d;
+  font: 8px/1.5 monospace;
+}
+.arrivalOptions,
 .modeTabs {
   display: flex;
   gap: 5px;
@@ -438,6 +449,25 @@
   border-color: #5edaff;
   color: #dffaff;
   background: #123f50;
+}
+.arrival .randomArrival {
+  width: 100%;
+  margin-top: 7px;
+  border-color: #4c8595;
+  color: #dffaff;
+}
+.arrivalStatus {
+  margin-top: 8px;
+  border: 1px solid #99404d;
+  padding: 7px;
+  color: #ff9eaa;
+  background: rgba(92, 18, 29, 0.35);
+  font: 800 8px/1.4 monospace;
+}
+.arrivalStatus[data-clear="true"] {
+  border-color: #26755a;
+  color: #7dffc3;
+  background: rgba(12, 78, 55, 0.26);
 }
 .escapeToggle {
   display: flex;

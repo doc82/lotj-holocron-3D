@@ -45,6 +45,13 @@ local function battlegroup()
   return fleet
 end
 
+local function finishFreshRadar(x, y, z)
+  assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
+  fixture.scraper.captureLine("Corellian System")
+  fixture.scraper.captureLine(string.format("Your Coordinates: %d %d %d", x, y, z))
+  assert(fixture.scraper.finishCapture("prompt"))
+end
+
 describe("scraper formation commands", function()
   it("scans a roster member even before fleet radar supplies coordinates", function()
     battlegroup()
@@ -680,6 +687,96 @@ Hull: 712/1000 Shields: 400/500
     equal(events[#events].shipName, "ReeHeeHee")
   end)
 
+  it("tracks the observer through a whole-battlegroup jump and queues arrival refresh", function()
+    battlegroup()
+    fixture:entity("Wayfarer").x = 600
+    fixture.scraper.state.metadata.sources.radar = os.time()
+    local route = {
+      mode = "local",
+      scope = "all",
+      formationKind = "battlegroup",
+      destination = { x = 1200, y = -50, z = 800 },
+      recipientLabel = "FLEET",
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, { id = "fleet-route" }))
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "fleet-engage" }))
+    assert(fixture.scraper.hyperspace.pendingLocalJumpUntil >= os.time())
+
+    assert(
+      fixture.scraper.handleFleetCommandLine(
+        "Sending command to Imperial-II Class Star Destroyer 'TeeHee'..."
+      )
+    )
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "engaging")
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+
+    assert(
+      fixture.scraper.handleFleetCommandLine(
+        "Sending command to Victory-II Class Star Destroyer 'ReeHeeHee'..."
+      )
+    )
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    local events = fixture:lastSnapshot().metadata.shipJumpEvents
+    equal(events[#events].shipName, "ReeHeeHee")
+
+    assert(
+      fixture.scraper.handleHyperspaceLine("Destination reached. Initiating realspace reentry...")
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
+    assert(fixture.scraper.handleReentrySystemLine("Corellian System"))
+    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The ship lurches slightly as it comes out of hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
+    equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, true)
+    finishFreshRadar(1200, -50, 800)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "arrived")
+  end)
+
+  it("recovers an observer arrival from a regressed engaging phase", function()
+    fixture.scraper.hyperspace.phase = "engaging"
+    fixture.scraper.hyperspace.initiatedByHolocron = true
+    fixture.scraper.hyperspace.routeIncludesLocalShip = true
+    fixture.scraper.state.metadata.hyperspace = {
+      phase = "engaging",
+      route = { mode = "local", scope = "all" },
+    }
+
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The ship lurches slightly as it comes out of hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
+    finishFreshRadar(1200, -50, 800)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "arrived")
+    equal(fixture.scraper.hyperspace.initiatedByHolocron, false)
+  end)
+
   it("plots and engages a hyperspace route for battlegroup wings only", function()
     battlegroup()
     local plotted, plotFailure = fixture.intentHandlers.plot_hyperspace({
@@ -693,6 +790,7 @@ Hull: 712/1000 Shields: 400/500
     equal(fixture:lastCommand().command, "battlegroup nav 1 calculate local 1200 -50 800")
     equal(fixture.scraper.state.metadata.hyperspace.route.scope, "wings")
     equal(fixture.scraper.hyperspace.routeIncludesLocalShip, false)
+    equal(fixture.scraper.hyperspace.routeUsesLocalCommand, false)
 
     assert(
       fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
@@ -711,6 +809,118 @@ Hull: 712/1000 Shields: 400/500
     equal(fixture.scraper.state.metadata.hyperspace.phase, "ready")
     local events = fixture:lastSnapshot().metadata.shipJumpEvents
     equal(events[#events].shipName, "ReeHeeHee")
+  end)
+
+  it("rejects a local engage outside the pilot seat and keeps the route ready", function()
+    fixture.scraper.hyperspace.phase = "ready"
+    fixture.scraper.state.metadata.hyperspace = {
+      phase = "ready",
+      route = { mode = "local", scope = "local" },
+    }
+    fixture.scraper.state.metadata.sources.radar = os.time()
+    fixture.scraper.state.entities = {}
+
+    local engaged, engageFailure = fixture.intentHandlers.engage_hyperdrive(
+      { mode = "local", scope = "local" },
+      { id = "local-engage" }
+    )
+    assert(engaged, engageFailure)
+    equal(fixture:lastCommand().command, "hyper")
+
+    assert(fixture.scraper.handleHyperspaceLine("You aren't in the pilots seat."))
+    local ack = fixture.intentAcks[#fixture.intentAcks]
+    equal(ack.id, "local-engage")
+    equal(ack.status, "rejected")
+    equal(ack.reason, "You aren't in the pilots seat.")
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "ready")
+    equal(fixture.scraper.state.metadata.hyperspace.error, "You aren't in the pilots seat.")
+  end)
+
+  it("rejects a plotted route when the local ship is not at a nav computer", function()
+    local plotted, plotFailure = fixture.intentHandlers.plot_hyperspace({
+      mode = "local",
+      scope = "local",
+      destination = { x = 1200, y = -50, z = 800 },
+    }, { id = "local-route" })
+    assert(plotted, plotFailure)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "calculating")
+
+    assert(
+      fixture.scraper.handleHyperspaceLine("You must be at a nav computer to calculate jumps.")
+    )
+    local ack = fixture.intentAcks[#fixture.intentAcks]
+    equal(ack.id, "local-route")
+    equal(ack.status, "rejected")
+    equal(ack.reason, "You must be at a nav computer to calculate jumps.")
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "failed")
+    equal(
+      fixture.scraper.state.metadata.hyperspace.error,
+      "You must be at a nav computer to calculate jumps."
+    )
+  end)
+
+  it("does not reject a fleet route when the commander is away from the nav computer", function()
+    battlegroup()
+    local plotted, plotFailure = fixture.intentHandlers.plot_hyperspace({
+      mode = "local",
+      scope = "all",
+      formationKind = "battlegroup",
+      destination = { x = 1200, y = -50, z = 800 },
+    }, { id = "fleet-route" })
+    assert(plotted, plotFailure)
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
+    equal(fixture.scraper.hyperspace.routeUsesLocalCommand, false)
+
+    assert(
+      fixture.scraper.handleHyperspaceLine("You must be at a nav computer to calculate jumps.")
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "calculating")
+    equal(#fixture.intentAcks, 0)
+
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "ready")
+    equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
+  end)
+
+  it("returns an early fleet engage to calculating until readiness is confirmed", function()
+    battlegroup()
+    local route = {
+      mode = "local",
+      scope = "all",
+      formationKind = "battlegroup",
+      destination = { x = 1200, y = -50, z = 800 },
+      recipientLabel = "FLEET",
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, { id = "fleet-route" }))
+    local timerId = fixture.scraper.hyperspace.statusTimerId
+    assert(timerId and fixture.timers[timerId])
+    fixture:tick(timerId)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "ready")
+    equal(fixture.scraper.state.metadata.hyperspace.calculationEstimated, true)
+
+    assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "fleet-engage" }))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "Please Wait. The Navigation Computer is calculating the route."
+      )
+    )
+    local state = fixture.scraper.state.metadata.hyperspace
+    equal(state.phase, "calculating")
+    equal(state.waitingForCalculation, true)
+    local ack = fixture.intentAcks[#fixture.intentAcks]
+    equal(ack.id, "fleet-engage")
+    equal(ack.status, "rejected")
+
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    state = fixture.scraper.state.metadata.hyperspace
+    equal(state.phase, "ready")
+    equal(state.waitingForCalculation, false)
+    equal(state.calculationEstimated, false)
+    assert(tonumber(state.readyAt) > 0)
   end)
 
   it("estimates remote local calculations when the wing emits no completion line", function()
@@ -772,6 +982,7 @@ Hull: 712/1000 Shields: 400/500
     assert(plotted, failure)
     equal(fixture:lastCommand().command, "battlegroup nav all calculate '12 -8' 100 200 -300")
     equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
+    equal(fixture.scraper.hyperspace.routeUsesLocalCommand, false)
     equal(fixture.scraper.state.metadata.hyperspace.route.recipientLabel, "FLEET")
   end)
 
@@ -797,7 +1008,28 @@ Hull: 712/1000 Shields: 400/500
     equal(fixture:lastCommand().command, "battlegroup nav all hyper")
   end)
 
-  it("still blocks a battlegroup jump near a non-fleet contact", function()
+  it("allows a local-only jump near a ship in the observer's active battlegroup", function()
+    battlegroup()
+    fixture:entity("Wayfarer").x = 600
+    table.insert(fixture.scraper.state.entities, {
+      id = "reeheehee",
+      name = "ReeHeeHee",
+      kind = "ship",
+      x = 240,
+      y = 0,
+      z = 0,
+    })
+    fixture.scraper.hyperspace.phase = "ready"
+    fixture.scraper.state.metadata.sources.radar = os.time()
+
+    local engaged, failure = fixture.intentHandlers.engage_hyperdrive({
+      scope = "local",
+    }, { id = "nearby-local-engage" })
+    assert(engaged, failure)
+    equal(fixture:lastCommand().command, "hyper")
+  end)
+
+  it("does not apply the commander's local clearance to a remote battlegroup jump", function()
     battlegroup()
     fixture:entity("Wayfarer").x = 100
     fixture.scraper.hyperspace.phase = "ready"
@@ -807,9 +1039,8 @@ Hull: 712/1000 Shields: 400/500
       scope = "all",
       formationKind = "battlegroup",
     }, { id = "nearby-outsider-engage" })
-    equal(engaged, false)
-    assert(failure:find("Wayfarer", 1, true))
-    assert(failure:find("500", 1, true))
+    assert(engaged, failure)
+    equal(fixture:lastCommand().command, "battlegroup nav all hyper")
   end)
 
   it("routes one selected battlegroup wing by its stable slot", function()

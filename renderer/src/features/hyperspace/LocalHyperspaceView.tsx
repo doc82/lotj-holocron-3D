@@ -7,7 +7,12 @@ import {
 } from "../../domain/hyperspacePrediction";
 import { clampSectorCoordinate, hyperspaceDestinationMarkerSize } from "../../domain/hyperspace";
 import { buildScene, findScenePoint, formatCoordinate } from "../../domain/scene";
-import type { SystemSnapshot, TelemetryEntity, Vector3 } from "../../types/telemetry";
+import type {
+  HyperspaceRoutePayload,
+  SystemSnapshot,
+  TelemetryEntity,
+  Vector3,
+} from "../../types/telemetry";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../tactical/TacticalCanvas";
 import type { TacticalCameraMode } from "../tactical/TacticalEngine";
 import styles from "./LocalHyperspaceView.module.css";
@@ -21,6 +26,7 @@ interface LocalHyperspaceViewProps {
   motionTracks: MotionTrackMap;
   planetTargetName?: string;
   onDestinationChange(destination: Vector3): void;
+  onTrackingChange(tracking: HyperspaceRoutePayload["tracking"] | undefined): void;
 }
 
 const vectorFrom = (entity: { x?: number; y?: number; z?: number }): Vector3 => [
@@ -105,6 +111,7 @@ export function LocalHyperspaceView({
   motionTracks,
   planetTargetName,
   onDestinationChange,
+  onTrackingChange,
 }: LocalHyperspaceViewProps) {
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -208,9 +215,34 @@ export function LocalHyperspaceView({
   }, [predictionEnabled, selectedId]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || planetTargetName) return;
     onDestinationChange(solution?.targetPosition ?? selected.worldPosition);
-  }, [onDestinationChange, selected, solution]);
+  }, [onDestinationChange, planetTargetName, selected, solution]);
+
+  useEffect(() => {
+    if (planetTargetName || !predictionEnabled || selected?.kind !== "ship") {
+      onTrackingChange(undefined);
+      return;
+    }
+    onTrackingChange({
+      targetId: selected.id,
+      targetName: selected.name,
+      hyperspeed: Number(hyperspeed) || 0,
+      navigator: navigatorEnabled,
+      lastObservedAt: selectedTrack?.current.observedAt,
+      thresholdUnits: 50,
+    });
+  }, [
+    hyperspeed,
+    navigatorEnabled,
+    onTrackingChange,
+    planetTargetName,
+    predictionEnabled,
+    selected?.id,
+    selected?.kind,
+    selected?.name,
+    selectedTrack?.current.observedAt,
+  ]);
 
   useEffect(() => {
     if (!planetTargetName) return;
@@ -287,6 +319,7 @@ export function LocalHyperspaceView({
       }
       setExpandedClusterId(null);
       setSelectedId(point.id);
+      setPredictionEnabled(point.kind === "ship");
       onDestinationChange(point.worldPosition);
     },
     [onDestinationChange, renderedScene],
@@ -389,7 +422,7 @@ export function LocalHyperspaceView({
               setNow(Date.now() / 1_000);
             }}
           />
-          <span>PREDICT MOVING TARGET</span>
+          <span>PLOT + TRACK MOVING TARGET</span>
         </label>
         {predictionEnabled && (
           <label className={styles.navigator}>

@@ -10,7 +10,6 @@ import {
   lookAt,
   multiply,
   orthographic,
-  perspective,
   pointerToXZVector,
   project,
   projectileVisual,
@@ -29,7 +28,6 @@ import {
   canCommandFormation,
   fleetMemberSelectionKey,
   fleetMembersMatchingSelection,
-  isLocalFleetMember,
   localFormationRole,
   selectFleetCommandMember,
   toggleFleetMemberSelection,
@@ -78,12 +76,6 @@ test("fleet selection treats ships with colliding transport ids as separate card
     ["TeeHee2", "TeeHee3"],
   );
   assert.equal(next.size, 2, "one card click should deselect exactly one ship");
-});
-
-test("fleet roster identity recognizes the observer without relying on transport ids", () => {
-  assert.equal(isLocalFleetMember({ name: "  HeeHee  " }, "heehee"), true);
-  assert.equal(isLocalFleetMember({ name: "Wing One" }, "HeeHee"), false);
-  assert.equal(isLocalFleetMember({ name: "HeeHee" }, undefined), false);
 });
 
 test("clicking a remote ship from all deselects only that ship", () => {
@@ -752,12 +744,6 @@ test("orbit camera cannot detach from the player focus", () => {
   assert.equal(camera.targetPitch, 1.45);
   assert.equal(camera.targetDistance, camera.minimumDistance);
   assert.ok(Math.abs(Math.hypot(...camera.eye()) - camera.distance) < 0.0001);
-
-  const matrix = multiply(perspective(Math.PI / 3, 16 / 9, 0.1, 10_000), lookAt(camera.eye()));
-  const center = project([0, 0, 0], matrix, 1600, 900);
-  assert.ok(center);
-  assert.ok(Math.abs(center.x - 800) < 0.001);
-  assert.ok(Math.abs(center.y - 450) < 0.001);
 });
 
 test("scene interpolation eases contacts between telemetry ticks", () => {

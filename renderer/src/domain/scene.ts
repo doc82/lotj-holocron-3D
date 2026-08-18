@@ -380,16 +380,6 @@ export class OrbitCamera {
     if (immediate) this.distance = this.targetDistance;
   }
 
-  setPixelScale(viewportHeight: number, pixelsPerUnit: number, immediate = false): void {
-    const safePixelsPerUnit = Math.max(0.01, finite(pixelsPerUnit, 1));
-    this.targetDistance = clamp(
-      Math.max(1, finite(viewportHeight, 1)) / (2 * safePixelsPerUnit),
-      this.minimumDistance,
-      this.maximumDistance,
-    );
-    if (immediate) this.distance = this.targetDistance;
-  }
-
   resetOrientation(): void {
     this.targetYaw = -0.72;
     this.targetPitch = 0.48;
@@ -419,34 +409,6 @@ export class OrbitCamera {
       Math.cos(this.yaw) * horizontal,
     ];
   }
-}
-
-export function perspective(
-  fieldOfView: number,
-  aspect: number,
-  near: number,
-  far: number,
-): Float32Array<ArrayBuffer> {
-  const f = 1 / Math.tan(fieldOfView / 2);
-  const range = 1 / (near - far);
-  return new Float32Array([
-    f / aspect,
-    0,
-    0,
-    0,
-    0,
-    f,
-    0,
-    0,
-    0,
-    0,
-    (far + near) * range,
-    -1,
-    0,
-    0,
-    2 * far * near * range,
-    0,
-  ]);
 }
 
 export function orthographic(

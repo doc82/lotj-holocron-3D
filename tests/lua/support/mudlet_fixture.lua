@@ -15,6 +15,7 @@ local globalNames = {
   "denyCurrentSend",
   "echo",
   "cecho",
+  "getEpoch",
   "line",
   "gmcp",
   "lotj",
@@ -51,6 +52,8 @@ function Fixture.new(options)
     intentAcks = {},
     deletedLines = 0,
     deniedSends = 0,
+    output = {},
+    epochMs = options.epochMs or os.time() * 1000,
   }
   local function id(prefix)
     self.nextId = self.nextId + 1
@@ -111,8 +114,15 @@ function Fixture.new(options)
   _G.denyCurrentSend = function()
     self.deniedSends = self.deniedSends + 1
   end
-  _G.echo = function() end
-  _G.cecho = function() end
+  _G.echo = function(value)
+    table.insert(self.output, tostring(value or ""))
+  end
+  _G.cecho = function(value)
+    table.insert(self.output, tostring(value or ""))
+  end
+  _G.getEpoch = function()
+    return self.epochMs
+  end
 
   package.loaded.lotj_holocron_parsers = nil
   package.loaded.lotj_holocron_scraper = nil
