@@ -309,19 +309,23 @@ Your Coordinates: 20 30 40
   end)
 
   it("requests projectile radar after a live projectile summary", function()
+    assert(fixture.scraper.startPolling({ initialDelaySeconds = 0.1 }))
     fixture.scraper.combat.projectileRadarRequestedAt = 0
     assert(
       fixture.scraper.handleProjectileSummary("1 projectiles, 0 incoming (See radar projectiles)")
     )
+    fixture:tick(fixture.scraper.getPollingState().timerId)
     equal(fixture:lastCommand().command, "radar projectiles")
     assert(fixture.scraper.active and fixture.scraper.active.sentCommand == "radar projectiles")
   end)
 
   it("deduplicates forced projectile reconciliation during impact bursts", function()
+    assert(fixture.scraper.startPolling({ initialDelaySeconds = 0.1 }))
     fixture.scraper.combat.projectileRadarRequestedAt = 0
     assert(
       fixture.scraper.handleProjectileSummary("50 projectiles, 0 incoming (See radar projectiles)")
     )
+    fixture:tick(fixture.scraper.getPollingState().timerId)
     local commandCount = #fixture.commands
     fixture.scraper.finishCapture("fixture")
     assert(

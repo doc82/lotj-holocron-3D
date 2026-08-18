@@ -15,7 +15,9 @@ test("automatic polling derives proximity instead of issuing prox commands", asy
   assert.match(scene, /distance: Math\.round\(Math\.hypot\(\.\.\.position3d\)\)/);
   assert.match(scraper, /proximity is derived from coordinates/);
   assert.match(scraper, /AUTOMATIC_COMMAND_DEDUP_SECONDS = 3/);
-  assert.match(scraper, /automaticCommandRepeatDelay\("radar projectiles"\)/);
+  assert.match(scraper, /automaticCommandRepeatDelay\(command, now\)/);
+  assert.match(scraper, /SENSOR_TICK_FALLBACK_SECONDS = 4/);
+  assert.match(scraper, /releasePendingSensorPoll\("gmcp"/);
   assert.match(scraper, /COMBAT_RADAR_INTERVAL_SECONDS = 3/);
   assert.match(scraper, /FLEETRADAR_INTERVAL_SECONDS = 6/);
   assert.match(scraper, /COMBAT_FLEETRADAR_INTERVAL_SECONDS = 12/);

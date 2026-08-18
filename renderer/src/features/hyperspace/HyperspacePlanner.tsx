@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useLatestRef } from "../../hooks/useLatestRef";
-import { useTimeoutRegistry } from "../../hooks/useTimeoutRegistry";
-import { escapeDestinationInRange } from "../../domain/hyperspace";
+import {
+  clampSectorCoordinate,
+  escapeDestinationInRange,
+  MIN_HYPERSPACE_CLEARANCE,
+  randomSectorDestinationBeyond,
+  sectorDistance,
+} from "../../domain/hyperspace";
+import type { MotionTrackMap } from "../../domain/hyperspacePrediction";
 import type {
   GalaxyCatalog,
   GalaxyPlanet,
   GalaxySystem,
   HyperspaceRoutePayload,
+  SystemSnapshot,
 } from "../../types/telemetry";
+import { LocalHyperspaceView } from "./LocalHyperspaceView";
 import styles from "./HyperspacePlanner.module.css";
 
 export interface EscapePlanDraft {
@@ -24,6 +32,9 @@ interface Props {
   currentSystem?: string;
   currentGalaxy?: { x: number; y: number };
   observer: { x?: number; y?: number; z?: number };
+  snapshot?: SystemSnapshot | null;
+  hyperspeed?: number;
+  motionTracks?: MotionTrackMap;
   destinations?: Array<{
     system: string;
     distanceParsecs: number;
@@ -35,7 +46,6 @@ interface Props {
   onPlot(route: HyperspaceRoutePayload, escape?: EscapePlanDraft): void;
 }
 
-const clamp = (value: number) => Math.max(-50_000, Math.min(50_000, Math.round(value || 0)));
 const numeric = (value: string) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
 function normalizeCatalog(catalog: GalaxyCatalog | null): GalaxySystem[] {
@@ -158,12 +168,14 @@ export function HyperspacePlanner({
   currentSystem,
   currentGalaxy,
   observer,
+  snapshot = null,
+  hyperspeed,
+  motionTracks = new Map(),
   destinations = [],
   onCancel,
   onPlot,
 }: Props) {
   const onCancelRef = useLatestRef(onCancel);
-  const scheduleTimeout = useTimeoutRegistry();
   const rangeDataPending = destinations.length === 0;
   const systems = useMemo(() => normalizeCatalog(catalog), [catalog]);
   const catalogPending = mode === "galactic" && systems.length === 0;
@@ -177,18 +189,11 @@ export function HyperspacePlanner({
   const routeEstimate = destinations.find(
     (destination) => destination.system === selectedSystem?.name,
   );
-  const [x, setX] = useState(Math.round(observer.x || 0));
-  const [y, setY] = useState(Math.round(observer.y || 0));
-  const [z, setZ] = useState(Math.round(observer.z || 0));
+  const [x, setX] = useState(clampSectorCoordinate(Number(observer.x) || 0));
+  const [y, setY] = useState(clampSectorCoordinate(Number(observer.y) || 0));
+  const [z, setZ] = useState(clampSectorCoordinate(Number(observer.z) || 0));
+  const [tracking, setTracking] = useState<HyperspaceRoutePayload["tracking"]>();
   const [arrivalDistance, setArrivalDistance] = useState(500);
-  const [pan, setPan] = useState({ x: 0, z: 0 });
-  const [elevationDragging, setElevationDragging] = useState(false);
-  const elevationDragRef = useRef<{
-    pointerId: number;
-    startY: number;
-    startClientY: number;
-  } | null>(null);
-  const suppressMapClickRef = useRef(false);
   const [escapeEnabled, setEscapeEnabled] = useState(false);
   const [escapeMode, setEscapeMode] = useState<"known" | "exact" | "random">("known");
   const [escapeSystemName, setEscapeSystemName] = useState(systems[0]?.name || "");
@@ -198,6 +203,25 @@ export function HyperspacePlanner({
   const [escapeSy, setEscapeSy] = useState(0);
   const [escapeSz, setEscapeSz] = useState(0);
   const [escapeDistance, setEscapeDistance] = useState(1);
+  const updateLocalDestination = useCallback((destination: [number, number, number]) => {
+    setSelectedPlanetName("");
+    setX(clampSectorCoordinate(destination[0]));
+    setY(clampSectorCoordinate(destination[1]));
+    setZ(clampSectorCoordinate(destination[2]));
+  }, []);
+  const updateTracking = useCallback((next: HyperspaceRoutePayload["tracking"] | undefined) => {
+    setTracking((current) => {
+      if (!current || !next) return current === next ? current : next;
+      return current.targetId === next.targetId &&
+        current.targetName === next.targetName &&
+        current.hyperspeed === next.hyperspeed &&
+        current.navigator === next.navigator &&
+        current.lastObservedAt === next.lastObservedAt &&
+        current.thresholdUnits === next.thresholdUnits
+        ? current
+        : next;
+    });
+  }, []);
   const reachableEscapeSystems = useMemo(() => {
     const origin = primaryGalaxyFor(mode, selectedSystem, currentGalaxy, catalog, current);
     return systems.filter(
@@ -216,33 +240,27 @@ export function HyperspacePlanner({
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") return onCancelRef.current();
-      const amount = event.shiftKey ? 5_000 : 2_000;
-      if (event.key.toLowerCase() === "w")
-        setPan((value) => ({ ...value, z: clamp(value.z - amount) }));
-      if (event.key.toLowerCase() === "s")
-        setPan((value) => ({ ...value, z: clamp(value.z + amount) }));
-      if (event.key.toLowerCase() === "a")
-        setPan((value) => ({ ...value, x: clamp(value.x - amount) }));
-      if (event.key.toLowerCase() === "d")
-        setPan((value) => ({ ...value, x: clamp(value.x + amount) }));
-      if (event.key.toLowerCase() === "q") setY((value) => clamp(value - amount));
-      if (event.key.toLowerCase() === "e") setY((value) => clamp(value + amount));
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  useEffect(() => {
-    if (!selectedPlanet) return;
-    const angle =
-      ((hash(`${selectedSystem?.name}/${selectedPlanet.name}/${arrivalDistance}`) % 360) *
-        Math.PI) /
-      180;
-    const elevation = (((hash(selectedPlanet.name) % 120) - 60) * Math.PI) / 180;
-    setX(clamp((selectedPlanet.x || 0) + Math.cos(angle) * Math.cos(elevation) * arrivalDistance));
-    setY(clamp((selectedPlanet.y || 0) + Math.sin(elevation) * arrivalDistance));
-    setZ(clamp((selectedPlanet.z || 0) + Math.sin(angle) * Math.cos(elevation) * arrivalDistance));
-  }, [arrivalDistance, selectedPlanet, selectedSystem?.name]);
+  const selectedPlanetPosition = selectedPlanet
+    ? ([selectedPlanet.x || 0, selectedPlanet.y || 0, selectedPlanet.z || 0] as const)
+    : null;
+  const selectedPlanetDistance = selectedPlanetPosition
+    ? sectorDistance(selectedPlanetPosition, [x, y, z])
+    : null;
+  const planetArrivalClear =
+    selectedPlanetDistance === null || selectedPlanetDistance > MIN_HYPERSPACE_CLEARANCE;
+  const randomizePlanetDestination = useCallback(() => {
+    if (!selectedPlanetPosition) return;
+    const destination = randomSectorDestinationBeyond(selectedPlanetPosition, arrivalDistance);
+    setTracking(undefined);
+    setX(destination[0]);
+    setY(destination[1]);
+    setZ(destination[2]);
+  }, [arrivalDistance, selectedPlanetPosition]);
 
   const primaryGalaxy = primaryGalaxyFor(mode, selectedSystem, currentGalaxy, catalog, current);
 
@@ -282,7 +300,11 @@ export function HyperspacePlanner({
         mode: "galactic",
         galaxy: escapeSelection.galaxy,
         systemName: escapeSelection.systemName,
-        destination: { x: clamp(escapeSx), y: clamp(escapeSy), z: clamp(escapeSz) },
+        destination: {
+          x: clampSectorCoordinate(escapeSx),
+          y: clampSectorCoordinate(escapeSy),
+          z: clampSectorCoordinate(escapeSz),
+        },
       },
     };
   };
@@ -294,7 +316,12 @@ export function HyperspacePlanner({
         galaxy: mode === "galactic" ? primaryGalaxy : undefined,
         systemName: mode === "galactic" ? selectedSystem?.name : currentSystem,
         planetName: selectedPlanet?.name,
-        destination: { x: clamp(x), y: clamp(y), z: clamp(z) },
+        tracking: mode === "local" ? tracking : undefined,
+        destination: {
+          x: clampSectorCoordinate(x),
+          y: clampSectorCoordinate(y),
+          z: clampSectorCoordinate(z),
+        },
       },
       buildEscape(),
     );
@@ -338,7 +365,9 @@ export function HyperspacePlanner({
                 max={50000}
                 value={Number(value)}
                 onChange={(event) =>
-                  (setter as (value: number) => void)(clamp(numeric(event.target.value)))
+                  (setter as (value: number) => void)(
+                    clampSectorCoordinate(numeric(event.target.value)),
+                  )
                 }
               />
             </label>
@@ -347,116 +376,19 @@ export function HyperspacePlanner({
       </header>
 
       <div className={styles.workspace}>
-        <div
-          className={`${styles.map} ${elevationDragging ? styles.elevationActive : ""}`}
-          onPointerDown={
-            mode === "local"
-              ? (event) => {
-                  if (!event.shiftKey || event.button !== 0) return;
-                  event.preventDefault();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  elevationDragRef.current = {
-                    pointerId: event.pointerId,
-                    startY: y,
-                    startClientY: event.clientY,
-                  };
-                  suppressMapClickRef.current = true;
-                  setElevationDragging(true);
-                }
-              : undefined
-          }
-          onPointerMove={
-            mode === "local"
-              ? (event) => {
-                  const drag = elevationDragRef.current;
-                  if (!drag || drag.pointerId !== event.pointerId) return;
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  const unitsPerPixel = 100_000 / Math.max(1, rect.height);
-                  setY(clamp(drag.startY + (drag.startClientY - event.clientY) * unitsPerPixel));
-                }
-              : undefined
-          }
-          onPointerUp={
-            mode === "local"
-              ? (event) => {
-                  if (elevationDragRef.current?.pointerId !== event.pointerId) return;
-                  elevationDragRef.current = null;
-                  setElevationDragging(false);
-                  scheduleTimeout(() => {
-                    suppressMapClickRef.current = false;
-                  }, 0);
-                }
-              : undefined
-          }
-          onPointerCancel={() => {
-            elevationDragRef.current = null;
-            setElevationDragging(false);
-            suppressMapClickRef.current = false;
-          }}
-          onClick={
-            mode === "local"
-              ? (event) => {
-                  if (event.shiftKey || suppressMapClickRef.current) return;
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setX(clamp(pan.x + ((event.clientX - rect.left) / rect.width - 0.5) * 100_000));
-                  setZ(clamp(pan.z + ((event.clientY - rect.top) / rect.height - 0.5) * 100_000));
-                }
-              : undefined
-          }
-        >
+        <div className={styles.map}>
           {mode === "local" ? (
-            <>
-              <div className={styles.localGrid} />
-              <div className={styles.axisX}>X</div>
-              <div className={styles.axisZ}>Z</div>
-              <div
-                className={styles.currentShip}
-                style={{
-                  left: `${50 + ((observer.x || 0) - pan.x) / 1000}%`,
-                  top: `${50 + ((observer.z || 0) - pan.z) / 1000}%`,
-                }}
-              >
-                ◆
-              </div>
-              <div
-                className={styles.jumpMarker}
-                style={{ left: `${50 + (x - pan.x) / 1000}%`, top: `${50 + (z - pan.z) / 1000}%` }}
-              >
-                <span />
-                <b>
-                  {x} / {y} / {z}
-                </b>
-              </div>
-              {elevationDragging && (
-                <div className={styles.elevationGuide}>
-                  <span />
-                  <b>Y {y.toLocaleString()}</b>
-                  <small>DRAG UP / DOWN</small>
-                </div>
-              )}
-              {(current?.planets || []).map((planet) => (
-                <div
-                  key={planet.name}
-                  className={styles.localPlanet}
-                  style={{
-                    left: `${50 + ((planet.x || 0) - pan.x) / 1000}%`,
-                    top: `${50 + ((planet.z || 0) - pan.z) / 1000}%`,
-                  }}
-                >
-                  <Planet
-                    planet={planet}
-                    onClick={() => {
-                      setSelectedPlanetName(planet.name);
-                      setArrivalDistance(500);
-                    }}
-                  />
-                </div>
-              ))}
-              <aside className={styles.mapLegend}>
-                CLICK X/Z // SHIFT + DRAG Y<br />
-                WASD PAN // Q/E ELEVATION // GRID ±50,000
-              </aside>
-            </>
+            <LocalHyperspaceView
+              snapshot={snapshot}
+              recipientLabel={recipientLabel}
+              observer={observer}
+              destination={[x, y, z]}
+              hyperspeed={hyperspeed}
+              motionTracks={motionTracks}
+              planetTargetName={selectedPlanetName}
+              onDestinationChange={updateLocalDestination}
+              onTrackingChange={updateTracking}
+            />
           ) : (
             <>
               <div className={styles.galaxyGlow} />
@@ -571,9 +503,14 @@ export function HyperspacePlanner({
           </div>
           {selectedPlanet && (
             <div className={styles.arrival}>
-              <strong>ARRIVAL STAND-OFF</strong>
-              <div>
-                {[500, 1000, 2500].map((distance) => (
+              <strong>PLANET ARRIVAL REFERENCE</strong>
+              <p>
+                {selectedPlanet.name.toUpperCase()} // {selectedPlanet.x} / {selectedPlanet.y} /{" "}
+                {selectedPlanet.z}
+              </p>
+              <small>ENTER XYZ MANUALLY, OR GENERATE A RANDOM LOCATION BEYOND THE MINIMUM.</small>
+              <div className={styles.arrivalOptions}>
+                {[500, 1000, 2000].map((distance) => (
                   <button
                     key={distance}
                     type="button"
@@ -583,6 +520,18 @@ export function HyperspacePlanner({
                     {distance.toLocaleString()} u
                   </button>
                 ))}
+              </div>
+              <button
+                type="button"
+                className={styles.randomArrival}
+                onClick={randomizePlanetDestination}
+              >
+                RANDOM LOCATION
+              </button>
+              <div className={styles.arrivalStatus} data-clear={planetArrivalClear}>
+                {planetArrivalClear
+                  ? `CURRENT SEPARATION // ${Math.round(selectedPlanetDistance || 0).toLocaleString()} u`
+                  : `MOVE DESTINATION MORE THAN ${MIN_HYPERSPACE_CLEARANCE.toLocaleString()} u FROM PLANET`}
               </div>
             </div>
           )}
@@ -670,7 +619,9 @@ export function HyperspacePlanner({
                           max={50000}
                           value={Number(value)}
                           onChange={(e) =>
-                            (setter as (value: number) => void)(clamp(numeric(e.target.value)))
+                            (setter as (value: number) => void)(
+                              clampSectorCoordinate(numeric(e.target.value)),
+                            )
                           }
                         />
                       </label>
@@ -708,11 +659,16 @@ export function HyperspacePlanner({
           disabled={
             catalogPending ||
             (mode === "galactic" && !selectedSystem) ||
+            !planetArrivalClear ||
             (escapeEnabled && (rangeDataPending || !escapeReachability.allowed))
           }
           onClick={submit}
         >
-          {routeEstimate?.reachable === false ? "CHECK ROUTE" : "PLOT JUMP"}
+          {routeEstimate?.reachable === false
+            ? "CHECK ROUTE"
+            : tracking
+              ? "PLOT + TRACK"
+              : "PLOT JUMP"}
         </button>
       </footer>
     </section>

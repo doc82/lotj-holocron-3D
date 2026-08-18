@@ -13,7 +13,7 @@ interface NavigationDrawerProps {
   targetDistance?: number;
   vector: Vector3;
   status: string;
-  observerStopped: boolean;
+  departureSpeedRequired: boolean;
   speed: number;
   maximumSpeed: number;
   commandLocked: boolean;
@@ -43,7 +43,7 @@ export function NavigationDrawer({
   targetDistance,
   vector,
   status,
-  observerStopped,
+  departureSpeedRequired,
   speed,
   maximumSpeed,
   commandLocked,
@@ -60,7 +60,7 @@ export function NavigationDrawer({
         ? "COURSE AWAY"
         : "COURSE TO CONTACT";
   const targetMissing = kind !== "relative" && !targetName;
-  const departureSpeedMissing = observerStopped && speed <= 0;
+  const departureSpeedMissing = departureSpeedRequired && speed <= 0;
   const needsVectorLock = mode === "vector";
   const confirmDisabled = commandLocked || targetMissing || departureSpeedMissing;
 
@@ -89,7 +89,7 @@ export function NavigationDrawer({
         <small>{status}</small>
       </div>
 
-      {observerStopped && (
+      {departureSpeedRequired && (
         <section className={styles.departureStep} aria-label="Departure speed">
           <p>DEPARTURE SPEED REQUIRED</p>
           <span>The speed order will be sent immediately before the course order.</span>
@@ -105,7 +105,7 @@ export function NavigationDrawer({
         </section>
       )}
 
-      {needsVectorLock && !observerStopped && (
+      {needsVectorLock && !departureSpeedRequired && (
         <p className={styles.instructions}>
           Move the pointer to set X/Z. Hold Shift for Y. Middle-drag orbits the camera without
           leaving this action.

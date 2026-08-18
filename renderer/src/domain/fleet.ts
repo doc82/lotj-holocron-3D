@@ -51,3 +51,22 @@ export function toggleFleetMemberSelection(
   else next.add(key);
   return next;
 }
+
+export function selectFleetCommandMember(
+  members: FleetMember[],
+  selectionKeys: ReadonlySet<string>,
+  member: FleetMember,
+  _currentScope: "local" | "all" | "wings" | "selected",
+): { selectionKeys: Set<string>; scope: "all" | "selected" } {
+  const next = toggleFleetMemberSelection(selectionKeys, member);
+  if (
+    members.length > 0 &&
+    members.every((candidate) => next.has(fleetMemberSelectionKey(candidate)))
+  ) {
+    return {
+      selectionKeys: new Set(members.map(fleetMemberSelectionKey)),
+      scope: "all",
+    };
+  }
+  return { selectionKeys: next, scope: "selected" };
+}

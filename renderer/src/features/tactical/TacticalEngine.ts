@@ -239,6 +239,7 @@ export class TacticalEngine {
   private radarRange = 0;
   private radarBubbleEnabled = true;
   private originGridEnabled = false;
+  private keyboardEnabled = true;
   private originOffset: Vector3 = [0, 0, 0];
   private originGridExtent = MINIMUM_ORIGIN_GRID_EXTENT;
   private originGridStep = MINIMUM_ORIGIN_GRID_STEP;
@@ -396,6 +397,11 @@ export class TacticalEngine {
     this.requestRender();
   }
 
+  setKeyboardEnabled(enabled: boolean): void {
+    this.keyboardEnabled = enabled;
+    if (!enabled) this.endElevationAdjustment();
+  }
+
   setSelectedId(id: string | null): void {
     this.selectedId = id;
     this.rebuildSelectionBuffer(performance.now());
@@ -417,6 +423,17 @@ export class TacticalEngine {
     this.cameraMode = mode;
     this.cameraTargetId = mode === "selection" ? targetId || null : null;
     this.callbacks.onCameraModeChange(mode);
+    this.requestRender();
+  }
+
+  focusPoint(targetId: string): void {
+    const point = this.findPointById(targetId) ?? this.findTargetPointById(targetId);
+    if (!point) return;
+    this.cameraMode = "selection";
+    this.cameraTargetId = targetId;
+    const focusDistance = Math.max(250, Math.min(1_250, this.radarRange || 750));
+    this.camera.targetDistance = Math.max(this.camera.minimumDistance, focusDistance);
+    this.callbacks.onCameraModeChange("selection");
     this.requestRender();
   }
 
@@ -619,12 +636,15 @@ export class TacticalEngine {
   private rebuildPointBuffers(): void {
     const tacticalPoints = this.scene.points.filter((point) => point.kind !== "projectile");
     const strategic = tacticalPoints.flatMap((point) => {
+      const customSize = this.scaledPointSize(point);
       const size =
         point.kind === "cluster"
           ? Math.min(18, point.pointSize)
-          : point.kind === "observer"
-            ? 8
-            : 5;
+          : point.kind === "prediction"
+            ? customSize
+            : point.kind === "observer"
+              ? 8
+              : 5;
       return this.interleavedVertex(point.position3d, point.color, size, 0, this.headingFor(point));
     });
     const landmarks = this.scene.points
@@ -633,7 +653,9 @@ export class TacticalEngine {
         this.interleavedVertex(
           point.position3d,
           point.color,
-          point.pointSize,
+          point.kind === "prediction"
+            ? this.scaledPointSize(point) / Math.max(1, this.markerScale)
+            : point.pointSize,
           0,
           this.headingFor(point),
         ),
@@ -642,6 +664,13 @@ export class TacticalEngine {
     this.landmarkCount = landmarks.length / 11;
     this.upload(this.pointBuffer, strategic, this.gl.DYNAMIC_DRAW);
     this.upload(this.landmarkBuffer, landmarks, this.gl.DYNAMIC_DRAW);
+  }
+
+  private scaledPointSize(point: ScenePoint): number {
+    if (point.renderScaleWithZoom !== true) return Math.min(64, point.pointSize);
+    const distance = Math.max(500, Math.hypot(...point.position3d));
+    const zoomScale = Math.min(1.65, Math.max(1, Math.sqrt(this.camera.distance / distance)));
+    return Math.min(64, point.pointSize * zoomScale);
   }
 
   private rebuildShipMeshBuffer(): void {
@@ -969,6 +998,15 @@ export class TacticalEngine {
   private findPointById(id?: string): ScenePoint | null {
     if (!id) return null;
     for (const point of this.scene.points) {
+      if (point.id === id) return point;
+      const member = point.members?.find((candidate) => candidate.id === id);
+      if (member) return member;
+    }
+    return null;
+  }
+
+  private findTargetPointById(id: string): ScenePoint | null {
+    for (const point of this.interpolator.target.points) {
       if (point.id === id) return point;
       const member = point.members?.find((candidate) => candidate.id === id);
       if (member) return member;
@@ -2021,6 +2059,7 @@ export class TacticalEngine {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (!this.keyboardEnabled) return;
     if (
       event.target instanceof HTMLInputElement ||
       event.target instanceof HTMLTextAreaElement ||
@@ -2064,6 +2103,7 @@ export class TacticalEngine {
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
+    if (!this.keyboardEnabled) return;
     if (event.key.toLowerCase() === "shift") this.endElevationAdjustment();
   };
 

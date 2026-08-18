@@ -13,6 +13,7 @@ interface NavigationControllerOptions {
   connected: boolean;
   landed: boolean;
   pollingPaused: boolean;
+  keyboardEnabled: boolean;
   commandLocked: boolean;
   setCommandLocked(locked: boolean): void;
   setAlert(message: string): void;
@@ -33,6 +34,7 @@ export function useNavigationController({
   connected,
   landed,
   pollingPaused,
+  keyboardEnabled,
   commandLocked,
   setCommandLocked,
   setAlert,
@@ -136,9 +138,9 @@ export function useNavigationController({
       setAlert("NAVIGATION COMPUTER IS WAITING FOR THE CURRENT MANEUVER");
       return;
     }
-    if (!state.fleetScope && observerSpeed === 0 && state.requestedSpeed === 0) {
-      dispatch({ type: "set-status", status: "DEPARTURE SPEED REQUIRED // SELECT PLAYER SPEED" });
-      setAlert("SELECT A NON-ZERO DEPARTURE SPEED");
+    if ((state.fleetScope || observerSpeed === 0) && state.requestedSpeed === 0) {
+      dispatch({ type: "set-status", status: "COURSE SPEED REQUIRED // SELECT A NON-ZERO SPEED" });
+      setAlert("SELECT A NON-ZERO COURSE SPEED");
       return;
     }
     const payload: Record<string, unknown> = { mode: state.commandMode };
@@ -149,7 +151,7 @@ export function useNavigationController({
       dispatch({ type: "set-status", status: "ORDER BLOCKED // TARGET CONTACT LOST" });
       return;
     }
-    if (!state.fleetScope && observerSpeed === 0) payload.departureSpeed = state.requestedSpeed;
+    if (state.fleetScope || observerSpeed === 0) payload.departureSpeed = state.requestedSpeed;
     dispatch({ type: "set-status", status: "TRANSMITTING COURSE..." });
     if (state.fleetScope) {
       payload.scope = state.fleetScope;
@@ -221,14 +223,14 @@ export function useNavigationController({
   const commitSpeed = useCallback(
     async (speed: number) => {
       const nextSpeed = Math.max(0, Math.min(maximumSpeed, Math.round(speed)));
-      if (state.mode !== "idle" && observerSpeed === 0) {
+      if (state.mode !== "idle" && (state.fleetScope || observerSpeed === 0)) {
         dispatch({
           type: "set-speed",
           speed: nextSpeed,
           status:
             nextSpeed > 0
-              ? `DEPARTURE SPEED ${nextSpeed} // READY WITH COURSE`
-              : "DEPARTURE SPEED REQUIRED // SELECT PLAYER SPEED",
+              ? `COURSE SPEED ${nextSpeed} // READY WITH COURSE`
+              : "COURSE SPEED REQUIRED // SELECT A NON-ZERO SPEED",
         });
         setAlert("");
         return;
@@ -266,6 +268,7 @@ export function useNavigationController({
       setAlert,
       setCommandLocked,
       state.mode,
+      state.fleetScope,
     ],
   );
 
@@ -325,6 +328,7 @@ export function useNavigationController({
   }, [cancel, connected, landed, setCommandLocked]);
 
   const keyboardStateRef = useLatestRef({
+    keyboardEnabled,
     pollingPaused,
     mode: state.mode,
     beginVector,
@@ -336,7 +340,7 @@ export function useNavigationController({
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       const current = keyboardStateRef.current;
-      if (current.pollingPaused) return;
+      if (!current.keyboardEnabled || current.pollingPaused) return;
       if (event.key.toLowerCase() === "m" && current.mode === "idle") current.beginVector();
       else if (event.key === "Escape" && current.mode !== "idle") current.cancel();
       else if (event.key === "Enter" && ["confirm", "target", "away"].includes(current.mode))

@@ -63,6 +63,9 @@ export interface TelemetryEntity {
   shipCategory?: string;
   condition?: string;
   heading?: { x?: number; y?: number; z?: number };
+  renderColor?: Color3;
+  renderPointSize?: number;
+  renderScaleWithZoom?: boolean;
   statusCard?: ShipTelemetryCard;
   infoCard?: ShipTelemetryCard;
   [key: string]: unknown;
@@ -72,6 +75,7 @@ export interface Observer extends TelemetryEntity {
   coordinates?: { x?: number; y?: number; z?: number };
   sensorArray?: number;
   radarRange?: number;
+  hyperspeed?: number;
   autotrack?: boolean;
   autopilot?: boolean;
   hasWeapons?: boolean;
@@ -85,6 +89,26 @@ export interface PollingState {
   pausedAt?: number;
   pauseReason?: string;
   command?: string;
+  sensorTickFallbackSeconds?: number;
+  sensorPollWaitingForTick?: boolean;
+  sensorPollPendingCommand?: string;
+  lastSensorPollAt?: number;
+  lastSensorPollCommand?: string;
+  lastSensorTickSource?: "gmcp" | "fallback" | "realspace";
+  lastSensorTickSequence?: number;
+  lastSensorSyncWaitSeconds?: number;
+  sensorTickFallbackCount?: number;
+  shipGmcpTickSequence?: number;
+  lastShipGmcpTickAt?: number;
+}
+
+export interface SensorCaptureState {
+  command: string;
+  tickSource: "gmcp" | "fallback" | "realspace";
+  tickSequence: number;
+  syncWaitSeconds: number;
+  completedAt: number;
+  preservedNewerGmcpObserver?: boolean;
 }
 
 export interface FleetMember {
@@ -215,6 +239,16 @@ export interface HyperspaceRoutePayload {
   memberNames?: string[];
   memberSlots?: number[];
   recipientLabel?: string;
+  predictionModel?: string;
+  estimatedTravelSeconds?: number;
+  tracking?: {
+    targetId: string;
+    targetName: string;
+    hyperspeed: number;
+    navigator: boolean;
+    lastObservedAt?: number;
+    thresholdUnits: number;
+  };
 }
 
 export interface HyperspaceState {
@@ -235,9 +269,20 @@ export interface HyperspaceState {
   fuelPercent?: number;
   insufficientFuel?: boolean;
   autoAborted?: boolean;
+  navigatorApplied?: boolean;
+  observedAt?: number;
+  calculationEstimated?: boolean;
+  estimatedReadyAt?: number;
+  readyAt?: number;
+  waitingForCalculation?: boolean;
   escapeRequestedAt?: number;
   error?: string;
   arrivedAt?: number;
+  awaitingArrivalRadar?: boolean;
+  hyperjumpCompleteObservedAt?: number;
+  realspaceLurchObservedAt?: number;
+  arrivalConfirmedBy?: string;
+  reentrySystemName?: string;
 }
 
 export interface ShipJumpEvent {
@@ -268,6 +313,7 @@ export interface SystemSnapshot {
     system?: string;
     inSpace?: boolean;
     polling?: PollingState;
+    lastSensorCapture?: SensorCaptureState;
     autotrackDesired?: boolean;
     autotrackPending?: boolean;
     autotrackObservedAt?: number;

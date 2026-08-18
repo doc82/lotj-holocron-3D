@@ -1,0 +1,166 @@
+.backdrop {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(0, 4, 9, 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.menu {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: min(900px, 100%);
+  height: min(650px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(76, 204, 245, 0.42);
+  color: #cdeef7;
+  background: linear-gradient(145deg, rgba(5, 23, 35, 0.98), rgba(1, 7, 13, 0.99));
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.72),
+    inset 0 0 80px rgba(24, 130, 170, 0.06);
+  font-family: ui-monospace, "Cascadia Mono", monospace;
+}
+
+.menu > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(76, 204, 245, 0.25);
+  background: rgba(4, 18, 28, 0.9);
+}
+
+.menu h2,
+.diagnosticContent h3 {
+  margin: 4px 0 0;
+  color: #f0fcff;
+  letter-spacing: 0.07em;
+}
+
+.menu small {
+  color: #59d6f5;
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+}
+
+.close {
+  border: 0;
+  color: #86dff5;
+  background: transparent;
+  font-size: 1.8rem;
+  cursor: pointer;
+}
+
+.menuChoices {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 24px;
+  padding: 30px;
+}
+
+.menuChoices > button {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 7px;
+  padding: 24px;
+  border: 1px solid rgba(81, 205, 244, 0.36);
+  color: #dff8ff;
+  text-align: left;
+  background: rgba(9, 42, 58, 0.64);
+  cursor: pointer;
+}
+
+.menuChoices > button:hover {
+  border-color: #65ddfa;
+  background: rgba(15, 67, 87, 0.74);
+}
+
+.menuChoices span,
+.menuChoices small,
+.menuChoices p {
+  color: #719da9;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+}
+
+.diagnostics {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(73, 184, 222, 0.18);
+}
+
+.toolbar span {
+  color: #6e9ca8;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+}
+
+.toolbar button {
+  border: 1px solid rgba(80, 200, 239, 0.35);
+  padding: 8px 11px;
+  color: #bfeffc;
+  background: rgba(8, 38, 51, 0.82);
+  font:
+    700 0.64rem ui-monospace,
+    monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.diagnosticContent {
+  display: grid;
+  gap: 14px;
+  overflow: auto;
+  padding: 22px;
+}
+
+.diagnosticContent section,
+.diagnosticContent aside {
+  padding: 18px;
+  border: 1px solid rgba(80, 200, 239, 0.2);
+  background: rgba(6, 29, 41, 0.62);
+}
+
+.diagnosticContent p,
+.diagnosticContent li,
+.diagnosticContent aside {
+  color: #91b8c2;
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+
+.diagnosticContent code {
+  display: block;
+  margin-top: 12px;
+  padding: 12px;
+  color: #8df5bd;
+  background: rgba(0, 8, 12, 0.8);
+}
+
+.diagnosticContent ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+
+.diagnosticContent aside {
+  border-color: rgba(255, 201, 83, 0.28);
+  color: #d8bd7f;
+}
+
+@media (max-width: 700px) {
+  .backdrop {
+    padding: 12px;
+  }
+}

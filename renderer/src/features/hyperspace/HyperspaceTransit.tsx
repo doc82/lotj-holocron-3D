@@ -4,21 +4,30 @@ import styles from "./HyperspaceTransit.module.css";
 
 interface Props {
   reentry: boolean;
+  arrived: boolean;
   escapePending: boolean;
   onEscape(): void;
 }
 
-export function HyperspaceTransit({ reentry, escapePending, onEscape }: Props) {
+export function HyperspaceTransit({ reentry, arrived, escapePending, onEscape }: Props) {
   const [reentryFadeStarted, setReentryFadeStarted] = useState(false);
+  const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    if (!reentry) {
+    if (!arrived) {
       setReentryFadeStarted(false);
+      setHidden(false);
       return;
     }
     const frame = requestAnimationFrame(() => setReentryFadeStarted(true));
-    return () => cancelAnimationFrame(frame);
-  }, [reentry]);
+    const timer = window.setTimeout(() => setHidden(true), 5_000);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [arrived]);
+
+  if (hidden) return null;
 
   return (
     <section
@@ -27,8 +36,8 @@ export function HyperspaceTransit({ reentry, escapePending, onEscape }: Props) {
         reentry
           ? {
               animation: "none",
-              opacity: reentryFadeStarted ? 0 : 1,
-              filter: reentryFadeStarted ? "brightness(2.2)" : "brightness(1)",
+              opacity: arrived && reentryFadeStarted ? 0 : 1,
+              filter: arrived && reentryFadeStarted ? "brightness(2.2)" : "brightness(1)",
               transition: "opacity 5s ease-out, filter 5s ease-out",
             }
           : undefined

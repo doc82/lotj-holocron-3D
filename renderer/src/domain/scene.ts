@@ -52,6 +52,12 @@ export function colorFor(
   entity: Pick<TelemetryEntity, "id" | "kind" | "position" | "name" | "class">,
 ): Color3 {
   const tacticalEntity = entity as TelemetryEntity;
+  if (
+    Array.isArray(tacticalEntity.renderColor) &&
+    tacticalEntity.renderColor.length === 3 &&
+    tacticalEntity.renderColor.every((channel) => Number.isFinite(Number(channel)))
+  )
+    return tacticalEntity.renderColor.map(Number) as Color3;
   if (tacticalEntity.combatTarget === true) return [1, 0.13, 0.18];
   if (entity.id === "player-ship" || tacticalEntity.formationMember === true) return [0.68, 0.3, 1];
   if (entity.kind === "projectile") return projectileVisual(entity).color;
@@ -145,9 +151,11 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       position3d,
       worldPosition: [finite(entity.x), finite(entity.y), finite(entity.z)],
       color: colorFor(entity),
-      pointSize: ["celestial", "planet", "star"].includes(entity.kind || "")
-        ? 13
-        : (projectile?.pixels ?? visual.pixels),
+      pointSize: Number.isFinite(Number(entity.renderPointSize))
+        ? Math.max(1, Number(entity.renderPointSize))
+        : ["celestial", "planet", "star"].includes(entity.kind || "")
+          ? 13
+          : (projectile?.pixels ?? visual.pixels),
       markerShape: entity.kind === "ship" ? visual.shape : (projectile?.shape ?? 0),
       shipSize: visual.size,
     });
@@ -155,7 +163,7 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const colocatedContacts = new Map<string, ScenePoint[]>();
   for (const contact of [observerPoint, ...contacts]) {
-    if (contact.kind === "projectile") continue;
+    if (["projectile", "prediction"].includes(contact.kind)) continue;
     const key = contact.worldPosition.join(":");
     const members = colocatedContacts.get(key) ?? [];
     members.push(contact);
@@ -372,16 +380,6 @@ export class OrbitCamera {
     if (immediate) this.distance = this.targetDistance;
   }
 
-  setPixelScale(viewportHeight: number, pixelsPerUnit: number, immediate = false): void {
-    const safePixelsPerUnit = Math.max(0.01, finite(pixelsPerUnit, 1));
-    this.targetDistance = clamp(
-      Math.max(1, finite(viewportHeight, 1)) / (2 * safePixelsPerUnit),
-      this.minimumDistance,
-      this.maximumDistance,
-    );
-    if (immediate) this.distance = this.targetDistance;
-  }
-
   resetOrientation(): void {
     this.targetYaw = -0.72;
     this.targetPitch = 0.48;
@@ -411,34 +409,6 @@ export class OrbitCamera {
       Math.cos(this.yaw) * horizontal,
     ];
   }
-}
-
-export function perspective(
-  fieldOfView: number,
-  aspect: number,
-  near: number,
-  far: number,
-): Float32Array<ArrayBuffer> {
-  const f = 1 / Math.tan(fieldOfView / 2);
-  const range = 1 / (near - far);
-  return new Float32Array([
-    f / aspect,
-    0,
-    0,
-    0,
-    0,
-    f,
-    0,
-    0,
-    0,
-    0,
-    (far + near) * range,
-    -1,
-    0,
-    0,
-    2 * far * near * range,
-    0,
-  ]);
 }
 
 export function orthographic(

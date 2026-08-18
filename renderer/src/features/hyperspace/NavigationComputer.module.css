@@ -128,6 +128,18 @@
     monospace;
   letter-spacing: 0.05em;
 }
+
+.estimate {
+  margin-top: 10px;
+  border: 1px solid rgba(213, 170, 67, 0.48);
+  padding: 9px;
+  color: #ffe495;
+  background: rgba(80, 59, 12, 0.34);
+  font:
+    800 9px/1.45 ui-monospace,
+    monospace;
+  letter-spacing: 0.06em;
+}
 .clearanceSafe {
   border-color: #28765d;
   color: #82ffca;

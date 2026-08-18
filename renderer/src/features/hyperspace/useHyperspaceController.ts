@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { formationCenter } from "../../domain/coursePlot";
-import { hyperspaceClearance } from "../../domain/hyperspace";
+import { absoluteFormationCenter } from "../../domain/coursePlot";
+import { clampSectorCoordinate, hyperspaceClearance } from "../../domain/hyperspace";
+import {
+  calculateHyperspaceIntercept,
+  calculateHyperspaceTravelTime,
+  HYPERSPACE_TRAVEL_TIME_MODEL,
+  hyperspaceReplotRequired,
+  observeMotionTracks,
+  velocityForTrack,
+  type MotionTrack,
+  type MotionTrackMap,
+} from "../../domain/hyperspacePrediction";
 import { useLatestRef } from "../../hooks/useLatestRef";
 import type { FleetScope } from "../fleet/FleetRoster";
 import type {
@@ -17,6 +27,7 @@ import type { EscapePlanDraft } from "./HyperspacePlanner";
 export interface HyperspacePlannerRequest {
   mode: "local" | "galactic";
   origin: { x?: number; y?: number; z?: number };
+  hyperspeed?: number;
   routeScope: Pick<
     HyperspaceRoutePayload,
     | "scope"
@@ -48,6 +59,48 @@ interface HyperspaceControllerOptions {
   setAlert(message: string): void;
 }
 
+function selectedRouteMemberNames(route: HyperspaceRoutePayload | null): string[] {
+  if (!route || route.scope !== "selected") return [];
+  if (route.memberNames?.length) return route.memberNames;
+  return route.memberName ? [route.memberName] : [];
+}
+
+function selectedRouteIncludesLocalShip(
+  route: HyperspaceRoutePayload | null,
+  localName: string,
+): boolean {
+  const wanted = localName.trim().toLowerCase();
+  return selectedRouteMemberNames(route).some((name) => name.trim().toLowerCase() === wanted);
+}
+
+function routeIncludesLocalShip(route: HyperspaceRoutePayload, localName: string): boolean {
+  if (!route.scope || route.scope === "local" || route.scope === "all") return true;
+  if (route.scope === "wings") return false;
+  return selectedRouteIncludesLocalShip(route, localName);
+}
+
+function trackByIdentity(
+  tracks: MotionTrackMap,
+  id: string | undefined,
+  name: string | undefined,
+): MotionTrack | undefined {
+  const direct = id ? tracks.get(id) : undefined;
+  if (direct) return direct;
+  const wanted = String(name || "")
+    .trim()
+    .toLowerCase();
+  return wanted
+    ? [...tracks.values()].find((track) => track.name.trim().toLowerCase() === wanted)
+    : undefined;
+}
+
+function stationaryTrack(id: string, name: string, position: Vector3): MotionTrack {
+  const observedAt = Date.now() / 1_000;
+  const previous = { position: [...position] as Vector3, observedAt: observedAt - 1 };
+  const current = { position: [...position] as Vector3, observedAt };
+  return { id, name, previous, current, samples: [previous, current] };
+}
+
 export function useHyperspaceController({
   connected,
   pollingPaused,
@@ -69,22 +122,39 @@ export function useHyperspaceController({
   const [activeRoute, setActiveRoute] = useState<HyperspaceRoutePayload | null>(null);
   const [escapePlan, setEscapePlan] = useState<EscapePlanDraft | undefined>();
   const [escapePending, setEscapePending] = useState(false);
+  const [trackingRecalculationPending, setTrackingRecalculationPending] = useState(false);
+  const [motionTracks, setMotionTracks] = useState<MotionTrackMap>(() => new Map());
   const escapeIntentIdsRef = useRef(new Set<string>());
+  const engageIntentIdsRef = useRef(new Set<string>());
+  const plotIntentIdsRef = useRef(new Set<string>());
+  const trackingPlotIntentIdsRef = useRef(new Set<string>());
   const navigationRefreshIntentIdsRef = useRef(new Set<string>());
   const escapeTriggeredRef = useRef(false);
   const arrivalRefreshAtRef = useRef<number | null>(null);
+  const announcedReadyKeyRef = useRef<string | null>(null);
+  const announcedCalculationWaitRef = useRef(false);
+  const trackingReplotPendingRef = useRef(false);
+  const trackingRecalculationSawCalculatingRef = useRef(false);
 
   const state = snapshot?.metadata?.hyperspace || { phase: "idle" as const };
-  const hyperdriveClearance = hyperspaceClearance(snapshot);
+  const battlegroupClearanceExemptions =
+    fleet?.active && fleet.kind === "battlegroup" ? fleet.members.map((member) => member.name) : [];
+  const hyperdriveClearance = hyperspaceClearance(
+    snapshot,
+    undefined,
+    battlegroupClearanceExemptions,
+  );
+  const selectedRouteIncludesLocal = selectedRouteIncludesLocalShip(activeRoute, localName);
+  const battlegroupControllerRoute =
+    activeRoute?.formationKind === "battlegroup" &&
+    (activeRoute.scope === "all" ||
+      activeRoute.scope === "wings" ||
+      (activeRoute.scope === "selected" && !selectedRouteIncludesLocal));
   const remoteBattlegroupRoute =
     activeRoute?.formationKind === "battlegroup" &&
     (activeRoute.scope === "wings" ||
-      (activeRoute.scope === "selected" &&
-        (activeRoute.memberNames?.some(
-          (name) => name.trim().toLowerCase() !== localName.trim().toLowerCase(),
-        ) ??
-          activeRoute.memberName?.trim().toLowerCase() !== localName.trim().toLowerCase())));
-  const routeClearance = remoteBattlegroupRoute
+      (activeRoute.scope === "selected" && !selectedRouteIncludesLocal));
+  const routeClearance = battlegroupControllerRoute
     ? {
         known: true,
         allowed: true,
@@ -117,6 +187,10 @@ export function useHyperspaceController({
     Object.keys(galaxyCatalog?.systems || {}).length +
     Object.keys(galaxyCatalog?.customSystems || {}).length;
 
+  useEffect(() => {
+    setMotionTracks((current) => observeMotionTracks(current, snapshot));
+  }, [snapshot]);
+
   const openPlanner = useCallback(
     (mode: "local" | "galactic") => {
       const routeScope: HyperspacePlannerRequest["routeScope"] = {
@@ -136,16 +210,31 @@ export function useHyperspaceController({
           routeScope.memberSlot = selectedFleetMembers[0].slot;
         }
       }
-      const relativeOrigin = formationCenter(
+      const initialOrigin = absoluteFormationCenter(
+        observerWorldPosition,
         movementOriginsForScope(fleetCommandMode ? fleetScope : "local"),
       );
+      const recipientMembers = !fleetCommandMode
+        ? []
+        : fleetScope === "selected"
+          ? selectedFleetMembers
+          : fleetScope === "wings"
+            ? (fleet?.members.filter((member) => !member.leader) ?? [])
+            : (fleet?.members ?? []);
+      const recipientHyperspeeds = recipientMembers
+        .map((member) => Number(member.hyperspeed))
+        .filter((value) => value > 0);
+      const hyperspeed = recipientHyperspeeds.length
+        ? Math.min(...recipientHyperspeeds)
+        : Number(snapshot?.observer?.hyperspeed) || undefined;
       setNavigationRefreshBlocked(false);
       setPlanner({
         mode,
+        hyperspeed,
         origin: {
-          x: (Number(observerWorldPosition[0]) || 0) + relativeOrigin[0],
-          y: (Number(observerWorldPosition[1]) || 0) + relativeOrigin[1],
-          z: (Number(observerWorldPosition[2]) || 0) + relativeOrigin[2],
+          x: initialOrigin[0],
+          y: initialOrigin[1],
+          z: initialOrigin[2],
         },
         routeScope,
       });
@@ -158,25 +247,183 @@ export function useHyperspaceController({
       movementOriginsForScope,
       observerWorldPosition,
       selectedFleetMembers,
+      snapshot?.observer?.hyperspeed,
     ],
   );
 
+  const livePlanner = useMemo(() => {
+    if (!planner) return null;
+    const origin = absoluteFormationCenter(
+      observerWorldPosition,
+      movementOriginsForScope(planner.routeScope.scope || "local"),
+    );
+    return {
+      ...planner,
+      origin: { x: origin[0], y: origin[1], z: origin[2] },
+    };
+  }, [movementOriginsForScope, observerWorldPosition, planner]);
+
+  const withTravelEstimate = useCallback(
+    (route: HyperspaceRoutePayload): HyperspaceRoutePayload => {
+      if (route.mode !== "local") return route;
+      const rating = Number(route.tracking?.hyperspeed) || Number(snapshot?.observer?.hyperspeed);
+      if (!routeIncludesLocalShip(route, localName) || !(rating > 0)) return route;
+      const origin = absoluteFormationCenter(
+        observerWorldPosition,
+        movementOriginsForScope(route.scope || "local"),
+      );
+      const distance = Math.hypot(
+        Number(route.destination.x) - origin[0],
+        Number(route.destination.y) - origin[1],
+        Number(route.destination.z) - origin[2],
+      );
+      const estimatedTravelSeconds = calculateHyperspaceTravelTime(
+        distance,
+        rating,
+        route.tracking?.navigator,
+      );
+      return {
+        ...route,
+        predictionModel: HYPERSPACE_TRAVEL_TIME_MODEL,
+        estimatedTravelSeconds: estimatedTravelSeconds ?? undefined,
+      };
+    },
+    [localName, movementOriginsForScope, observerWorldPosition, snapshot?.observer?.hyperspeed],
+  );
+
+  const trackingUpdate = useMemo(() => {
+    const tracking = activeRoute?.tracking;
+    if (!activeRoute || activeRoute.mode !== "local" || !tracking) return null;
+    const target = trackByIdentity(motionTracks, tracking.targetId, tracking.targetName);
+    if (!target || !velocityForTrack(target)) return null;
+    const origin = absoluteFormationCenter(
+      observerWorldPosition,
+      movementOriginsForScope(activeRoute.scope || "local"),
+    );
+    let observerTrack: MotionTrack | undefined;
+    if (!activeRoute.scope || activeRoute.scope === "local") {
+      const playerTrack = motionTracks.get("player-ship");
+      observerTrack = playerTrack && velocityForTrack(playerTrack) ? playerTrack : undefined;
+    } else if (
+      activeRoute.scope === "selected" &&
+      selectedRouteMemberNames(activeRoute).length === 1
+    ) {
+      observerTrack = trackByIdentity(
+        motionTracks,
+        activeRoute.memberId,
+        selectedRouteMemberNames(activeRoute)[0],
+      );
+      if (observerTrack && !velocityForTrack(observerTrack)) observerTrack = undefined;
+    }
+    observerTrack ??= stationaryTrack("tracked-route-origin", "Tracked route origin", origin);
+    const solution = calculateHyperspaceIntercept({
+      target,
+      observer: observerTrack,
+      hyperspeed: tracking.hyperspeed,
+      navigator: tracking.navigator,
+    });
+    return solution ? { solution, targetObservedAt: target.current.observedAt } : null;
+  }, [activeRoute, motionTracks, movementOriginsForScope, observerWorldPosition]);
+
   const plot = useCallback(
     async (route: HyperspaceRoutePayload, escape?: EscapePlanDraft) => {
-      setActiveRoute(route);
+      const plottedRoute = withTravelEstimate(route);
+      setActiveRoute(plottedRoute);
       setEscapePlan(escape);
       setPlanner(null);
       escapeTriggeredRef.current = false;
       const result = await window.holocron?.sendIntent(
         "plot_hyperspace",
-        route as unknown as Record<string, unknown>,
+        plottedRoute as unknown as Record<string, unknown>,
       );
       if (result?.accepted === false) {
         setAlert(`ROUTE REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+        return;
       }
+      if (result?.id) plotIntentIdsRef.current.add(result.id);
     },
-    [setAlert],
+    [setAlert, withTravelEstimate],
   );
+
+  const refreshTrackedRoute = useCallback(async (): Promise<boolean> => {
+    const tracking = activeRoute?.tracking;
+    if (
+      !activeRoute ||
+      !tracking ||
+      state.phase !== "ready" ||
+      !trackingUpdate ||
+      trackingUpdate.targetObservedAt <= Number(tracking.lastObservedAt || 0)
+    )
+      return false;
+    if (trackingReplotPendingRef.current) return true;
+
+    const previousDestination: Vector3 = [
+      activeRoute.destination.x,
+      activeRoute.destination.y,
+      activeRoute.destination.z,
+    ];
+    const nextDestination = trackingUpdate.solution.targetPosition.map(
+      clampSectorCoordinate,
+    ) as Vector3;
+    if (!hyperspaceReplotRequired(previousDestination, nextDestination, tracking.thresholdUnits)) {
+      setActiveRoute((current) =>
+        current === activeRoute
+          ? {
+              ...current,
+              tracking: { ...tracking, lastObservedAt: trackingUpdate.targetObservedAt },
+            }
+          : current,
+      );
+      return false;
+    }
+
+    const drift = Math.hypot(
+      ...nextDestination.map((value, index) => value - previousDestination[index]),
+    );
+    const revisedRoute = withTravelEstimate({
+      ...activeRoute,
+      destination: {
+        x: nextDestination[0],
+        y: nextDestination[1],
+        z: nextDestination[2],
+      },
+      tracking: { ...tracking, lastObservedAt: trackingUpdate.targetObservedAt },
+    });
+    trackingReplotPendingRef.current = true;
+    trackingRecalculationSawCalculatingRef.current = false;
+    setTrackingRecalculationPending(true);
+    let accepted = false;
+    try {
+      const result = await window.holocron?.sendIntent(
+        "plot_hyperspace",
+        revisedRoute as unknown as Record<string, unknown>,
+      );
+      if (result?.accepted === false) {
+        setAlert(`TRACK UPDATE REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+        return true;
+      }
+      accepted = true;
+      setActiveRoute(revisedRoute);
+      if (result?.id) {
+        plotIntentIdsRef.current.add(result.id);
+        trackingPlotIntentIdsRef.current.add(result.id);
+      }
+      setAlert(
+        `TARGET MOVED ${Math.round(drift)} U // RECALCULATING ${tracking.targetName.toUpperCase()}`,
+      );
+      return true;
+    } catch (error) {
+      setAlert(`TRACK UPDATE FAILED // ${String(error || "UNKNOWN").toUpperCase()}`);
+      return true;
+    } finally {
+      trackingReplotPendingRef.current = false;
+      if (!accepted) setTrackingRecalculationPending(false);
+    }
+  }, [activeRoute, setAlert, state.phase, trackingUpdate, withTravelEstimate]);
+
+  useEffect(() => {
+    void refreshTrackedRoute();
+  }, [refreshTrackedRoute]);
 
   const stop = useCallback(async () => {
     const result = await window.holocron?.sendIntent(
@@ -188,17 +435,28 @@ export function useHyperspaceController({
       return;
     }
     setActiveRoute(null);
+    trackingPlotIntentIdsRef.current.clear();
+    setTrackingRecalculationPending(false);
+    trackingRecalculationSawCalculatingRef.current = false;
     setEscapePlan(undefined);
     escapeTriggeredRef.current = false;
   }, [activeRoute, setAlert]);
 
   const dismiss = useCallback(() => {
     setActiveRoute(null);
+    trackingPlotIntentIdsRef.current.clear();
+    setTrackingRecalculationPending(false);
+    trackingRecalculationSawCalculatingRef.current = false;
     setEscapePlan(undefined);
     escapeTriggeredRef.current = false;
   }, []);
 
   const engage = useCallback(async () => {
+    if (trackingRecalculationPending) {
+      setAlert("TRACK UPDATE IN PROGRESS // WAITING FOR CURRENT CALCULATION");
+      return;
+    }
+    if (await refreshTrackedRoute()) return;
     if (!routeClearance.allowed) {
       setAlert(
         `HYPERDRIVE BLOCKED // ${String(routeClearance.reason || "FRESH RADAR CLEARANCE REQUIRED").toUpperCase()}`,
@@ -213,6 +471,7 @@ export function useHyperspaceController({
       setAlert(`HYPERDRIVE BLOCKED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
       return;
     }
+    if (result?.id) engageIntentIdsRef.current.add(result.id);
     if (remoteBattlegroupRoute) {
       setActiveRoute(null);
       setEscapePlan(undefined);
@@ -222,10 +481,12 @@ export function useHyperspaceController({
     }
   }, [
     activeRoute,
+    refreshTrackedRoute,
     remoteBattlegroupRoute,
     routeClearance.allowed,
     routeClearance.reason,
     setAlert,
+    trackingRecalculationPending,
   ]);
 
   const escape = useCallback(async () => {
@@ -290,16 +551,65 @@ export function useHyperspaceController({
   ]);
 
   useEffect(() => {
+    const trackingActive = activeRoute?.mode === "local" && Boolean(activeRoute.tracking);
+    if (
+      pollingPaused ||
+      (planner?.mode !== "local" && !trackingActive) ||
+      ["engaging", "hyperspace", "reentry", "arrived"].includes(state.phase || "idle")
+    )
+      return;
+    const refreshRadar = () => void window.holocron?.sendIntent("refresh_local_hyperspace_radar");
+    refreshRadar();
+    const timer = setInterval(refreshRadar, 4_000);
+    return () => clearInterval(timer);
+  }, [activeRoute?.mode, activeRoute?.tracking, planner?.mode, pollingPaused, state.phase]);
+
+  useEffect(() => {
     if (state.phase !== "hyperspace") setEscapePending(false);
   }, [state.phase]);
+
+  useEffect(() => {
+    if (!trackingRecalculationPending) return;
+    if (state.phase === "calculating") {
+      trackingRecalculationSawCalculatingRef.current = true;
+      return;
+    }
+    if (state.phase === "ready" && trackingRecalculationSawCalculatingRef.current) {
+      trackingRecalculationSawCalculatingRef.current = false;
+      setTrackingRecalculationPending(false);
+    }
+  }, [state.phase, trackingRecalculationPending]);
+
+  useEffect(() => {
+    if (!state.waitingForCalculation) {
+      announcedCalculationWaitRef.current = false;
+      return;
+    }
+    if (announcedCalculationWaitRef.current) return;
+    announcedCalculationWaitRef.current = true;
+    setAlert("NAVIGATION COMPUTER IS STILL CALCULATING // PLEASE WAIT TO ENGAGE");
+  }, [setAlert, state.waitingForCalculation]);
+
+  useEffect(() => {
+    if (state.phase === "calculating") announcedReadyKeyRef.current = null;
+    if (!activeRoute || state.phase !== "ready" || !state.readyAt) return;
+    const readyKey = `${state.readyAt}:${state.calculationEstimated === true ? "estimated" : "confirmed"}`;
+    if (announcedReadyKeyRef.current === readyKey) return;
+    announcedReadyKeyRef.current = readyKey;
+    setAlert(
+      `HYPERSPACE CALCULATION READY // ${(activeRoute.recipientLabel || "FORMATION").toUpperCase()} // ${state.calculationEstimated === true ? "ESTIMATED" : "ENGAGE AVAILABLE"}`,
+    );
+  }, [activeRoute, setAlert, state.calculationEstimated, state.phase, state.readyAt]);
 
   useEffect(() => {
     if (state.phase !== "arrived") {
       arrivalRefreshAtRef.current = null;
       return;
     }
-    if (pollingPaused) return;
+    // Arrival is authoritative and must always release the navigation panel.
+    // Pausing telemetry only suppresses the follow-up navstat request.
     setActiveRoute(null);
+    if (pollingPaused) return;
     const arrivedAt = Number(state.arrivedAt) || 0;
     const arrivalNavigationReady =
       Number(snapshot?.metadata?.navigation?.arrivalRefreshedAt) >= arrivedAt;
@@ -307,7 +617,6 @@ export function useHyperspaceController({
       arrivalRefreshAtRef.current = arrivedAt;
       void window.holocron?.sendIntent("refresh_navigation", {
         command: "navstat",
-        followupRadar: true,
       });
     }
     if (!escapePlan || escapeTriggeredRef.current || !arrivalNavigationReady) return;
@@ -334,6 +643,10 @@ export function useHyperspaceController({
 
   useEffect(() => {
     if (connected) return;
+    trackingReplotPendingRef.current = false;
+    trackingPlotIntentIdsRef.current.clear();
+    trackingRecalculationSawCalculatingRef.current = false;
+    setTrackingRecalculationPending(false);
     setPlanner(null);
     setActiveRoute(null);
     setEscapePlan(undefined);
@@ -345,6 +658,32 @@ export function useHyperspaceController({
   useEffect(
     () =>
       window.holocron?.onIntentAck((ack) => {
+        if (ack.id && trackingPlotIntentIdsRef.current.has(ack.id)) {
+          if (ack.status === "accepted") return;
+          trackingPlotIntentIdsRef.current.delete(ack.id);
+          trackingRecalculationSawCalculatingRef.current = false;
+          setTrackingRecalculationPending(false);
+        }
+        if (ack.id && plotIntentIdsRef.current.has(ack.id)) {
+          if (ack.status === "accepted") return;
+          plotIntentIdsRef.current.delete(ack.id);
+          if (ack.status === "rejected") {
+            acknowledgementCallbacksRef.current.setAlert(
+              `ROUTE REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`,
+            );
+          }
+          return;
+        }
+        if (ack.id && engageIntentIdsRef.current.has(ack.id)) {
+          if (ack.status === "accepted") return;
+          engageIntentIdsRef.current.delete(ack.id);
+          if (ack.status === "rejected") {
+            acknowledgementCallbacksRef.current.setAlert(
+              `HYPERDRIVE REJECTED // ${String(ack.reason || "UNKNOWN").toUpperCase()}`,
+            );
+          }
+          return;
+        }
         if (ack.id && navigationRefreshIntentIdsRef.current.has(ack.id)) {
           if (ack.status === "accepted") return;
           navigationRefreshIntentIdsRef.current.delete(ack.id);
@@ -371,13 +710,15 @@ export function useHyperspaceController({
 
   return {
     state,
-    planner,
+    planner: livePlanner,
     activeRoute,
     escapePlan,
     escapePending,
+    trackingRecalculationPending,
     routeClearance,
     navigationDestinations,
     currentGalaxyPosition,
+    motionTracks,
     openPlanner,
     closePlanner,
     plot,

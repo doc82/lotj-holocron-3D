@@ -415,6 +415,16 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   assert.match(fleetRoster, /scope === "wings"/);
   assert.match(shipCommands, /payload\.memberIds = selectedFleetMembers\.map/);
   assert.match(fleetSelection, /setSelectedMemberKeys/);
+  assert.match(
+    fleetSelection,
+    /const selectAll[\s\S]*?fleet\.members\.map\(fleetMemberSelectionKey\)[\s\S]*?setScope\("all"\)/,
+  );
+  assert.match(fleetSelection, /selectFleetCommandMember/);
+  assert.match(
+    fleetSelection,
+    /const selectOnlyMember[\s\S]*?setSelectedMemberKeys\(new Set\(\[fleetMemberSelectionKey\(member\)\]\)\)[\s\S]*?setScope\("selected"\)/,
+  );
+  assert.match(app, /useFleetSelection\(fleet\)/);
   assert.match(app, /onToggleMember=\{toggleFleetMember\}/);
   assert.match(app, /aria-label="Select all fleet craft"/);
   assert.match(fleetRoster, /role=\{selectable \? "checkbox"/);
@@ -561,7 +571,14 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(navigation, /state\.fleetScope \? "fleet_order" : "navigate_ship"/);
   assert.match(navigation, /sendIntent\("set_ship_speed"/);
   assert.match(polling, /sendIntent\("probe_space"/);
-  assert.match(navigation, /payload\.departureSpeed = state\.requestedSpeed/);
+  assert.match(
+    navigation,
+    /if \(state\.fleetScope \|\| observerSpeed === 0\) payload\.departureSpeed = state\.requestedSpeed/,
+  );
+  assert.match(
+    navigation,
+    /state\.mode !== "idle" && \(state\.fleetScope \|\| observerSpeed === 0\)/,
+  );
   assert.match(app, /navigationMode !== "idle"/);
   assert.match(drawer, /DEPARTURE SPEED REQUIRED/);
   assert.match(reducer, /knownMaximumSpeed/);
@@ -571,7 +588,11 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(app, /WAITING FOR CONFIRMATION/);
   assert.match(app, /CANCEL COMMAND/);
   assert.match(drawer, /aria-label="Navigation command wizard"/);
-  assert.match(drawer, /const departureSpeedMissing = observerStopped && speed <= 0/);
+  assert.match(drawer, /const departureSpeedMissing = departureSpeedRequired && speed <= 0/);
+  assert.match(
+    app,
+    /departureSpeedRequired=\{Boolean\(navigation\.fleetScope\) \|\| observerSpeed === 0\}/,
+  );
   assert.match(
     drawer,
     /const confirmDisabled = commandLocked \|\| targetMissing \|\| departureSpeedMissing/,
@@ -588,7 +609,6 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(navigation, /dispatch\(\{\s*type: "reset"/);
   assert.match(navigation, /setAlert\(""\)/);
   assert.match(app, /label=\{`PLAYER SPEED \/\/ \$\{localName\.toUpperCase\(\)\}`\}/);
-  assert.match(app, /observerStopped=\{observerSpeed === 0\}/);
   assert.match(engine, /rebuildCourseBuffer/);
   assert.match(engine, /event\.shiftKey/);
   assert.match(engine, /elevationFromPointer\(/);

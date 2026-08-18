@@ -1,0 +1,273 @@
+.view {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #02050a;
+}
+
+.view canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.cameraControls,
+.predictionPanel,
+.selection,
+.cluster,
+.instructions {
+  position: absolute;
+  z-index: 8;
+  border: 1px solid rgb(61 181 235 / 35%);
+  background: rgb(2 10 20 / 88%);
+  box-shadow: 0 0 28px rgb(0 110 180 / 12%);
+  backdrop-filter: blur(8px);
+}
+
+.cameraControls {
+  top: 14px;
+  left: 14px;
+  right: 252px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+}
+
+.cameraControls > span {
+  padding: 0 7px;
+  color: #67d8ff;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+}
+
+.cameraControls button,
+.selection button {
+  border: 1px solid rgb(72 188 232 / 32%);
+  background: rgb(8 27 43 / 90%);
+  color: #9de7ff;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.cameraControls button[aria-pressed="true"],
+.cameraControls button:hover:not(:disabled),
+.selection button:hover {
+  border-color: #55d7ff;
+  background: rgb(17 74 103 / 88%);
+  color: #fff;
+}
+
+.cameraControls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.predictionPanel {
+  top: 14px;
+  right: 14px;
+  width: 224px;
+  padding: 12px;
+}
+
+.predictionPanel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #caefff;
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+}
+
+.predictionPanel input {
+  accent-color: #e73e77;
+}
+
+.predictionPanel .navigator {
+  margin-top: 9px;
+  color: #80dfff;
+}
+
+.legend {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(78 177 221 / 18%);
+  color: #7fa6b7;
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+}
+
+.legend span::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  content: "";
+  box-shadow: 0 0 8px currentColor;
+}
+
+.legend span[data-color="target"]::before {
+  background: #ff337a;
+  color: #ff337a;
+}
+
+.legend span[data-color="destination"]::before {
+  background: #ffb814;
+  color: #ffb814;
+}
+
+.legend span[data-color="observer"]::before {
+  background: #14e5ff;
+  color: #14e5ff;
+}
+
+.solution {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  color: #8eb6c7;
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
+}
+
+.solution strong {
+  color: #fff;
+}
+
+.predictionPanel small {
+  display: block;
+  margin-top: 10px;
+  color: #7698a8;
+  font-size: 0.58rem;
+}
+
+.selection {
+  right: 14px;
+  bottom: 38px;
+  display: grid;
+  width: 224px;
+  gap: 3px;
+  padding: 12px;
+}
+
+.selection small,
+.cluster small {
+  color: #57c7ec;
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+}
+
+.selection strong {
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.selection > span {
+  color: #7fa5b6;
+  font-size: 0.6rem;
+}
+
+.selection p {
+  margin: 7px 0;
+  color: #f2c64d;
+  font: 700 0.74rem/1.2 monospace;
+}
+
+.cluster {
+  top: 58px;
+  left: 14px;
+  width: min(360px, calc(100% - 28px));
+  max-height: calc(100% - 104px);
+  padding: 10px;
+  overflow: auto;
+}
+
+.cluster header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 8px;
+}
+
+.cluster header div {
+  display: grid;
+  gap: 3px;
+}
+
+.cluster header strong {
+  color: #dff6ff;
+  font-size: 0.72rem;
+}
+
+.cluster header button {
+  border: 0;
+  background: transparent;
+  color: #77cce9;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.cluster > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cluster > div > button {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgb(73 167 207 / 22%);
+  background: rgb(6 22 35 / 82%);
+  color: #d9f4ff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cluster > div > button:hover {
+  border-color: #4ccdf7;
+}
+
+.cluster > div span,
+.cluster > div small {
+  overflow: hidden;
+  color: #7297a7;
+  font-size: 0.55rem;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.instructions {
+  bottom: 9px;
+  left: 50%;
+  padding: 6px 10px;
+  color: #6da4b9;
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 850px) {
+  .cameraControls {
+    right: 14px;
+  }
+
+  .predictionPanel {
+    top: 112px;
+  }
+
+  .instructions {
+    display: none;
+  }
+}
