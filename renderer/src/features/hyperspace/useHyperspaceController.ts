@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { formationCenter } from "../../domain/coursePlot";
+import { absoluteFormationCenter } from "../../domain/coursePlot";
 import { hyperspaceClearance } from "../../domain/hyperspace";
+import type { HyperspaceHistoryDraft } from "../../domain/hyperspaceHistory";
+import { observeMotionTracks, type MotionTrackMap } from "../../domain/hyperspacePrediction";
 import { useLatestRef } from "../../hooks/useLatestRef";
 import type { FleetScope } from "../fleet/FleetRoster";
 import type {
@@ -17,6 +19,7 @@ import type { EscapePlanDraft } from "./HyperspacePlanner";
 export interface HyperspacePlannerRequest {
   mode: "local" | "galactic";
   origin: { x?: number; y?: number; z?: number };
+  hyperspeed?: number;
   routeScope: Pick<
     HyperspaceRoutePayload,
     | "scope"
@@ -46,6 +49,38 @@ interface HyperspaceControllerOptions {
   observerWorldPosition: Vector3;
   movementOriginsForScope(scope: FleetScope | null): Vector3[];
   setAlert(message: string): void;
+  recordHyperspaceHistory(entry: HyperspaceHistoryDraft): boolean;
+}
+
+interface PendingHyperspaceObservation {
+  mode: "local";
+  distance: number;
+  hyperspeed: number;
+  calculatingAt: number;
+  readyAt?: number;
+  enteredHyperspaceAt?: number;
+  navigatorApplied: boolean;
+}
+
+function selectedRouteMemberNames(route: HyperspaceRoutePayload | null): string[] {
+  if (!route || route.scope !== "selected") return [];
+  if (route.memberNames?.length) return route.memberNames;
+  return route.memberName ? [route.memberName] : [];
+}
+
+function selectedRouteIncludesLocalShip(
+  route: HyperspaceRoutePayload | null,
+  localName: string,
+): boolean {
+  const wanted = localName.trim().toLowerCase();
+  return selectedRouteMemberNames(route).some((name) => name.trim().toLowerCase() === wanted);
+}
+
+function routeTargetsOnlyLocalShip(route: HyperspaceRoutePayload, localName: string): boolean {
+  if (!route.scope || route.scope === "local") return true;
+  const names = selectedRouteMemberNames(route);
+  const wanted = localName.trim().toLowerCase();
+  return names.length === 1 && names[0].trim().toLowerCase() === wanted;
 }
 
 export function useHyperspaceController({
@@ -63,27 +98,37 @@ export function useHyperspaceController({
   observerWorldPosition,
   movementOriginsForScope,
   setAlert,
+  recordHyperspaceHistory,
 }: HyperspaceControllerOptions) {
   const [planner, setPlanner] = useState<HyperspacePlannerRequest | null>(null);
   const [navigationRefreshBlocked, setNavigationRefreshBlocked] = useState(false);
   const [activeRoute, setActiveRoute] = useState<HyperspaceRoutePayload | null>(null);
   const [escapePlan, setEscapePlan] = useState<EscapePlanDraft | undefined>();
   const [escapePending, setEscapePending] = useState(false);
+  const [motionTracks, setMotionTracks] = useState<MotionTrackMap>(() => new Map());
   const escapeIntentIdsRef = useRef(new Set<string>());
   const navigationRefreshIntentIdsRef = useRef(new Set<string>());
   const escapeTriggeredRef = useRef(false);
   const arrivalRefreshAtRef = useRef<number | null>(null);
+  const announcedEstimatedReadyAtRef = useRef<number | null>(null);
+  const pendingObservationRef = useRef<PendingHyperspaceObservation | null>(null);
+  const historyCallbacksRef = useLatestRef({ recordHyperspaceHistory });
 
   const state = snapshot?.metadata?.hyperspace || { phase: "idle" as const };
-  const hyperdriveClearance = hyperspaceClearance(snapshot);
+  const battlegroupClearanceExemptions =
+    activeRoute?.formationKind === "battlegroup" && fleet?.active
+      ? fleet.members.map((member) => member.name)
+      : [];
+  const hyperdriveClearance = hyperspaceClearance(
+    snapshot,
+    undefined,
+    battlegroupClearanceExemptions,
+  );
+  const selectedRouteIncludesLocal = selectedRouteIncludesLocalShip(activeRoute, localName);
   const remoteBattlegroupRoute =
     activeRoute?.formationKind === "battlegroup" &&
     (activeRoute.scope === "wings" ||
-      (activeRoute.scope === "selected" &&
-        (activeRoute.memberNames?.some(
-          (name) => name.trim().toLowerCase() !== localName.trim().toLowerCase(),
-        ) ??
-          activeRoute.memberName?.trim().toLowerCase() !== localName.trim().toLowerCase())));
+      (activeRoute.scope === "selected" && !selectedRouteIncludesLocal));
   const routeClearance = remoteBattlegroupRoute
     ? {
         known: true,
@@ -117,6 +162,10 @@ export function useHyperspaceController({
     Object.keys(galaxyCatalog?.systems || {}).length +
     Object.keys(galaxyCatalog?.customSystems || {}).length;
 
+  useEffect(() => {
+    setMotionTracks((current) => observeMotionTracks(current, snapshot));
+  }, [snapshot]);
+
   const openPlanner = useCallback(
     (mode: "local" | "galactic") => {
       const routeScope: HyperspacePlannerRequest["routeScope"] = {
@@ -136,16 +185,31 @@ export function useHyperspaceController({
           routeScope.memberSlot = selectedFleetMembers[0].slot;
         }
       }
-      const relativeOrigin = formationCenter(
+      const initialOrigin = absoluteFormationCenter(
+        observerWorldPosition,
         movementOriginsForScope(fleetCommandMode ? fleetScope : "local"),
       );
+      const recipientMembers = !fleetCommandMode
+        ? []
+        : fleetScope === "selected"
+          ? selectedFleetMembers
+          : fleetScope === "wings"
+            ? (fleet?.members.filter((member) => !member.leader) ?? [])
+            : (fleet?.members ?? []);
+      const recipientHyperspeeds = recipientMembers
+        .map((member) => Number(member.hyperspeed))
+        .filter((value) => value > 0);
+      const hyperspeed = recipientHyperspeeds.length
+        ? Math.min(...recipientHyperspeeds)
+        : Number(snapshot?.observer?.hyperspeed) || undefined;
       setNavigationRefreshBlocked(false);
       setPlanner({
         mode,
+        hyperspeed,
         origin: {
-          x: (Number(observerWorldPosition[0]) || 0) + relativeOrigin[0],
-          y: (Number(observerWorldPosition[1]) || 0) + relativeOrigin[1],
-          z: (Number(observerWorldPosition[2]) || 0) + relativeOrigin[2],
+          x: initialOrigin[0],
+          y: initialOrigin[1],
+          z: initialOrigin[2],
         },
         routeScope,
       });
@@ -158,11 +222,44 @@ export function useHyperspaceController({
       movementOriginsForScope,
       observerWorldPosition,
       selectedFleetMembers,
+      snapshot?.observer?.hyperspeed,
     ],
   );
 
+  const livePlanner = useMemo(() => {
+    if (!planner) return null;
+    const origin = absoluteFormationCenter(
+      observerWorldPosition,
+      movementOriginsForScope(planner.routeScope.scope || "local"),
+    );
+    return {
+      ...planner,
+      origin: { x: origin[0], y: origin[1], z: origin[2] },
+    };
+  }, [movementOriginsForScope, observerWorldPosition, planner]);
+
   const plot = useCallback(
     async (route: HyperspaceRoutePayload, escape?: EscapePlanDraft) => {
+      const rating = Number(snapshot?.observer?.hyperspeed);
+      const destination = route.destination;
+      if (
+        route.mode === "local" &&
+        routeTargetsOnlyLocalShip(route, localName) &&
+        destination &&
+        rating > 0
+      ) {
+        pendingObservationRef.current = {
+          mode: "local",
+          distance: Math.hypot(
+            Number(destination.x) - observerWorldPosition[0],
+            Number(destination.y) - observerWorldPosition[1],
+            Number(destination.z) - observerWorldPosition[2],
+          ),
+          hyperspeed: rating,
+          calculatingAt: Date.now() / 1_000,
+          navigatorApplied: false,
+        };
+      } else pendingObservationRef.current = null;
       setActiveRoute(route);
       setEscapePlan(escape);
       setPlanner(null);
@@ -172,10 +269,11 @@ export function useHyperspaceController({
         route as unknown as Record<string, unknown>,
       );
       if (result?.accepted === false) {
+        pendingObservationRef.current = null;
         setAlert(`ROUTE REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
       }
     },
-    [setAlert],
+    [localName, observerWorldPosition, setAlert, snapshot?.observer?.hyperspeed],
   );
 
   const stop = useCallback(async () => {
@@ -187,12 +285,14 @@ export function useHyperspaceController({
       setAlert(`ABORT REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
       return;
     }
+    pendingObservationRef.current = null;
     setActiveRoute(null);
     setEscapePlan(undefined);
     escapeTriggeredRef.current = false;
   }, [activeRoute, setAlert]);
 
   const dismiss = useCallback(() => {
+    pendingObservationRef.current = null;
     setActiveRoute(null);
     setEscapePlan(undefined);
     escapeTriggeredRef.current = false;
@@ -235,6 +335,8 @@ export function useHyperspaceController({
     if (result?.accepted === false) {
       setEscapePending(false);
       setAlert(`HYPERSPACE CUTOFF REJECTED // ${String(result.reason || "UNKNOWN").toUpperCase()}`);
+    } else {
+      pendingObservationRef.current = null;
     }
   }, [setAlert]);
 
@@ -290,8 +392,63 @@ export function useHyperspaceController({
   ]);
 
   useEffect(() => {
+    if (pollingPaused || planner?.mode !== "local") return;
+    const refreshRadar = () => void window.holocron?.sendIntent("refresh_local_hyperspace_radar");
+    refreshRadar();
+    const timer = setInterval(refreshRadar, 4_000);
+    return () => clearInterval(timer);
+  }, [planner?.mode, pollingPaused]);
+
+  useEffect(() => {
     if (state.phase !== "hyperspace") setEscapePending(false);
   }, [state.phase]);
+
+  useEffect(() => {
+    if (state.phase === "calculating") announcedEstimatedReadyAtRef.current = null;
+    if (!activeRoute || state.phase !== "ready" || state.calculationEstimated !== true) return;
+    const readyAt = Number(state.estimatedReadyAt) || Number(state.observedAt) || 0;
+    if (announcedEstimatedReadyAtRef.current === readyAt) return;
+    announcedEstimatedReadyAtRef.current = readyAt;
+    setAlert(
+      `HYPERSPACE CALCULATION READY // ${(activeRoute.recipientLabel || "FORMATION").toUpperCase()} // ESTIMATED`,
+    );
+  }, [
+    activeRoute,
+    setAlert,
+    state.calculationEstimated,
+    state.estimatedReadyAt,
+    state.observedAt,
+    state.phase,
+  ]);
+
+  useEffect(() => {
+    const pending = pendingObservationRef.current;
+    if (!pending) return;
+    const observedAt = Number(state.observedAt) || Date.now() / 1_000;
+    if (state.navigatorApplied === true) pending.navigatorApplied = true;
+    if (state.phase === "ready" && pending.readyAt === undefined) pending.readyAt = observedAt;
+    if (state.phase === "hyperspace" && pending.enteredHyperspaceAt === undefined)
+      pending.enteredHyperspaceAt = observedAt;
+    if (state.phase !== "arrived") return;
+    const arrivedAt = Number(state.arrivedAt) || observedAt;
+    const flightSeconds = pending.enteredHyperspaceAt ? arrivedAt - pending.enteredHyperspaceAt : 0;
+    if (flightSeconds > 0) {
+      historyCallbacksRef.current.recordHyperspaceHistory({
+        completedAt: arrivedAt,
+        mode: pending.mode,
+        distance: pending.distance,
+        hyperspeed: pending.hyperspeed,
+        navigatorApplied: pending.navigatorApplied,
+        calculationSeconds:
+          pending.readyAt && pending.readyAt > pending.calculatingAt
+            ? pending.readyAt - pending.calculatingAt
+            : undefined,
+        flightSeconds,
+        source: "observed",
+      });
+    }
+    pendingObservationRef.current = null;
+  }, [historyCallbacksRef, state.arrivedAt, state.navigatorApplied, state.observedAt, state.phase]);
 
   useEffect(() => {
     if (state.phase !== "arrived") {
@@ -334,6 +491,7 @@ export function useHyperspaceController({
 
   useEffect(() => {
     if (connected) return;
+    pendingObservationRef.current = null;
     setPlanner(null);
     setActiveRoute(null);
     setEscapePlan(undefined);
@@ -371,13 +529,14 @@ export function useHyperspaceController({
 
   return {
     state,
-    planner,
+    planner: livePlanner,
     activeRoute,
     escapePlan,
     escapePending,
     routeClearance,
     navigationDestinations,
     currentGalaxyPosition,
+    motionTracks,
     openPlanner,
     closePlanner,
     plot,

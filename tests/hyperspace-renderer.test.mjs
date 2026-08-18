@@ -12,6 +12,20 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
     "utf8",
   );
   const planner = await readFile("renderer/src/features/hyperspace/HyperspacePlanner.tsx", "utf8");
+  const localPlanner = await readFile(
+    "renderer/src/features/hyperspace/LocalHyperspaceView.tsx",
+    "utf8",
+  );
+  const navigation = await readFile(
+    "renderer/src/features/commands/useNavigationController.ts",
+    "utf8",
+  );
+  const tacticalCanvas = await readFile(
+    "renderer/src/features/tactical/TacticalCanvas.tsx",
+    "utf8",
+  );
+  const tacticalEngine = await readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8");
+  const hyperspaceDomain = await readFile("renderer/src/domain/hyperspace.ts", "utf8");
   const computer = await readFile(
     "renderer/src/features/hyperspace/NavigationComputer.tsx",
     "utf8",
@@ -22,6 +36,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
 
   assert.match(controller, /plot_hyperspace/);
   assert.match(controller, /engage_hyperdrive/);
+  assert.match(controller, /HYPERSPACE CALCULATION READY/);
   assert.match(app, /openHyperspacePlanner/);
   assert.match(controller, /routeScope/);
   assert.match(app, /ROUTE APPLIES TO/);
@@ -39,7 +54,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(controller, /setActiveRoute\(null\)/);
   assert.match(app, /\["hyperspace", "reentry"\]\.includes/);
   assert.match(controller, /2_500/);
-  assert.match(planner, /-50_000/);
+  assert.match(hyperspaceDomain, /SECTOR_COORDINATE_LIMIT = 50_000/);
   assert.match(planner, /ARM ESCAPE PLAN/);
   assert.doesNotMatch(planner, /mode === "galactic" && <div className=\{styles\.escape\}/);
   assert.match(planner, /reachableEscapeSystems/);
@@ -51,10 +66,50 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(planner, /system === occupiedSystem/);
   assert.match(planner, /styles\.galaxyPosition/);
   assert.match(planner, /normalized|Math\.cos/);
-  assert.match(planner, /event\.shiftKey/);
-  assert.match(planner, /setPointerCapture/);
+  assert.doesNotMatch(planner, /localGrid/);
+  assert.match(planner, /LocalHyperspaceView/);
+  assert.match(localPlanner, /TacticalCanvas/);
+  assert.match(localPlanner, /FOLLOW TARGET/);
+  assert.match(localPlanner, /PLOT POINT \[M\]/);
+  assert.match(localPlanner, /beginMovementPlanning/);
+  assert.match(localPlanner, /coordinate \+ origin\[index\]/);
+  assert.match(localPlanner, /HOLD SHIFT FOR Y/);
+  assert.match(localPlanner, /route:destination/);
+  assert.match(localPlanner, /ZOOM TARGET/);
+  assert.match(localPlanner, /renderColor: \[1, 0\.72, 0\.08\]/);
+  assert.match(localPlanner, /hyperspaceDestinationMarkerSize/);
+  assert.match(localPlanner, /renderScaleWithZoom: true/);
+  assert.match(planner, /clampSectorCoordinate\(numeric\(event\.target\.value\)\)/);
+  assert.match(localPlanner, /point\.kind === "cluster"/);
+  assert.match(localPlanner, /PREDICT MOVING TARGET/);
+  assert.match(localPlanner, /NAVIGATOR \+30%/);
+  assert.match(localPlanner, /prediction:target/);
+  assert.match(planner, /const updateLocalDestination = useCallback/);
+  assert.match(planner, /planetTargetName=\{selectedPlanetName\}/);
+  assert.match(
+    localPlanner,
+    /if \(!planetTargetName\) return;[\s\S]*?setSelectedId\(null\)[\s\S]*?setPredictionEnabled\(false\)/,
+  );
+  assert.match(localPlanner, /prediction:observer/);
+  assert.match(controller, /observeMotionTracks/);
+  assert.match(controller, /planner: livePlanner/);
+  assert.match(controller, /movementOriginsForScope\(planner\.routeScope\.scope \|\| "local"\)/);
+  assert.match(controller, /refresh_local_hyperspace_radar/);
+  assert.match(controller, /setInterval\(refreshRadar, 4_000\)/);
+  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen\}/);
+  assert.match(navigation, /!current\.keyboardEnabled/);
+  assert.match(tacticalCanvas, /setKeyboardEnabled\(keyboardEnabled\)/);
+  assert.match(tacticalCanvas, /focusPoint: \(targetId\)/);
+  assert.match(tacticalEngine, /focusPoint\(targetId: string\)/);
+  assert.match(tacticalEngine, /Math\.sqrt\(this\.camera\.distance \/ distance\)/);
+  assert.match(tacticalEngine, /if \(!this\.keyboardEnabled\) return/);
+  assert.match(scraper, /registerIntentHandler\("refresh_local_hyperspace_radar"/);
+  assert.match(scraper, /REMOTE_LOCAL_HYPERSPACE_CALC_SECONDS = 2/);
+  assert.match(scraper, /scheduleHyperspaceCalculationEstimate/);
+  assert.match(scraper, /Checking hyperspace course integrity/);
   assert.match(computer, /INSUFFICIENT FUEL/);
   assert.match(computer, /ENGAGE ANYWAY/);
+  assert.match(computer, /ESTIMATED CALCULATION WINDOW COMPLETE/);
   assert.match(computer, /VERIFYING.*CLEARANCE/);
   assert.match(computer, /HYPERSPACE BLOCKED/);
   assert.match(computer, /disabled=\{!clearance\.allowed\}/);
@@ -75,12 +130,17 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /another telemetry refresh is active/);
   assert.match(scraper, /must be at a nav computer/);
   assert.match(controller, /navigationRefreshBlocked/);
+  assert.match(controller, /battlegroupClearanceExemptions/);
+  assert.match(controller, /fleet\.members\.map\(\(member\) => member\.name\)/);
   assert.match(scraper, /capture\.followupRadar/);
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);
   assert.match(scraper, /checkHyperspaceClearance/);
   assert.match(scraper, /scopedHyperspaceCommands/);
-  assert.match(scraper, /battlegroup nav " \.\. selector \.\. " " \.\. localCommand/);
+  assert.match(
+    scraper,
+    /recipient\.localShip[\s\S]*?table\.insert\(commands, localCommand\)[\s\S]*?battlegroup nav " \.\. recipient\.selector/,
+  );
   assert.match(scraper, /routeIncludesLocalShip/);
   assert.match(scraper, /MIN_HYPERSPACE_CLEARANCE = 500/);
   assert.match(await readFile("mudlet/lotj_holocron_parsers.lua", "utf8"), /\[%dsmh%s\]\+/);

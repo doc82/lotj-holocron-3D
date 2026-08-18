@@ -61,6 +61,11 @@ export function NavigationComputer({
             <b>{state.remainingSeconds}s REMAINING</b>
           </div>
         )}
+        {phase === "ready" && state.calculationEstimated === true && (
+          <div className={styles.estimate}>
+            ESTIMATED CALCULATION WINDOW COMPLETE // HYPERDRIVE COMMAND AVAILABLE
+          </div>
+        )}
         {(state.fuelRequired || state.fuelPercent !== undefined) && (
           <dl>
             <div>

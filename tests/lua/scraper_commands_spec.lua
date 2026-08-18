@@ -35,6 +35,21 @@ h.after_each(function()
 end)
 
 describe("scraper renderer commands", function()
+  it("refreshes local hyperspace radar without using the startup space probe", function()
+    local ok, failure = fixture.intentHandlers.refresh_local_hyperspace_radar(
+      {},
+      { id = "local-hyperspace-radar" }
+    )
+    assert(ok, failure)
+    equal(fixture:lastCommand().command, "radar")
+    equal(fixture.scraper.active.spaceProbe, false)
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("YT-1300 'Wayfarer' 625 0 0")
+    fixture.scraper.captureLine("Your Coordinates: 0 0 0")
+    assert(fixture.scraper.finishCapture("fixture"))
+    equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
+  end)
+
   it("validates and sends relative navigation vectors", function()
     local ok, failure = fixture.intentHandlers.navigate_ship({
       mode = "relative",

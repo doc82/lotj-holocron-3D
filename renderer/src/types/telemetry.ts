@@ -63,6 +63,9 @@ export interface TelemetryEntity {
   shipCategory?: string;
   condition?: string;
   heading?: { x?: number; y?: number; z?: number };
+  renderColor?: Color3;
+  renderPointSize?: number;
+  renderScaleWithZoom?: boolean;
   statusCard?: ShipTelemetryCard;
   infoCard?: ShipTelemetryCard;
   [key: string]: unknown;
@@ -72,6 +75,7 @@ export interface Observer extends TelemetryEntity {
   coordinates?: { x?: number; y?: number; z?: number };
   sensorArray?: number;
   radarRange?: number;
+  hyperspeed?: number;
   autotrack?: boolean;
   autopilot?: boolean;
   hasWeapons?: boolean;
@@ -235,6 +239,10 @@ export interface HyperspaceState {
   fuelPercent?: number;
   insufficientFuel?: boolean;
   autoAborted?: boolean;
+  navigatorApplied?: boolean;
+  observedAt?: number;
+  calculationEstimated?: boolean;
+  estimatedReadyAt?: number;
   escapeRequestedAt?: number;
   error?: string;
   arrivedAt?: number;

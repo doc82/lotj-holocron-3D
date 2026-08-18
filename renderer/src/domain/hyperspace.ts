@@ -2,6 +2,20 @@ import type { SystemSnapshot } from "../types/telemetry";
 
 export const MIN_HYPERSPACE_CLEARANCE = 500;
 export const HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS = 15;
+export const SECTOR_COORDINATE_LIMIT = 50_000;
+
+export function clampSectorCoordinate(value: number): number {
+  const finiteValue = Number.isFinite(Number(value)) ? Number(value) : 0;
+  return Math.max(
+    -SECTOR_COORDINATE_LIMIT,
+    Math.min(SECTOR_COORDINATE_LIMIT, Math.round(finiteValue)),
+  );
+}
+
+export function hyperspaceDestinationMarkerSize(distance: number): number {
+  const safeDistance = Math.max(0, Number.isFinite(distance) ? distance : 0);
+  return Math.round(Math.min(56, 26 + Math.sqrt(safeDistance / 1_000) * 3));
+}
 
 export interface HyperspaceClearance {
   known: boolean;
@@ -29,6 +43,7 @@ export function galacticDistance(left: GalaxyCoordinate, right: GalaxyCoordinate
 export function hyperspaceClearance(
   snapshot: SystemSnapshot | null,
   nowSeconds = Date.now() / 1000,
+  exemptShipNames: Iterable<string> = [],
 ): HyperspaceClearance {
   const observer = snapshot?.observer;
   const ox = Number(observer?.x);
@@ -46,9 +61,21 @@ export function hyperspaceClearance(
 
   let nearestDistance = Number.POSITIVE_INFINITY;
   let nearestName: string | undefined;
+  const exemptNames = new Set(
+    [...exemptShipNames].map((name) => String(name).trim().toLowerCase()).filter(Boolean),
+  );
   for (const entity of snapshot?.entities || []) {
     if (!["ship", "planet", "celestial", "star"].includes(String(entity.kind || ""))) continue;
     if (entity.id === "player-ship") continue;
+    if (
+      entity.kind === "ship" &&
+      exemptNames.has(
+        String(entity.name || "")
+          .trim()
+          .toLowerCase(),
+      )
+    )
+      continue;
     const x = Number(entity.x);
     const y = Number(entity.y);
     const z = Number(entity.z);

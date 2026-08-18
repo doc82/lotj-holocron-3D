@@ -62,6 +62,16 @@ export function formationCenter(positions: Vector3[]): Vector3 {
   return minimum.map((value, index) => (value + maximum[index]) / 2) as Vector3;
 }
 
+export function absoluteFormationCenter(
+  observerWorldPosition: Vector3,
+  relativeOrigins: Vector3[],
+): Vector3 {
+  const relativeCenter = formationCenter(relativeOrigins);
+  return observerWorldPosition.map(
+    (coordinate, index) => coordinate + relativeCenter[index],
+  ) as Vector3;
+}
+
 export function formationDestination(origins: Vector3[], vector: Vector3): Vector3 {
   return formationCenter(origins).map((value, index) => value + vector[index]) as Vector3;
 }

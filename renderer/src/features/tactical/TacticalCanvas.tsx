@@ -26,6 +26,7 @@ export interface TacticalCanvasHandle {
   sectorView(): void;
   resetOrientation(): void;
   setCameraMode(mode: TacticalCameraMode, targetId?: string): void;
+  focusPoint(targetId: string): void;
   beginMovementPlanning(vector: Vector3, interactive: boolean, origins?: Vector3[]): void;
   finishMovementPlanning(): void;
   setMovementActive(active: boolean, vector?: Vector3, interactive?: boolean): void;
@@ -37,6 +38,7 @@ interface TacticalCanvasProps {
   observerLabel?: string;
   radarBubbleEnabled: boolean;
   originGridEnabled: boolean;
+  keyboardEnabled?: boolean;
   combatEvents?: CombatEvent[];
   jumpEvents?: ShipJumpEvent[];
   destructionEvents?: ShipDestructionEvent[];
@@ -55,6 +57,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
       observerLabel = "YOUR SHIP",
       radarBubbleEnabled,
       originGridEnabled,
+      keyboardEnabled = true,
       combatEvents,
       jumpEvents,
       destructionEvents,
@@ -116,6 +119,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     }, [originGridEnabled]);
 
     useEffect(() => {
+      engineRef.current?.setKeyboardEnabled(keyboardEnabled);
+    }, [keyboardEnabled]);
+
+    useEffect(() => {
       engineRef.current?.setSelectedId(selectedId);
     }, [selectedId]);
 
@@ -138,6 +145,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
         sectorView: () => engineRef.current?.sectorView(),
         resetOrientation: () => engineRef.current?.resetOrientation(),
         setCameraMode: (mode, targetId) => engineRef.current?.setCameraMode(mode, targetId),
+        focusPoint: (targetId) => engineRef.current?.focusPoint(targetId),
         beginMovementPlanning: (vector, interactive, origins) =>
           engineRef.current?.beginMovementPlanning(vector, interactive, origins),
         finishMovementPlanning: () => engineRef.current?.finishMovementPlanning(),

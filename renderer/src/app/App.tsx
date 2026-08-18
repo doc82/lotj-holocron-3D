@@ -27,6 +27,8 @@ import { HyperspacePlanner } from "../features/hyperspace/HyperspacePlanner";
 import { HyperspaceTransit } from "../features/hyperspace/HyperspaceTransit";
 import { NavigationComputer } from "../features/hyperspace/NavigationComputer";
 import { useHyperspaceController } from "../features/hyperspace/useHyperspaceController";
+import { ManagementMenu } from "../features/management/ManagementMenu";
+import { useHyperspaceHistory } from "../features/management/useHyperspaceHistory";
 import { usePollingController } from "../features/polling/usePollingController";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
@@ -61,6 +63,8 @@ export function App() {
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
   const [commandLocked, setCommandLocked] = useState(false);
+  const [managementOpen, setManagementOpen] = useState(false);
+  const hyperspaceHistory = useHyperspaceHistory();
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const {
@@ -292,10 +296,38 @@ export function App() {
     [fleet, flattenedScenePoints, observer, selectedFleetMembers],
   );
 
+  const viewpointGalaxy = viewpointMember?.galaxy;
+  const hyperspace = useHyperspaceController({
+    connected: telemetry.connected,
+    pollingPaused,
+    snapshot: telemetry.snapshot,
+    galaxyCatalog: telemetry.galaxyCatalog,
+    fleet,
+    fleetCommandMode,
+    fleetScope,
+    selectedFleetMembers,
+    commandIssuerLabel,
+    localName,
+    viewpointGalaxy,
+    observerWorldPosition: observer.worldPosition,
+    movementOriginsForScope,
+    setAlert: setCommandAlert,
+    recordHyperspaceHistory: hyperspaceHistory.add,
+  });
+  const hyperspaceState = hyperspace.state;
+  const hyperspacePlanner = hyperspace.planner;
+  const activeRoute = hyperspace.activeRoute;
+  const escapePlan = hyperspace.escapePlan;
+  const hyperspaceEscapePending = hyperspace.escapePending;
+  const routeClearance = hyperspace.routeClearance;
+  const navigationDestinations = hyperspace.navigationDestinations;
+  const currentGalaxyPosition = hyperspace.currentGalaxyPosition;
+
   const navigation = useNavigationController({
     connected: telemetry.connected,
     landed,
     pollingPaused,
+    keyboardEnabled: !hyperspacePlanner && !managementOpen,
     commandLocked,
     setCommandLocked,
     setAlert: setCommandAlert,
@@ -384,32 +416,6 @@ export function App() {
     restoreTarget,
     markShipEnemy,
   });
-  const viewpointGalaxy = viewpointMember?.galaxy;
-  const hyperspace = useHyperspaceController({
-    connected: telemetry.connected,
-    pollingPaused,
-    snapshot: telemetry.snapshot,
-    galaxyCatalog: telemetry.galaxyCatalog,
-    fleet,
-    fleetCommandMode,
-    fleetScope,
-    selectedFleetMembers,
-    commandIssuerLabel,
-    localName,
-    viewpointGalaxy,
-    observerWorldPosition: observer.worldPosition,
-    movementOriginsForScope,
-    setAlert: setCommandAlert,
-  });
-  const hyperspaceState = hyperspace.state;
-  const hyperspacePlanner = hyperspace.planner;
-  const activeRoute = hyperspace.activeRoute;
-  const escapePlan = hyperspace.escapePlan;
-  const hyperspaceEscapePending = hyperspace.escapePending;
-  const routeClearance = hyperspace.routeClearance;
-  const navigationDestinations = hyperspace.navigationDestinations;
-  const currentGalaxyPosition = hyperspace.currentGalaxyPosition;
-
   const selectCommandScope = tacticalInteractions.selectCommandScope;
   const toggleFleetMember = fleetSelection.toggleMember;
   const selectAllFleetMembers = fleetSelection.selectAll;
@@ -429,6 +435,42 @@ export function App() {
   const openShipDossier = dossier.open;
   const changeDossierMode = dossier.changeMode;
 
+  useEffect(() => {
+    const handleManagementKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (managementOpen) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setManagementOpen(false);
+        return;
+      }
+      if (
+        starting ||
+        hyperspacePlanner ||
+        activeRoute ||
+        navigationMode !== "idle" ||
+        shipDossier ||
+        scopeDrawerOpen ||
+        targetDrawerOpen
+      )
+        return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setManagementOpen(true);
+    };
+    window.addEventListener("keydown", handleManagementKey, true);
+    return () => window.removeEventListener("keydown", handleManagementKey, true);
+  }, [
+    activeRoute,
+    hyperspacePlanner,
+    managementOpen,
+    navigationMode,
+    scopeDrawerOpen,
+    shipDossier,
+    starting,
+    targetDrawerOpen,
+  ]);
+
   const targetSelectedShip = shipCommands.targetSelectedShip;
   const toggleAutotrack = shipCommands.toggleAutotrack;
   const fireWeapon = shipCommands.fireWeapon;
@@ -436,6 +478,16 @@ export function App() {
   const sendFleetOrder = shipCommands.sendFleetOrder;
   const rechargeShields = shipCommands.rechargeShields;
   const toggleAutoRecharge = shipCommands.toggleAutoRecharge;
+
+  const managementMenu = managementOpen ? (
+    <ManagementMenu
+      entries={hyperspaceHistory.entries}
+      onAdd={hyperspaceHistory.add}
+      onRemove={hyperspaceHistory.remove}
+      onClear={hyperspaceHistory.clear}
+      onClose={() => setManagementOpen(false)}
+    />
+  ) : null;
 
   if (!spaceTelemetryActive)
     return (
@@ -447,6 +499,7 @@ export function App() {
             paused={telemetry.connected && landed}
             reason={telemetry.spaceState?.reason}
           />
+          {managementMenu}
         </main>
       </>
     );
@@ -468,6 +521,7 @@ export function App() {
           observerLabel={viewpointMemberKey ? "REMOTE VIEW" : "YOUR SHIP"}
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
+          keyboardEnabled={!hyperspacePlanner && !managementOpen}
           combatEvents={viewpointMemberKey ? [] : combatEvents}
           jumpEvents={viewpointMemberKey ? [] : telemetry.snapshot?.metadata?.shipJumpEvents}
           destructionEvents={telemetry.snapshot?.metadata?.shipDestructionEvents}
@@ -479,6 +533,8 @@ export function App() {
           onCameraModeChange={setCameraMode}
         />
         <div className={styles.scanlines} aria-hidden="true" />
+
+        {managementMenu}
 
         {pollingPaused && (
           <PollingPausedOverlay
@@ -573,6 +629,9 @@ export function App() {
             currentSystem={scene.system}
             currentGalaxy={currentGalaxyPosition}
             observer={hyperspacePlanner.origin}
+            snapshot={classifiedSnapshot}
+            hyperspeed={hyperspacePlanner.hyperspeed}
+            motionTracks={hyperspace.motionTracks}
             destinations={navigationDestinations}
             onCancel={hyperspace.closePlanner}
             onPlot={(route, escape) => {
@@ -611,7 +670,7 @@ export function App() {
             }
             vector={courseVector}
             status={navigationStatus}
-            observerStopped={observerSpeed === 0}
+            departureSpeedRequired={Boolean(navigation.fleetScope) || observerSpeed === 0}
             speed={requestedSpeed}
             maximumSpeed={maximumSpeed}
             commandLocked={commandLocked}

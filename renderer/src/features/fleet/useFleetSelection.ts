@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fleetMemberSelectionKey,
   fleetMembersMatchingSelection,
-  toggleFleetMemberSelection,
+  selectFleetCommandMember,
 } from "../../domain/fleet";
 import type { FleetMember, FleetStatus } from "../../types/telemetry";
 import type { FleetScope } from "./FleetRoster";
@@ -66,17 +66,16 @@ export function useFleetSelection(fleet?: FleetStatus) {
 
   const toggleMember = useCallback(
     (member: FleetMember) => {
-      const next = toggleFleetMemberSelection(selectedMemberKeys, member);
-      setSelectedMemberKeys(next);
-      setScope(
-        fleet &&
-          fleet.members.length > 0 &&
-          fleet.members.every((candidate) => next.has(fleetMemberSelectionKey(candidate)))
-          ? "all"
-          : "selected",
+      const next = selectFleetCommandMember(
+        fleet?.members ?? [],
+        selectedMemberKeys,
+        member,
+        scope,
       );
+      setSelectedMemberKeys(next.selectionKeys);
+      setScope(next.scope);
     },
-    [fleet, selectedMemberKeys],
+    [fleet, scope, selectedMemberKeys],
   );
 
   const selectAll = useCallback(() => {

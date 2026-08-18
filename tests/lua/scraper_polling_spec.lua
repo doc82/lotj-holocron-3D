@@ -18,8 +18,61 @@ local function beginPolling(options)
   return fixture.scraper.getPollingState().timerId
 end
 
+local function finishInitializationCapture(command)
+  if command == "radar" then
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Your Coordinates: 0 0 0")
+  elseif command == "fleetradar" then
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Imperial-II Class Star Destroyer 'TeeHee1' | | (Ctr) 0 0 0")
+  elseif command == "battlegroup" then
+    fixture.scraper.captureLine(
+      "[ L ] Battleship :Imperial-II Class Star Destroyer 'TeeHee1' -<Pos:Central>-"
+    )
+    fixture.scraper.captureLine(
+      " Energy: 100%|Hull: 100%|Shields: 100%|Crew: 001|System: Corellian System 2/19"
+    )
+  elseif command == "squadron status" then
+    fixture.scraper.captureLine("Lead: TIE/S Striker 'Wrecker01'")
+    fixture.scraper.captureLine(" Energy: 97% Shield: 100% Hull: 100% Location: Corellian System")
+  else
+    error("unsupported initialization command: " .. tostring(command))
+  end
+  assert(fixture.scraper.finishCapture("prompt"))
+end
+
+local function expectImmediateInitializationSweep()
+  for _, expected in ipairs({ "radar", "fleetradar", "battlegroup", "squadron status" }) do
+    local timerId = fixture.scraper.getPollingState().timerId
+    assert(timerId and fixture.timers[timerId])
+    equal(fixture.timers[timerId].seconds, 0)
+    fixture:tick(timerId)
+    equal(fixture:lastCommand().command, expected)
+    finishInitializationCapture(expected)
+  end
+  equal(fixture.scraper.state.metadata.initializationPending, false)
+end
+
 describe("scraper polling scheduler", function()
-  it("prioritizes a full radar refresh when a ship exits hyperspace into the sector", function()
+  it("runs an immediate state-discovery sweep when Holocron boots", function()
+    fixture:close()
+    fixture = Fixture.new({ polling = true })
+    expectImmediateInitializationSweep()
+  end)
+
+  it("runs an immediate state-discovery sweep after planetary launch", function()
+    fixture.scraper.setInSpace(false, "landed fixture")
+    beginPolling()
+    assert(
+      fixture:trigger(
+        "The ship leaves the platform far behind as it flies into space",
+        "The ship leaves the platform far behind as it flies into space"
+      )
+    )
+    expectImmediateInitializationSweep()
+  end)
+
+  it("immediately refreshes radar and fleet radar when a ship exits hyperspace", function()
     beginPolling()
     assert(
       fixture.scraper.handleSectorArrival(
@@ -36,6 +89,45 @@ describe("scraper polling scheduler", function()
     fixture.scraper.captureLine("Your Coordinates: 0 0 0")
     assert(fixture.scraper.finishCapture("prompt"))
     equal(fixture.scraper.getPollingState().radarRefreshPending, false)
+    equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, true)
+
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(fixture:lastCommand().command, "fleetradar")
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Victory-II Class Star Destroyer 'TeeHee3' | | (Out) 6145 500 -661")
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, false)
+  end)
+
+  it("bypasses automatic command cooldowns for the hyperspace exit refresh", function()
+    beginPolling()
+    fixture.scraper.polling.lastAutomaticCommandAt.radar = os.time()
+    fixture.scraper.polling.lastAutomaticCommandAt.fleetradar = os.time()
+    assert(
+      fixture.scraper.handleSectorArrival(
+        "Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at 6145"
+      )
+    )
+
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(fixture:lastCommand().command, "radar")
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Your Coordinates: 0 0 0")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(fixture:lastCommand().command, "fleetradar")
+  end)
+
+  it("queues the same refresh when the observer completes a hyperjump", function()
+    beginPolling()
+    fixture.scraper.hyperspace.phase = "reentry"
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
+    equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, true)
+
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(fixture:lastCommand().command, "radar")
   end)
 
   it("does not let a radar started before the arrival satisfy the refresh", function()

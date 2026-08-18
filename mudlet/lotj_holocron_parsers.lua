@@ -530,7 +530,7 @@ local INFO_CARD_FIELDS = {
     { source = "Max Shields", label = "Maximum Shields", kind = "count" },
     { source = "Max Energy(fuel)", label = "Maximum Energy (fuel)", kind = "count" },
     { source = "Maximum Speed", label = "Maximum Speed", kind = "count", result = "maximumSpeed" },
-    { source = "Hyperspeed", label = "Hyperspeed", kind = "count" },
+    { source = "Hyperspeed", label = "Hyperspeed", kind = "count", result = "hyperspeed" },
     { source = "Maneuver", label = "Maneuver", kind = "count" },
     { source = "Sensor Array", label = "Sensor Array", kind = "count", result = "sensorArray" },
     { source = "Shield Boosters", label = "Shield Boosters", kind = "count" },

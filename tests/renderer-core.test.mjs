@@ -18,6 +18,7 @@ import {
   scenesHaveMotion,
 } from "../renderer/src/domain/scene.ts";
 import {
+  absoluteFormationCenter,
   elevationFromPointer,
   elevationFromWheel,
   formationCenter,
@@ -28,7 +29,9 @@ import {
   canCommandFormation,
   fleetMemberSelectionKey,
   fleetMembersMatchingSelection,
+  isLocalFleetMember,
   localFormationRole,
+  selectFleetCommandMember,
   toggleFleetMemberSelection,
 } from "../renderer/src/domain/fleet.ts";
 import {
@@ -77,6 +80,85 @@ test("fleet selection treats ships with colliding transport ids as separate card
   assert.equal(next.size, 2, "one card click should deselect exactly one ship");
 });
 
+test("fleet roster identity recognizes the observer without relying on transport ids", () => {
+  assert.equal(isLocalFleetMember({ name: "  HeeHee  " }, "heehee"), true);
+  assert.equal(isLocalFleetMember({ name: "Wing One" }, "HeeHee"), false);
+  assert.equal(isLocalFleetMember({ name: "HeeHee" }, undefined), false);
+});
+
+test("clicking a remote ship from all deselects only that ship", () => {
+  const members = [
+    { id: "observer", name: "HeeHee", leader: true },
+    { id: "wing-one", name: "Wing One", slot: 1 },
+    { id: "wing-two", name: "Wing Two", slot: 2 },
+  ];
+  const allSelected = new Set(members.map(fleetMemberSelectionKey));
+
+  const selected = selectFleetCommandMember(members, allSelected, members[2], "all");
+  assert.equal(selected.scope, "selected");
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, selected.selectionKeys).map((member) => member.name),
+    ["HeeHee", "Wing One"],
+    "a roster click from all must preserve every other selected ship",
+  );
+
+  const multiSelected = selectFleetCommandMember(
+    members,
+    selected.selectionKeys,
+    members[1],
+    "selected",
+  );
+  assert.equal(multiSelected.scope, "selected");
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, multiSelected.selectionKeys).map(
+      (member) => member.name,
+    ),
+    ["HeeHee"],
+    "another roster click must toggle only that ship",
+  );
+});
+
+test("the observer toggles independently through a two-ship fleet selection", () => {
+  const members = [
+    { id: "observer", name: "HeeHee", leader: true },
+    { id: "wing-one", name: "Wing One", slot: 1 },
+  ];
+  const allSelected = new Set(members.map(fleetMemberSelectionKey));
+
+  const observerOnly = selectFleetCommandMember(members, allSelected, members[1], "all");
+  assert.equal(observerOnly.scope, "selected");
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, observerOnly.selectionKeys).map((member) => member.name),
+    ["HeeHee"],
+  );
+
+  const all = selectFleetCommandMember(members, observerOnly.selectionKeys, members[1], "selected");
+  assert.equal(all.scope, "all");
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, all.selectionKeys).map((member) => member.name),
+    ["HeeHee", "Wing One"],
+  );
+
+  const wingOnly = selectFleetCommandMember(members, all.selectionKeys, members[0], "all");
+  assert.equal(wingOnly.scope, "selected");
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, wingOnly.selectionKeys).map((member) => member.name),
+    ["Wing One"],
+  );
+
+  const restored = selectFleetCommandMember(
+    members,
+    wingOnly.selectionKeys,
+    members[0],
+    "selected",
+  );
+  assert.equal(restored.scope, "all");
+  assert.deepEqual(
+    fleetMembersMatchingSelection(members, restored.selectionKeys).map((member) => member.name),
+    ["HeeHee", "Wing One"],
+  );
+});
+
 test("target dismissals survive transient polling gaps and reset after confirmed absence", () => {
   const dismissed = new Set(["isd45"]);
   const firstGap = reconcileDismissedTargetNames(dismissed, new Map(), []);
@@ -109,6 +191,7 @@ test("formation movement lines share one destination", () => {
   assert.deepEqual(formationCenter(origins), [-20, -5, 30]);
   assert.deepEqual(formationDestination(origins, [100, 25, -50]), [80, 20, -20]);
   assert.deepEqual(formationDestination([[15, 5, -10]], [100, 25, -50]), [115, 30, -60]);
+  assert.deepEqual(absoluteFormationCenter([1_000, 2_000, 3_000], origins), [980, 1_995, 3_030]);
 });
 
 test("remote scan range always includes the 500-unit base", () => {

@@ -187,6 +187,7 @@ Cloaking Device: Not Installed
       "The Victory-class Star Destroyer, also known simply as the Victory-class Destroyer, is a direct predecessor to the feared Imperial-class Star Destroyers of the Galactic Empire. At just under a kilometre in length, the ship is ideal for deep space combat."
     )
     equal(result.maximumSpeed, 55)
+    equal(result.hyperspeed, 70)
     equal(result.sensorArray, 50)
     equal(result.weapons.turbolasers, 27)
     equal(result.weapons.maximumTorpedoes, 80)

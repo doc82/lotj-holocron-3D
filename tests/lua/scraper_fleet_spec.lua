@@ -420,6 +420,94 @@ Hull: 712/1000 Shields: 400/500
     equal(fixture.commands[before + 2].command, "battlegroup nav MeeHee speed 420")
   end)
 
+  it("keeps the observer included in whole-fleet battlegroup orders", function()
+    battlegroup()
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "speed",
+      scope = "all",
+      speed = 0,
+    }, { id = "all-ships-stop" })
+    assert(ok, failure)
+    equal(#fixture.commands, before + 1)
+    equal(fixture.commands[before + 1].command, "battlegroup nav all speed 0")
+  end)
+
+  it("uses native commands when the observer is the only selected fleet ship", function()
+    battlegroup()
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "speed",
+      scope = "selected",
+      speed = 420,
+      memberIds = { "teehee" },
+      memberNames = { "TeeHee" },
+    }, { id = "selected-observer-speed" })
+    assert(ok, failure)
+    equal(#fixture.commands, before + 1)
+    equal(fixture.commands[before + 1].command, "speed 420")
+  end)
+
+  it("splits mixed selections into native and remote battlegroup commands", function()
+    local fleet = battlegroup()
+    table.insert(fleet.members, {
+      id = "meehee",
+      name = "MeeHee",
+      leader = false,
+      role = "wing",
+      slot = 2,
+    })
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "speed",
+      scope = "selected",
+      speed = 420,
+      memberIds = { "teehee", "reeheehee" },
+      memberNames = { "TeeHee", "ReeHeeHee" },
+    }, { id = "mixed-selected-speed" })
+    assert(ok, failure)
+    equal(#fixture.commands, before + 2)
+    equal(fixture.commands[before + 1].command, "speed 420")
+    equal(fixture.commands[before + 2].command, "battlegroup nav ReeHeeHee speed 420")
+  end)
+
+  it("uses native course commands for an observer-only fleet selection", function()
+    battlegroup()
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "navigate",
+      scope = "selected",
+      mode = "relative",
+      vector = { x = 100, y = 25, z = -50 },
+      departureSpeed = 500,
+      memberIds = { "teehee" },
+      memberNames = { "TeeHee" },
+    }, { id = "selected-observer-course" })
+    assert(ok, failure)
+    equal(fixture.commands[before + 1].command, "speed 500")
+    equal(fixture.commands[before + 2].command, "course relative 100 25 -50")
+  end)
+
+  it("targets and clears natively for an observer-only fleet selection", function()
+    battlegroup()
+    local before = #fixture.commands
+    local targeted, targetFailure = fixture.intentHandlers.fleet_order({
+      order = "target",
+      scope = "selected",
+      memberIds = { "teehee" },
+      memberNames = { "TeeHee" },
+      targetId = "wayfarer",
+    })
+    assert(targeted, targetFailure)
+    equal(fixture.commands[before + 1].command, "target Wayfarer")
+
+    local cleared, clearFailure = fixture.intentHandlers.clear_combat_target({
+      targetKeys = { "selected:teehee" },
+    })
+    assert(cleared, clearFailure)
+    equal(fixture.commands[before + 2].command, "target none")
+  end)
+
   it("targets and clears only the named ship when transport ids collide", function()
     local fleet = battlegroup()
     fleet.members[1].id = "shared-id"
@@ -462,6 +550,27 @@ Hull: 712/1000 Shields: 400/500
     equal(order.results.ReeHeeHee.status, "accepted")
     equal(order.pendingCount, 0)
     equal(fixture.scraper.state.metadata.fleet.members[2].speed, 250)
+  end)
+
+  it("sets a selected ship's speed before issuing its course change", function()
+    battlegroup()
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "navigate",
+      scope = "selected",
+      mode = "relative",
+      vector = { x = 100, y = 25, z = -50 },
+      departureSpeed = 500,
+      memberIds = { "reeheehee" },
+      memberNames = { "ReeHeeHee" },
+      memberSlots = { 1 },
+    }, { id = "selected-course-with-speed" })
+    assert(ok, failure)
+    equal(fixture.commands[before + 1].command, "battlegroup nav ReeHeeHee speed 500")
+    equal(
+      fixture.commands[before + 2].command,
+      "battlegroup nav ReeHeeHee course relative 100 25 -50"
+    )
   end)
 
   it("records a squadron target as both squadron and lead-ship target", function()
@@ -604,6 +713,51 @@ Hull: 712/1000 Shields: 400/500
     equal(events[#events].shipName, "ReeHeeHee")
   end)
 
+  it("estimates remote local calculations when the wing emits no completion line", function()
+    battlegroup()
+    local route = {
+      mode = "local",
+      scope = "selected",
+      formationKind = "battlegroup",
+      destination = { x = 1200, y = -50, z = 800 },
+      recipientLabel = "REEHEEHEE",
+      memberIds = { "reeheehee" },
+      memberNames = { "ReeHeeHee" },
+      memberSlots = { 1 },
+    }
+    local plotted, plotFailure =
+      fixture.intentHandlers.plot_hyperspace(route, { id = "estimated-wing-route" })
+    assert(plotted, plotFailure)
+    assert(
+      fixture.scraper.handleHyperspaceLine("Hyperspace course locked. Running final jump checks...")
+    )
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "Jump requires 3 units of fuel. It will consume 0% of the remaining fuel."
+      )
+    )
+    assert(
+      fixture.scraper.handleHyperspaceLine("Checking hyperspace course integrity. Please wait.")
+    )
+    local timerId = fixture.scraper.hyperspace.statusTimerId
+    assert(timerId and fixture.timers[timerId])
+    equal(fixture.timers[timerId].seconds, 2)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "calculating")
+    equal(fixture.scraper.state.metadata.hyperspace.calculationEstimated, true)
+    equal(fixture.scraper.state.metadata.hyperspace.remainingSeconds, 2)
+
+    fixture:tick(timerId)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "ready")
+    equal(fixture.scraper.state.metadata.hyperspace.remainingSeconds, 0)
+    equal(fixture.intentAcks[#fixture.intentAcks].id, "estimated-wing-route")
+    equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
+
+    local engaged, engageFailure =
+      fixture.intentHandlers.engage_hyperdrive(route, { id = "estimated-wing-engage" })
+    assert(engaged, engageFailure)
+    equal(fixture:lastCommand().command, "battlegroup nav 1 hyper")
+  end)
+
   it("routes a whole battlegroup through the all selector", function()
     battlegroup()
     local route = {
@@ -619,6 +773,43 @@ Hull: 712/1000 Shields: 400/500
     equal(fixture:lastCommand().command, "battlegroup nav all calculate '12 -8' 100 200 -300")
     equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
     equal(fixture.scraper.state.metadata.hyperspace.route.recipientLabel, "FLEET")
+  end)
+
+  it("allows a whole battlegroup to jump while its ships are within 500 units", function()
+    battlegroup()
+    fixture:entity("Wayfarer").x = 600
+    table.insert(fixture.scraper.state.entities, {
+      id = "reeheehee",
+      name = "ReeHeeHee",
+      kind = "ship",
+      x = 21,
+      y = 0,
+      z = 0,
+    })
+    fixture.scraper.hyperspace.phase = "ready"
+    fixture.scraper.state.metadata.sources.radar = os.time()
+
+    local engaged, failure = fixture.intentHandlers.engage_hyperdrive({
+      scope = "all",
+      formationKind = "battlegroup",
+    }, { id = "nearby-fleet-engage" })
+    assert(engaged, failure)
+    equal(fixture:lastCommand().command, "battlegroup nav all hyper")
+  end)
+
+  it("still blocks a battlegroup jump near a non-fleet contact", function()
+    battlegroup()
+    fixture:entity("Wayfarer").x = 100
+    fixture.scraper.hyperspace.phase = "ready"
+    fixture.scraper.state.metadata.sources.radar = os.time()
+
+    local engaged, failure = fixture.intentHandlers.engage_hyperdrive({
+      scope = "all",
+      formationKind = "battlegroup",
+    }, { id = "nearby-outsider-engage" })
+    equal(engaged, false)
+    assert(failure:find("Wayfarer", 1, true))
+    assert(failure:find("500", 1, true))
   end)
 
   it("routes one selected battlegroup wing by its stable slot", function()
@@ -638,6 +829,26 @@ Hull: 712/1000 Shields: 400/500
     assert(plotted, failure)
     equal(fixture:lastCommand().command, "battlegroup nav 1 calculate local 50 60 70")
     equal(fixture.scraper.hyperspace.routeIncludesLocalShip, false)
+  end)
+
+  it("uses the native hyperspace computer for an observer-only fleet selection", function()
+    battlegroup()
+    local route = {
+      mode = "local",
+      scope = "selected",
+      formationKind = "battlegroup",
+      memberId = "teehee",
+      memberName = "TeeHee",
+      memberIds = { "teehee" },
+      memberNames = { "TeeHee" },
+      destination = { x = 50, y = 60, z = 70 },
+      recipientLabel = "TEEHEE",
+    }
+    local plotted, failure =
+      fixture.intentHandlers.plot_hyperspace(route, { id = "selected-observer-route" })
+    assert(plotted, failure)
+    equal(fixture:lastCommand().command, "calculate local 50 60 70")
+    equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
   end)
 
   it("plots a route for each ship in a selected battlegroup subset", function()
@@ -688,6 +899,13 @@ Hull: 712/1000 Shields: 400/500
     assert(plotted, failure)
     equal(fixture:lastCommand().command, "calculate local 25 35 45")
     equal(fixture.scraper.hyperspace.routeIncludesLocalShip, true)
+    equal(fixture.scraper.state.metadata.hyperspace.navigatorApplied, false)
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "Using your skill with navigation you reroute energy to the hyperdrives."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.navigatorApplied, true)
     assert(
       fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
     )

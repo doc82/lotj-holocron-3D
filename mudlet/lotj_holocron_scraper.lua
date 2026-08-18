@@ -23,6 +23,8 @@ local Scraper = {
   RADAR_RECONCILE_INTERVAL_SECONDS = 60,
   MIN_HYPERSPACE_CLEARANCE = 500,
   HYPERSPACE_SPATIAL_FIX_MAX_AGE_SECONDS = 15,
+  REMOTE_LOCAL_HYPERSPACE_CALC_SECONDS = 2,
+  REMOTE_GALACTIC_HYPERSPACE_CALC_SECONDS = 6,
   COMBAT_ACTIVITY_WINDOW_SECONDS = 10,
   COMBAT_FRAGMENT_TIMEOUT_SECONDS = 1.5,
   DESTRUCTION_TOMBSTONE_SECONDS = 10,
@@ -45,6 +47,9 @@ local Scraper = {
     timerId = nil,
     dispatching = false,
     hydrationQueue = {},
+    initializationQueue = {},
+    initializationReason = nil,
+    initializationSpaceProbe = false,
     lastFleetRadarAt = 0,
     lastBattlegroupAt = 0,
     lastSquadronAt = 0,
@@ -53,6 +58,8 @@ local Scraper = {
     radarRefreshReason = nil,
     radarRefreshGeneration = 0,
     radarRefreshIssuedGeneration = 0,
+    fleetRadarRefreshPending = false,
+    fleetRadarRefreshIssuedGeneration = 0,
   },
   scanState = {},
   pendingCommandIntentId = nil,
@@ -950,7 +957,7 @@ local function refreshDerivedDistances()
   end
 end
 
-local function checkHyperspaceClearance()
+local function checkHyperspaceClearance(payload)
   if not Scraper.state then
     return false, "fresh radar clearance is required"
   end
@@ -965,6 +972,22 @@ local function checkHyperspaceClearance()
     return false, "fresh radar clearance is required"
   end
 
+  local exemptShipNames = {}
+  local fleet = Scraper.state.metadata and Scraper.state.metadata.fleet or nil
+  if
+    trim(payload and payload.formationKind):lower() == "battlegroup"
+    and type(fleet) == "table"
+    and fleet.active == true
+    and fleet.kind == "battlegroup"
+  then
+    for _, member in ipairs(fleet.members or {}) do
+      local memberName = trim(member.name):lower()
+      if memberName ~= "" then
+        exemptShipNames[memberName] = true
+      end
+    end
+  end
+
   local nearest, nearestName
   for _, entity in pairs(Scraper.state.entities or {}) do
     if
@@ -974,7 +997,9 @@ local function checkHyperspaceClearance()
       or entity.kind == "star"
     then
       local x, y, z = tonumber(entity.x), tonumber(entity.y), tonumber(entity.z)
-      if x and y and z and entity.id ~= "player-ship" then
+      local exemptFleetShip = entity.kind == "ship"
+        and exemptShipNames[trim(entity.name):lower()] == true
+      if x and y and z and entity.id ~= "player-ship" and not exemptFleetShip then
         local distance = math.sqrt((x - ox) ^ 2 + (y - oy) ^ 2 + (z - oz) ^ 2)
         if not nearest or distance < nearest then
           nearest, nearestName = distance, entity.name or entity.id
@@ -1208,9 +1233,11 @@ function Scraper.applyResult(result, sentCommand)
         >= tonumber(Scraper.polling.radarRefreshGeneration or 0)
     if refreshSatisfied then
       Scraper.polling.radarRefreshPending = false
-      Scraper.polling.radarRefreshReason = nil
       Scraper.state.metadata.radarRefreshPending = false
-      Scraper.state.metadata.radarRefreshReason = nil
+      if Scraper.polling.fleetRadarRefreshPending ~= true then
+        Scraper.polling.radarRefreshReason = nil
+        Scraper.state.metadata.radarRefreshReason = nil
+      end
     end
     if result.system then
       Scraper.state.metadata.system = result.system
@@ -1309,6 +1336,19 @@ function Scraper.applyResult(result, sentCommand)
   else
     if source == "fleetradar" then
       Scraper.polling.lastFleetRadarAt = os.time()
+      local refreshSatisfied = normalizedCommand(sentCommand) == "fleetradar"
+        and Scraper.polling.fleetRadarRefreshPending == true
+        and tonumber(Scraper.polling.fleetRadarRefreshIssuedGeneration or 0)
+          >= tonumber(Scraper.polling.radarRefreshGeneration or 0)
+      if refreshSatisfied then
+        Scraper.polling.fleetRadarRefreshPending = false
+        Scraper.state.metadata.fleetRadarRefreshPending = false
+        Scraper.state.metadata.fleetRadarRefreshReason = nil
+        if Scraper.polling.radarRefreshPending ~= true then
+          Scraper.polling.radarRefreshReason = nil
+          Scraper.state.metadata.radarRefreshReason = nil
+        end
+      end
       if result.system then
         Scraper.state.metadata.system = result.system
       end
@@ -1484,7 +1524,7 @@ local function abandonCapture(reason)
     lines = captureRecordLines(capture),
     reason = reason,
   }
-  if capture.polled and scheduleNextPoll then
+  if capture.polled and not capture.initializationSweep and scheduleNextPoll then
     scheduleNextPoll(capture.pollDelay)
   end
 end
@@ -1542,10 +1582,44 @@ queueObserverInfo = function()
     Scraper.polling.enabled
     and Scraper.state
     and Scraper.state.metadata.inSpace == true
+    and #(Scraper.polling.initializationQueue or {}) == 0
     and scheduleNextPoll
   then
     scheduleNextPoll(0.1)
   end
+end
+
+local function clearInitialStateSweep()
+  Scraper.polling.initializationQueue = {}
+  Scraper.polling.initializationReason = nil
+  Scraper.polling.initializationSpaceProbe = false
+  if Scraper.state and Scraper.state.metadata then
+    Scraper.state.metadata.initializationPending = false
+    Scraper.state.metadata.initializationReason = nil
+  end
+end
+
+local function queueInitialStateSweep(reason, allowSpaceProbe)
+  Scraper.state = Scraper.state or freshState()
+  Scraper.polling.initializationQueue = {
+    "radar",
+    "fleetradar",
+    "battlegroup",
+    "squadron status",
+  }
+  Scraper.polling.initializationReason = reason or "initial space-state discovery"
+  Scraper.polling.initializationSpaceProbe = allowSpaceProbe == true
+    and Scraper.state.metadata.inSpace ~= true
+  Scraper.polling.lastFleetRadarAt = 0
+  Scraper.polling.lastBattlegroupAt = 0
+  Scraper.polling.lastSquadronAt = 0
+  Scraper.combat.lastRadarAt = 0
+  Scraper.state.metadata.initializationPending = true
+  Scraper.state.metadata.initializationReason = Scraper.polling.initializationReason
+  if Scraper.polling.enabled and not Scraper.polling.paused and scheduleNextPoll then
+    scheduleNextPoll(0)
+  end
+  return true
 end
 
 function Scraper.setInSpace(inSpace, reason)
@@ -1566,6 +1640,7 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.state.entities = {}
     Scraper.scanState = {}
     Scraper.polling.hydrationQueue = {}
+    clearInitialStateSweep()
     safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
     Scraper.autotrack.timeoutTimerId = nil
     Scraper.autotrack.observed = nil
@@ -1596,8 +1671,12 @@ function Scraper.setInSpace(inSpace, reason)
     Scraper.polling.radarRefreshReason = nil
     Scraper.polling.radarRefreshGeneration = 0
     Scraper.polling.radarRefreshIssuedGeneration = 0
+    Scraper.polling.fleetRadarRefreshPending = false
+    Scraper.polling.fleetRadarRefreshIssuedGeneration = 0
     Scraper.state.metadata.radarRefreshPending = false
     Scraper.state.metadata.radarRefreshReason = nil
+    Scraper.state.metadata.fleetRadarRefreshPending = false
+    Scraper.state.metadata.fleetRadarRefreshReason = nil
     Scraper.state.metadata.formations = {}
     Scraper.state.metadata.fleet = nil
     Scraper.state.metadata.tacticalViews = {}
@@ -1729,6 +1808,8 @@ function Scraper.finishCapture(reason)
     profileCount("parseFailures")
     if capture.spaceProbe then
       Scraper.setInSpace(false, "startup radar did not return space data")
+    elseif capture.initializationSweep then
+      clearInitialStateSweep()
     end
     if
       capture.intentId
@@ -1779,6 +1860,9 @@ function Scraper.finishCapture(reason)
   profileTiming("apply", applyStarted)
   if not applied then
     profileCount("applyFailures")
+    if capture.initializationSweep then
+      clearInitialStateSweep()
+    end
     diagnostic(
       "error",
       "could not merge " .. capture.sentCommand .. " output: " .. tostring(applyError)
@@ -1805,6 +1889,21 @@ function Scraper.finishCapture(reason)
   if capture.spaceProbe and queueObserverHydration then
     queueObserverHydration()
   end
+  local continueInitialization = false
+  if capture.initializationSweep then
+    local queue = Scraper.polling.initializationQueue or {}
+    if normalizedCommand(queue[1]) == normalizedCommand(capture.sentCommand) then
+      table.remove(queue, 1)
+    end
+    Scraper.polling.initializationQueue = queue
+    Scraper.polling.initializationSpaceProbe = false
+    continueInitialization = #queue > 0
+    Scraper.state.metadata.initializationPending = continueInitialization
+    if not continueInitialization then
+      Scraper.polling.initializationReason = nil
+      Scraper.state.metadata.initializationReason = nil
+    end
+  end
   Scraper.state.metadata.lastCapturePolled = capture.polled == true
   if
     parsed.source == "status"
@@ -1812,6 +1911,9 @@ function Scraper.finishCapture(reason)
     and handleShieldStatus
   then
     handleShieldStatus(parsed)
+  end
+  if capture.initializationSweep and scheduleNextPoll then
+    scheduleNextPoll(continueInitialization and 0 or Scraper.polling.commandGapSeconds)
   end
 
   local published, publishError = Scraper.publish()
@@ -1963,6 +2065,7 @@ function Scraper.startCapture(parserCommand, sentCommand, options)
     remoteViewMemberSlot = options and options.remoteViewMemberSlot or nil,
     remoteViewMember = options and copyTable(options.remoteViewMember) or nil,
     targetReconciliation = options and options.targetReconciliation == true,
+    initializationSweep = options and options.initializationSweep == true,
     profileStarted = Scraper.profiler.enabled and os.clock() or nil,
   }
   Scraper.active = capture
@@ -1972,6 +2075,14 @@ function Scraper.startCapture(parserCommand, sentCommand, options)
   then
     Scraper.polling.radarRefreshIssuedGeneration = tonumber(Scraper.polling.radarRefreshGeneration)
       or 0
+  end
+  if
+    normalizedCommand(capture.sentCommand) == "fleetradar"
+    and Scraper.polling.fleetRadarRefreshPending == true
+  then
+    Scraper.polling.fleetRadarRefreshIssuedGeneration = tonumber(
+      Scraper.polling.radarRefreshGeneration
+    ) or 0
   end
   profileCount("capturesStarted")
   if capture.polled then
@@ -2226,6 +2337,8 @@ function Scraper.disarmAutomation(reason)
   safeKill("killTimer", Scraper.shields.damageTimerId)
   safeKill("killTimer", Scraper.shields.actionTimerId)
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  safeKill("killTimer", Scraper.hyperspace.statusTimerId)
+  Scraper.hyperspace.statusTimerId = nil
   Scraper.shields.recharging = false
   Scraper.shields.awaiting = false
   Scraper.shields.statusPending = false
@@ -2266,13 +2379,62 @@ local function finishHyperspaceIntent(status, reason)
   end
 end
 
+local function cancelHyperspaceCalculationEstimate()
+  safeKill("killTimer", Scraper.hyperspace.statusTimerId)
+  Scraper.hyperspace.statusTimerId = nil
+end
+
+local function scheduleHyperspaceCalculationEstimate(mode)
+  cancelHyperspaceCalculationEstimate()
+  local seconds = mode == "local" and Scraper.REMOTE_LOCAL_HYPERSPACE_CALC_SECONDS
+    or Scraper.REMOTE_GALACTIC_HYPERSPACE_CALC_SECONDS
+  local metadata = hyperspaceMetadata()
+  metadata.calculationEstimated = true
+  metadata.estimatedReadyAt = os.time() + seconds
+  metadata.remainingSeconds = seconds
+  publishHyperspace("calculating")
+  Scraper.hyperspace.statusTimerId = tempTimer(seconds, function()
+    Scraper.hyperspace.statusTimerId = nil
+    if
+      Scraper.hyperspace.phase ~= "calculating"
+      or not Scraper.hyperspace.initiatedByHolocron
+      or Scraper.hyperspace.routeIncludesLocalShip ~= false
+    then
+      return
+    end
+    publishHyperspace("ready", {
+      calculationEstimated = true,
+      estimatedReadyAt = os.time(),
+      remainingSeconds = 0,
+      insufficientFuel = nil,
+    })
+    finishHyperspaceIntent("completed", "Remote hyperspace calculation estimate elapsed")
+  end)
+end
+
+local function refreshRemoteHyperspaceCalculationEstimate()
+  if
+    Scraper.hyperspace.phase ~= "calculating"
+    or not Scraper.hyperspace.initiatedByHolocron
+    or Scraper.hyperspace.routeIncludesLocalShip ~= false
+  then
+    return false
+  end
+  local route = hyperspaceMetadata().route or {}
+  scheduleHyperspaceCalculationEstimate(trim(route.mode):lower())
+  return true
+end
+
 local function completeHyperspaceAbort(reason)
+  cancelHyperspaceCalculationEstimate()
   local metadata = hyperspaceMetadata()
   metadata.remainingSeconds = nil
   metadata.route = nil
   metadata.insufficientFuel = nil
   metadata.error = nil
   metadata.aborted = true
+  metadata.calculationEstimated = false
+  metadata.estimatedReadyAt = nil
   Scraper.hyperspace.initiatedByHolocron = false
   Scraper.hyperspace.routeIncludesLocalShip = nil
   Scraper.hyperspace.acknowledgedFuelRisk = false
@@ -2281,11 +2443,40 @@ local function completeHyperspaceAbort(reason)
   finishHyperspaceIntent("completed", reason or "Hyperspace calculation aborted")
 end
 
+local function queueImmediateWorldRefresh(reason)
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+    return false
+  end
+  local refreshReason = trim(reason)
+  if refreshReason == "" then
+    refreshReason = "hyperspace reentry"
+  end
+  Scraper.polling.radarRefreshGeneration = (tonumber(Scraper.polling.radarRefreshGeneration) or 0)
+    + 1
+  Scraper.polling.radarRefreshPending = true
+  Scraper.polling.fleetRadarRefreshPending = true
+  Scraper.polling.radarRefreshReason = refreshReason
+  Scraper.state.metadata.radarRefreshPending = true
+  Scraper.state.metadata.radarRefreshReason = refreshReason
+  Scraper.state.metadata.fleetRadarRefreshPending = true
+  Scraper.state.metadata.fleetRadarRefreshReason = refreshReason
+  Scraper.combat.lastRadarAt = 0
+  Scraper.polling.lastFleetRadarAt = 0
+  if Scraper.polling.enabled and scheduleNextPoll then
+    scheduleNextPoll(0.1)
+  end
+  return true
+end
+
 function Scraper.handleHyperspaceLine(text)
   local value = trim(text)
   local lower = value:lower()
   if value == "Hyperspace course locked. Running final jump checks..." then
     publishHyperspace("calculating", { error = nil })
+    refreshRemoteHyperspaceCalculationEstimate()
+  elseif lower:find("using your skill with navigation", 1, true) then
+    publishHyperspace("calculating", { navigatorApplied = true })
+    refreshRemoteHyperspaceCalculationEstimate()
   elseif
     lower:match("^jump requires [%d,]+ units of fuel")
     and lower:find("it will consume", 1, true)
@@ -2296,9 +2487,14 @@ function Scraper.handleHyperspaceLine(text)
       fuelRequired = required and tonumber((required:gsub(",", ""))) or nil,
       fuelPercent = percent and tonumber((percent:gsub(",", ""))) or nil,
     })
+    refreshRemoteHyperspaceCalculationEstimate()
+  elseif value == "Checking hyperspace course integrity. Please wait." then
+    refreshRemoteHyperspaceCalculationEstimate()
   elseif value == "Warning - Not enough fuel to complete the jump!" then
+    cancelHyperspaceCalculationEstimate()
     publishHyperspace("fuel_warning", { insufficientFuel = true })
   elseif lower:match("^jump requires [%d,]+ units of fuel%. you only have [%d,]+") then
+    cancelHyperspaceCalculationEstimate()
     local required, available = value:match(
       "[Jj]ump requires%s+([%d,]+)%s+units%s+of%s+fuel%.%s+[Yy]ou%s+only%s+have%s+([%d,]+)"
     )
@@ -2322,7 +2518,15 @@ function Scraper.handleHyperspaceLine(text)
       publishHyperspace("fuel_warning", extra)
     end
   elseif value == "[Status]: Hyperspace calculations have been completed." then
-    publishHyperspace("ready", { remainingSeconds = 0, insufficientFuel = nil })
+    cancelHyperspaceCalculationEstimate()
+    local metadata = hyperspaceMetadata()
+    metadata.calculationEstimated = false
+    metadata.estimatedReadyAt = nil
+    publishHyperspace("ready", {
+      calculationEstimated = false,
+      remainingSeconds = 0,
+      insufficientFuel = nil,
+    })
     finishHyperspaceIntent("completed", value)
   elseif value == "[ALERT]: Aborting Hyperspace calculation. Terminal reset." then
     if hyperspaceMetadata().insufficientFuel then
@@ -2338,9 +2542,11 @@ function Scraper.handleHyperspaceLine(text)
       completeHyperspaceAbort(value)
     end
   elseif lower:find("jump coordinates too close to stellar object", 1, true) then
+    cancelHyperspaceCalculationEstimate()
     publishHyperspace("failed", { error = value })
     finishHyperspaceIntent("rejected", value)
   elseif lower:match("^you are too close to .+ to make the jump to lightspeed!$") then
+    cancelHyperspaceCalculationEstimate()
     publishHyperspace("ready", { error = value })
     finishHyperspaceIntent("rejected", value)
   elseif value == "You push forward the hyperspeed lever." then
@@ -2366,6 +2572,7 @@ function Scraper.handleHyperspaceLine(text)
     if Scraper.hyperspace.phase == "hyperspace" or Scraper.hyperspace.phase == "reentry" then
       publishHyperspace("arrived", { arrivedAt = os.time() })
       Scraper.hyperspace.initiatedByHolocron = false
+      queueImmediateWorldRefresh("own ship exited hyperspace")
     end
   else
     local seconds =
@@ -2546,12 +2753,12 @@ local function scopedHyperspaceCommands(payload, localCommand)
   local recipients = {}
   local includesLocal = false
   if scope == "all" then
-    table.insert(recipients, "all")
+    table.insert(recipients, { selector = "all" })
     includesLocal = true
   elseif scope == "wings" then
     for _, member in ipairs(fleet.members or {}) do
       if not member.leader and tonumber(member.slot) then
-        table.insert(recipients, tostring(member.slot))
+        table.insert(recipients, { selector = tostring(member.slot) })
       end
     end
   else
@@ -2561,8 +2768,12 @@ local function scopedHyperspaceCommands(payload, localCommand)
     end
     for _, member in ipairs(members) do
       local memberName = trim(member.name)
-      table.insert(recipients, tonumber(member.slot) and tostring(member.slot) or memberName)
-      if memberName:lower() == localName:lower() then
+      local localShip = memberName:lower() == localName:lower()
+      table.insert(recipients, {
+        selector = tonumber(member.slot) and tostring(member.slot) or memberName,
+        localShip = localShip,
+      })
+      if localShip then
         includesLocal = true
       end
     end
@@ -2571,8 +2782,12 @@ local function scopedHyperspaceCommands(payload, localCommand)
     return nil, nil, "no ships are available in the selected hyperspace scope"
   end
   local commands = {}
-  for _, selector in ipairs(recipients) do
-    table.insert(commands, "battlegroup nav " .. selector .. " " .. localCommand)
+  for _, recipient in ipairs(recipients) do
+    if recipient.localShip then
+      table.insert(commands, localCommand)
+    else
+      table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. localCommand)
+    end
   end
   return commands, includesLocal
 end
@@ -2631,6 +2846,7 @@ local function dispatchHyperspacePlot(payload, message)
     return false, scopeError
   end
   Scraper.hyperspace.initiatedByHolocron = true
+  cancelHyperspaceCalculationEstimate()
   Scraper.hyperspace.routeIncludesLocalShip = includesLocal
   Scraper.hyperspace.acknowledgedFuelRisk = payload.acknowledgeFuelRisk == true
   Scraper.hyperspace.activeIntentId = message and message.id or nil
@@ -2639,8 +2855,18 @@ local function dispatchHyperspacePlot(payload, message)
   metadata.insufficientFuel = nil
   metadata.aborted = nil
   metadata.error = nil
+  metadata.navigatorApplied = false
+  metadata.calculationEstimated = false
+  metadata.estimatedReadyAt = nil
   publishHyperspace("calculating")
-  return sendScopedHyperspaceCommands(commands)
+  local sent, sendError = sendScopedHyperspaceCommands(commands)
+  if not sent then
+    return false, sendError
+  end
+  if not includesLocal then
+    scheduleHyperspaceCalculationEstimate(mode)
+  end
+  return true
 end
 
 local function dispatchNavigationRefresh(payload, message)
@@ -3236,7 +3462,10 @@ local function updatePollingMetadata(command)
     radarReconcileIntervalSeconds = Scraper.polling.radarReconcileIntervalSeconds,
     combatActivityWindowSeconds = Scraper.polling.combatActivityWindowSeconds,
     hydratingObserver = #(Scraper.polling.hydrationQueue or {}) > 0,
+    initializationPending = #(Scraper.polling.initializationQueue or {}) > 0,
+    initializationReason = Scraper.polling.initializationReason,
     radarRefreshPending = Scraper.polling.radarRefreshPending == true,
+    fleetRadarRefreshPending = Scraper.polling.fleetRadarRefreshPending == true,
     radarRefreshReason = Scraper.polling.radarRefreshReason,
   }
 end
@@ -3318,17 +3547,22 @@ local function pollOnce()
   if not Scraper.polling.enabled or Scraper.polling.paused then
     return
   end
+  local initializationCommand = (Scraper.polling.initializationQueue or {})[1]
+  local startupSpaceProbe = initializationCommand == "radar"
+    and Scraper.polling.initializationSpaceProbe == true
+    and Scraper.state
+    and Scraper.state.metadata.inSpace ~= false
   if Scraper.pendingCommandKind then
     return
   end
-  if os.time() < tonumber(Scraper.fleetCommand.holdUntil or 0) then
+  if not initializationCommand and os.time() < tonumber(Scraper.fleetCommand.holdUntil or 0) then
     scheduleNextPoll(1)
     return
   end
   -- Never issue hidden commands while Mudlet is connecting or showing the
   -- login screen. A launch event or a successful manual space command must
   -- positively establish the in-space state before automatic polling begins.
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true and not startupSpaceProbe then
     return
   end
   if Scraper.active then
@@ -3364,8 +3598,18 @@ local function pollOnce()
   local command
   local selectedScan
   local selectedFleetStatus
-  if Scraper.polling.radarRefreshPending then
+  local immediateWorldRefresh = false
+  local immediateInitialization = initializationCommand ~= nil
+  if initializationCommand then
+    command = initializationCommand
+    Scraper.polling.scansSinceCore = 0
+  elseif Scraper.polling.radarRefreshPending then
     command = "radar"
+    immediateWorldRefresh = true
+    Scraper.polling.scansSinceCore = 0
+  elseif Scraper.polling.fleetRadarRefreshPending then
+    command = "fleetradar"
+    immediateWorldRefresh = true
     Scraper.polling.scansSinceCore = 0
   elseif hydrationCommand then
     command = hydrationCommand
@@ -3395,7 +3639,10 @@ local function pollOnce()
     command = Scraper.POLL_COMMANDS[Scraper.polling.index]
     Scraper.polling.scansSinceCore = 0
   end
-  local repeatDelay = automaticCommandRepeatDelay(command, now)
+  -- Reentry is a hard world-state boundary. Do not inherit the normal
+  -- three-second automatic-command cooldown for either refresh capture.
+  local immediatePriority = immediateWorldRefresh or immediateInitialization
+  local repeatDelay = immediatePriority and 0 or automaticCommandRepeatDelay(command, now)
   if repeatDelay > 0 then
     profileCount("automaticCommandsThrottled")
     scheduleNextPoll(math.max(0.25, repeatDelay))
@@ -3435,6 +3682,8 @@ local function pollOnce()
   local completedCycle = false
   if
     not hydrationCommand
+    and not immediateWorldRefresh
+    and not immediateInitialization
     and not combatRadarDue
     and not radarReconcileDue
     and not fleetStatusDue
@@ -3446,7 +3695,9 @@ local function pollOnce()
       Scraper.polling.index = 1
     end
   end
-  local delay = combatRadarDue and 0.5
+  local delay = immediateInitialization and 0
+    or immediateWorldRefresh and 0.1
+    or combatRadarDue and 0.5
     or completedCycle and Scraper.polling.cycleDelaySeconds
     or Scraper.polling.commandGapSeconds
 
@@ -3462,6 +3713,8 @@ local function pollOnce()
   local started, startError = Scraper.startCapture(parserCommand, command, {
     polled = true,
     pollDelay = delay,
+    spaceProbe = startupSpaceProbe,
+    initializationSweep = immediateInitialization,
   })
   if not started then
     diagnostic(
@@ -3473,6 +3726,13 @@ local function pollOnce()
   end
 
   updatePollingMetadata(command)
+  if immediateInitialization then
+    if command == "battlegroup" then
+      Scraper.polling.lastBattlegroupAt = now
+    elseif command == "squadron status" then
+      Scraper.polling.lastSquadronAt = now
+    end
+  end
   Scraper.polling.dispatching = true
   markAutomaticCommandSent(command, now)
   local sent, sendResult, sendError = pcall(send, command, false)
@@ -3494,7 +3754,11 @@ scheduleNextPoll = function(delay)
   if not Scraper.polling.enabled or Scraper.polling.paused then
     return
   end
-  if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
+  local startupSpaceProbe = (Scraper.polling.initializationQueue or {})[1] == "radar"
+    and Scraper.polling.initializationSpaceProbe == true
+    and Scraper.state
+    and Scraper.state.metadata.inSpace ~= false
+  if not Scraper.state or Scraper.state.metadata.inSpace ~= true and not startupSpaceProbe then
     return
   end
   if Scraper.pendingCommandKind then
@@ -3513,20 +3777,11 @@ function Scraper.handleSectorArrival(text)
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return true
   end
-  Scraper.polling.radarRefreshPending = true
-  Scraper.polling.radarRefreshGeneration = (tonumber(Scraper.polling.radarRefreshGeneration) or 0)
-    + 1
-  Scraper.polling.radarRefreshReason = "ship entered sector: " .. shipName
-  Scraper.state.metadata.radarRefreshPending = true
-  Scraper.state.metadata.radarRefreshReason = Scraper.polling.radarRefreshReason
+  queueImmediateWorldRefresh("ship entered sector: " .. shipName)
   Scraper.state.metadata.lastSectorArrival = {
     shipName = shipName,
     observedAt = os.time(),
   }
-  Scraper.combat.lastRadarAt = 0
-  if Scraper.polling.enabled and scheduleNextPoll then
-    scheduleNextPoll(0.1)
-  end
   return true
 end
 
@@ -4987,6 +5242,7 @@ local function dispatchClearCombatTarget(payload)
 
   local fleet = currentFleet()
   local commands, seenCommands = {}, {}
+  local clearsLocal = false
   local function addCommand(command)
     if not seenCommands[command] then
       seenCommands[command] = true
@@ -5076,7 +5332,14 @@ local function dispatchClearCombatTarget(payload)
         if memberName == "" or memberName:find("[%c\r\n]") then
           return false, "a battlegroup target owner name is invalid"
         end
-        addCommand("bg target " .. memberName .. " none")
+        if
+          memberName:lower() == trim(Scraper.state.observer and Scraper.state.observer.name):lower()
+        then
+          addCommand("target none")
+          clearsLocal = true
+        else
+          addCommand("bg target " .. memberName .. " none")
+        end
       end
     else
       return false, "unsupported combat target scope"
@@ -5101,7 +5364,7 @@ local function dispatchClearCombatTarget(payload)
   for _, entry in ipairs(tracks) do
     activeTargets[entry.key] = nil
     local scope = trim(entry.track.scope):lower()
-    if scope == "local" or scope == "squadron" then
+    if scope == "local" or scope == "squadron" or clearsLocal then
       Scraper.combat.targetName = nil
       Scraper.state.observer.target = nil
       metadata.combatTarget = nil
@@ -5546,10 +5809,14 @@ local function dispatchFleetOrder(payload, message)
         return false, "this ship has no weapons"
       end
       for _, recipient in ipairs(recipients) do
-        table.insert(
-          commands,
-          "battlegroup target " .. recipient.selector .. " " .. trim(target.name)
-        )
+        if recipient.localShip then
+          table.insert(commands, "target " .. trim(target.name))
+        else
+          table.insert(
+            commands,
+            "battlegroup target " .. recipient.selector .. " " .. trim(target.name)
+          )
+        end
       end
       local targetDetails = { scope = scope, formationKind = "battlegroup" }
       local targetKey
@@ -5599,10 +5866,14 @@ local function dispatchFleetOrder(payload, message)
       end
       for _, recipient in ipairs(recipients) do
         if departureSpeed then
-          table.insert(
-            commands,
-            "battlegroup nav " .. recipient.selector .. " speed " .. tostring(departureSpeed)
-          )
+          if recipient.localShip then
+            table.insert(commands, "speed " .. tostring(departureSpeed))
+          else
+            table.insert(
+              commands,
+              "battlegroup nav " .. recipient.selector .. " speed " .. tostring(departureSpeed)
+            )
+          end
         end
         if fireAll then
           local fireCommands
@@ -5620,10 +5891,18 @@ local function dispatchFleetOrder(payload, message)
             fireCommands = knownFleetMemberFireCommands(recipient.member)
           end
           for _, fireCommand in ipairs(fireCommands) do
-            table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. fireCommand)
+            if recipient.localShip then
+              table.insert(commands, fireCommand)
+            else
+              table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. fireCommand)
+            end
           end
         else
-          table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. localCommand)
+          if recipient.localShip then
+            table.insert(commands, localCommand)
+          else
+            table.insert(commands, "battlegroup nav " .. recipient.selector .. " " .. localCommand)
+          end
         end
       end
     end
@@ -5762,6 +6041,38 @@ dispatchSpaceProbe = function(_, message)
   if not sent or sendResult == false then
     abandonCapture("startup radar probe could not be sent")
     Scraper.setInSpace(false, "startup radar could not be sent")
+    return false, tostring(sent and sendError or sendResult)
+  end
+  return true
+end
+
+local function dispatchLocalHyperspaceRadar(_, message)
+  if Scraper.polling.paused then
+    return false, "automatic polling is paused"
+  end
+  local gateError = commandGateError()
+  if gateError then
+    return false, gateError
+  end
+  if Scraper.active then
+    return false, "another telemetry refresh is active"
+  end
+
+  cancelPollTimer()
+  local started, startError = Scraper.startCapture("radar", "radar", {
+    polled = true,
+    pollDelay = 0.25,
+    intentId = message and message.id or nil,
+  })
+  if not started then
+    return false, startError
+  end
+
+  Scraper.polling.dispatching = true
+  local sent, sendResult, sendError = pcall(send, "radar", false)
+  Scraper.polling.dispatching = false
+  if not sent or sendResult == false then
+    abandonCapture("local hyperspace radar refresh could not be sent")
     return false, tostring(sent and sendError or sendResult)
   end
   return true
@@ -5946,10 +6257,15 @@ function Scraper.setup(proxy, options)
   end
   Scraper.scanState = {}
   Scraper.polling.hydrationQueue = {}
+  Scraper.polling.initializationQueue = {}
+  Scraper.polling.initializationReason = nil
+  Scraper.polling.initializationSpaceProbe = false
   Scraper.polling.radarRefreshPending = false
   Scraper.polling.radarRefreshReason = nil
   Scraper.polling.radarRefreshGeneration = 0
   Scraper.polling.radarRefreshIssuedGeneration = 0
+  Scraper.polling.fleetRadarRefreshPending = false
+  Scraper.polling.fleetRadarRefreshIssuedGeneration = 0
   Scraper.eventHandlerIds = {
     registerAnonymousEventHandler("sysDataSendRequest", Scraper.handleOutgoingCommand),
     registerAnonymousEventHandler("gmcp.Ship.Info", Scraper.handleShipGmcp),
@@ -5968,6 +6284,7 @@ function Scraper.setup(proxy, options)
     end),
     tempTrigger("The ship leaves the platform far behind as it flies into space", function()
       Scraper.setInSpace(true, "launch sequence complete")
+      queueInitialStateSweep("launch sequence complete", false)
       queueObserverInfo()
     end),
     tempTrigger("You grip the controls.", function()
@@ -6054,7 +6371,7 @@ function Scraper.setup(proxy, options)
       Scraper.handleAutotrackResponse(line or "")
     end),
     tempRegexTrigger(
-      "^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.)\\s*$",
+      "^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Using your skill with navigation you reroute energy to the hyperdrives\\.|Checking hyperspace course integrity\\. Please wait\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.)\\s*$",
       function()
         Scraper.handleHyperspaceLine(line or "")
       end
@@ -6069,6 +6386,7 @@ function Scraper.setup(proxy, options)
   proxy.scraper = Scraper
   if type(proxy.registerIntentHandler) == "function" then
     proxy.registerIntentHandler("probe_space", dispatchSpaceProbe)
+    proxy.registerIntentHandler("refresh_local_hyperspace_radar", dispatchLocalHyperspaceRadar)
     proxy.registerIntentHandler("set_polling_paused", function(payload)
       if type(payload.paused) ~= "boolean" then
         return false, "polling paused must be a boolean"
@@ -6156,7 +6474,7 @@ function Scraper.setup(proxy, options)
         return false, scopeError
       end
       if includesLocal then
-        local clear, clearanceError = checkHyperspaceClearance()
+        local clear, clearanceError = checkHyperspaceClearance(payload)
         if not clear then
           return false, clearanceError
         end
@@ -6304,6 +6622,8 @@ function Scraper.setup(proxy, options)
     local pollingReady, pollingError = Scraper.startPolling(pollingOptions)
     if not pollingReady then
       diagnostic("warn", "telemetry polling could not start: " .. tostring(pollingError))
+    else
+      queueInitialStateSweep("Holocron startup", true)
     end
   end
   return true
