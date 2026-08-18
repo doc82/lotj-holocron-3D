@@ -1,7 +1,7 @@
 {
   "name": "lotj-holocron-3d",
   "productName": "LotJ Holocron 3D",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "A real-time 3D tactical renderer for Legends of the Jedi space telemetry.",
   "author": "Veska",
   "private": true,
