@@ -125,6 +125,8 @@ jobs:
           HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
       - name: Build Windows installer
         run: pnpm make:win
+      - name: Verify bundled Windows planet textures
+        run: node tools/verify-packaged-planet-assets.mjs win32 x64
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64-installer
@@ -189,6 +191,8 @@ jobs:
           HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
       - name: Build macOS installer
         run: pnpm make:mac:${{ matrix.arch }}
+      - name: Verify bundled macOS planet textures
+        run: node tools/verify-packaged-planet-assets.mjs darwin ${{ matrix.arch }}
       - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}-installer

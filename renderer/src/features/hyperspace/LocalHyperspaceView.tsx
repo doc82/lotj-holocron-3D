@@ -25,6 +25,7 @@ interface LocalHyperspaceViewProps {
   hyperspeed?: number;
   motionTracks: MotionTrackMap;
   planetTargetName?: string;
+  shipTargetName?: string;
   onDestinationChange(destination: Vector3): void;
   onTrackingChange(tracking: HyperspaceRoutePayload["tracking"] | undefined): void;
 }
@@ -110,6 +111,7 @@ export function LocalHyperspaceView({
   hyperspeed,
   motionTracks,
   planetTargetName,
+  shipTargetName,
   onDestinationChange,
   onTrackingChange,
 }: LocalHyperspaceViewProps) {
@@ -121,6 +123,7 @@ export function LocalHyperspaceView({
   const [predictionEnabled, setPredictionEnabled] = useState(false);
   const [navigatorEnabled, setNavigatorEnabled] = useState(false);
   const [now, setNow] = useState(() => Date.now() / 1_000);
+  const requestedTargetName = shipTargetName || planetTargetName;
   const origin = useMemo(() => vectorFrom(observer), [observer.x, observer.y, observer.z]);
   const baseSnapshot = useMemo(
     () => plannerSnapshot(snapshot, recipientLabel, origin, []),
@@ -200,6 +203,29 @@ export function LocalHyperspaceView({
   const renderedScene = useMemo(() => buildScene(renderedSnapshot), [renderedSnapshot]);
   const expandedCluster = findScenePoint(renderedScene, expandedClusterId);
 
+  const selectPoint = useCallback(
+    (id: string | null) => {
+      const point = findScenePoint(renderedScene, id);
+      if (!point || point.id === "player-ship" || point.kind === "prediction") {
+        setSelectedId(null);
+        setExpandedClusterId(null);
+        return;
+      }
+      tacticalRef.current?.finishMovementPlanning();
+      setPointMode("idle");
+      if (point.kind === "cluster") {
+        setExpandedClusterId(point.id);
+        setSelectedId(null);
+        return;
+      }
+      setExpandedClusterId(null);
+      setSelectedId(point.id);
+      setPredictionEnabled(point.kind === "ship");
+      onDestinationChange(point.worldPosition);
+    },
+    [onDestinationChange, renderedScene],
+  );
+
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       tacticalRef.current?.setCameraMode("rts");
@@ -215,12 +241,12 @@ export function LocalHyperspaceView({
   }, [predictionEnabled, selectedId]);
 
   useEffect(() => {
-    if (!selected || planetTargetName) return;
+    if (!selected || requestedTargetName) return;
     onDestinationChange(solution?.targetPosition ?? selected.worldPosition);
-  }, [onDestinationChange, planetTargetName, selected, solution]);
+  }, [onDestinationChange, requestedTargetName, selected, solution]);
 
   useEffect(() => {
-    if (planetTargetName || !predictionEnabled || selected?.kind !== "ship") {
+    if (requestedTargetName || !predictionEnabled || selected?.kind !== "ship") {
       onTrackingChange(undefined);
       return;
     }
@@ -236,7 +262,7 @@ export function LocalHyperspaceView({
     hyperspeed,
     navigatorEnabled,
     onTrackingChange,
-    planetTargetName,
+    requestedTargetName,
     predictionEnabled,
     selected?.id,
     selected?.kind,
@@ -245,13 +271,17 @@ export function LocalHyperspaceView({
   ]);
 
   useEffect(() => {
-    if (!planetTargetName) return;
-    setSelectedId(null);
-    setExpandedClusterId(null);
-    setPredictionEnabled(false);
-    setPointMode("idle");
-    tacticalRef.current?.finishMovementPlanning();
-  }, [planetTargetName]);
+    if (!requestedTargetName) return;
+    const normalizedTarget = requestedTargetName.trim().toLowerCase();
+    const targetKinds = shipTargetName ? ["ship"] : ["celestial", "planet"];
+    const target = renderedScene.points
+      .flatMap((point) => point.members ?? [point])
+      .find(
+        (point) =>
+          targetKinds.includes(point.kind) && point.name.trim().toLowerCase() === normalizedTarget,
+      );
+    if (target) selectPoint(target.id);
+  }, [renderedScene, requestedTargetName, selectPoint, shipTargetName]);
 
   const beginPointPlot = useCallback(() => {
     setSelectedId(null);
@@ -301,29 +331,6 @@ export function LocalHyperspaceView({
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [beginPointPlot, cancelPointPlot, pointMode]);
-
-  const selectPoint = useCallback(
-    (id: string | null) => {
-      const point = findScenePoint(renderedScene, id);
-      if (!point || point.id === "player-ship" || point.kind === "prediction") {
-        setSelectedId(null);
-        setExpandedClusterId(null);
-        return;
-      }
-      tacticalRef.current?.finishMovementPlanning();
-      setPointMode("idle");
-      if (point.kind === "cluster") {
-        setExpandedClusterId(point.id);
-        setSelectedId(null);
-        return;
-      }
-      setExpandedClusterId(null);
-      setSelectedId(point.id);
-      setPredictionEnabled(point.kind === "ship");
-      onDestinationChange(point.worldPosition);
-    },
-    [onDestinationChange, renderedScene],
-  );
 
   const chooseCamera = (mode: TacticalCameraMode, targetId?: string) => {
     tacticalRef.current?.setCameraMode(mode, targetId);

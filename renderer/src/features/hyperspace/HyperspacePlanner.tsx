@@ -16,6 +16,7 @@ import type {
   GalaxySystem,
   HyperspaceRoutePayload,
   SystemSnapshot,
+  TelemetryEntity,
 } from "../../types/telemetry";
 import { LocalHyperspaceView } from "./LocalHyperspaceView";
 import styles from "./HyperspacePlanner.module.css";
@@ -132,6 +133,23 @@ function Planet({
   );
 }
 
+function ShipContact({ ship, onClick }: { ship: TelemetryEntity; onClick(): void }) {
+  const name = ship.name || ship.id;
+  const classification = String(ship.class || ship.shipCategory || "Unknown class");
+  return (
+    <button type="button" className={styles.shipContact} onClick={onClick}>
+      <span className={styles.shipContactMarker} aria-hidden="true" />
+      <span>
+        <strong>{name}</strong>
+        <small>{classification}</small>
+      </span>
+      {Number.isFinite(Number(ship.distance)) && (
+        <em>{Math.round(Number(ship.distance)).toLocaleString()} u</em>
+      )}
+    </button>
+  );
+}
+
 export function HyperspacePlanner({
   mode,
   recipientLabel,
@@ -155,6 +173,8 @@ export function HyperspacePlanner({
   const [selectedName, setSelectedName] = useState(currentSystem || systems[0]?.name || "");
   const selectedSystem = systems.find((system) => system.name === selectedName) || systems[0];
   const [selectedPlanetName, setSelectedPlanetName] = useState("");
+  const [selectedShipTargetName, setSelectedShipTargetName] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
   const selectedPlanet = selectedSystem?.planets.find(
     (planet) => planet.name === selectedPlanetName,
   );
@@ -175,8 +195,36 @@ export function HyperspacePlanner({
   const [escapeSy, setEscapeSy] = useState(0);
   const [escapeSz, setEscapeSz] = useState(0);
   const [escapeDistance, setEscapeDistance] = useState(1);
+  const knownSectorShips = useMemo(() => {
+    const ships = new Map<string, TelemetryEntity>();
+    for (const entity of snapshot?.entities ?? []) {
+      if (entity.kind !== "ship") continue;
+      const name = String(entity.name || entity.id).trim();
+      if (!name) continue;
+      ships.set(entity.id || name.toLowerCase(), entity);
+    }
+    return [...ships.values()].sort((left, right) =>
+      String(left.name || left.id).localeCompare(String(right.name || right.id), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  }, [snapshot]);
+  const normalizedContactSearch = contactSearch.trim().toLowerCase();
+  const activeContactSearch = mode === "local" ? normalizedContactSearch : "";
+  const sidebarPlanets =
+    mode === "local" ? (current?.planets ?? []) : (selectedSystem?.planets ?? []);
+  const visiblePlanets = sidebarPlanets.filter((planet) =>
+    `${planet.name} ${planet.government || ""}`.toLowerCase().includes(activeContactSearch),
+  );
+  const visibleShips = knownSectorShips.filter((ship) =>
+    `${ship.name || ship.id} ${ship.class || ""} ${ship.shipCategory || ""}`
+      .toLowerCase()
+      .includes(activeContactSearch),
+  );
   const updateLocalDestination = useCallback((destination: [number, number, number]) => {
     setSelectedPlanetName("");
+    setSelectedShipTargetName("");
     setX(clampSectorCoordinate(destination[0]));
     setY(clampSectorCoordinate(destination[1]));
     setZ(clampSectorCoordinate(destination[2]));
@@ -358,6 +406,7 @@ export function HyperspacePlanner({
               hyperspeed={hyperspeed}
               motionTracks={motionTracks}
               planetTargetName={selectedPlanetName}
+              shipTargetName={selectedShipTargetName}
               onDestinationChange={updateLocalDestination}
               onTrackingChange={updateTracking}
             />
@@ -462,17 +511,62 @@ export function HyperspacePlanner({
               </dl>
             </>
           )}
-          <p className={styles.kicker}>PLANETARY CONTACTS</p>
-          <div className={styles.planetList}>
-            {(mode === "local" ? current?.planets : selectedSystem?.planets)?.map((planet) => (
-              <Planet
-                key={planet.name}
-                planet={planet}
-                selected={selectedPlanetName === planet.name}
-                onClick={() => setSelectedPlanetName(planet.name)}
+          {mode === "local" && (
+            <label className={styles.contactSearch}>
+              <span>SECTOR CONTACT SEARCH</span>
+              <input
+                type="search"
+                value={contactSearch}
+                onChange={(event) => setContactSearch(event.target.value)}
+                placeholder="PLANET, SHIP, OR CLASS"
+                aria-label="Search celestial contacts and known ships"
               />
-            )) || <span>NO PLANETS CATALOGED</span>}
+              <small>
+                {visiblePlanets.length} CELESTIAL // {visibleShips.length} SHIPS
+              </small>
+            </label>
+          )}
+          <p className={styles.kicker}>CELESTIAL CONTACTS</p>
+          <div className={styles.planetList}>
+            {visiblePlanets.length ? (
+              visiblePlanets.map((planet) => (
+                <Planet
+                  key={planet.name}
+                  planet={planet}
+                  selected={selectedPlanetName === planet.name}
+                  onClick={() => {
+                    setSelectedShipTargetName("");
+                    setSelectedPlanetName(planet.name);
+                  }}
+                />
+              ))
+            ) : (
+              <span>{activeContactSearch ? "NO MATCHING CELESTIALS" : "NO PLANETS CATALOGED"}</span>
+            )}
           </div>
+          {mode === "local" && (
+            <>
+              <p className={styles.kicker}>KNOWN SECTOR SHIPS</p>
+              <div className={styles.shipContactList}>
+                {visibleShips.length ? (
+                  visibleShips.map((ship) => (
+                    <ShipContact
+                      key={ship.id}
+                      ship={ship}
+                      onClick={() => {
+                        setSelectedPlanetName("");
+                        setSelectedShipTargetName(ship.name || ship.id);
+                      }}
+                    />
+                  ))
+                ) : (
+                  <span>
+                    {activeContactSearch ? "NO MATCHING SHIPS" : "NO SHIPS CURRENTLY KNOWN"}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
           {selectedPlanet && (
             <div className={styles.arrival}>
               <strong>PLANET ARRIVAL REFERENCE</strong>

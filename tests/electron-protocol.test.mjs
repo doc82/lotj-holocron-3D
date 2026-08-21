@@ -5,6 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import {
+  packagedPlanetAssetPaths,
+  validatePackagedPlanetEntries,
+} from "../tools/verify-packaged-planet-assets.mjs";
+
 import { createTelemetryHost } from "../electron/shared/protocol.mjs";
 import { ensureRelayToken, validateRelayAuth } from "../electron/shared/relay-auth.mjs";
 import { appDataPaths } from "../electron/shared/app-paths.mjs";
@@ -97,6 +102,28 @@ test("Electron packaging applies Holocron3D branding across Windows surfaces", a
   assert.match(main, /setAppUserModelId\("com\.veska\.holocron3d"\)/);
   assert.match(forge, /icon: appIcon/);
   assert.match(forge, /setupIcon: appIcon/);
+});
+
+test("Electron packaging includes only built planet textures", async () => {
+  const forge = await readFile(path.resolve(here, "../forge.config.cjs"), "utf8");
+
+  assert.match(forge, /\.codex-tmp\|vendor-assets/);
+  assert.match(forge, /renderer\\\/\(public\|src/);
+  assert.doesNotMatch(forge, /renderer\\\/\(dist\|/);
+});
+
+test("release verification requires every optimized texture and rejects source assets", () => {
+  const expected = packagedPlanetAssetPaths();
+  assert.equal(expected.length, 38);
+  assert.doesNotThrow(() => validatePackagedPlanetEntries(expected));
+  assert.throws(
+    () => validatePackagedPlanetEntries(expected.slice(1)),
+    /missing: \/renderer\/dist\/planet-textures\/alderaan\.webp/,
+  );
+  assert.throws(
+    () => validatePackagedPlanetEntries([...expected, "/vendor-assets/shinyman/alderaan/raw.png"]),
+    /forbidden: \/vendor-assets/,
+  );
 });
 
 test("relay credentials are persistent and validated", async () => {

@@ -361,6 +361,35 @@
   color: #d8f7ff;
   font-size: 11px;
 }
+.contactSearch {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 22px;
+  color: #63dff8;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+.contactSearch input {
+  width: 100%;
+  border: 1px solid #295a68;
+  padding: 10px 11px;
+  color: #d9faff;
+  outline: none;
+  background: #06131d;
+  font:
+    700 10px ui-monospace,
+    monospace;
+}
+.contactSearch input:focus {
+  border-color: #5edaff;
+  box-shadow: 0 0 14px rgba(60, 199, 239, 0.16);
+}
+.contactSearch small {
+  color: #547a84;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
 .planetList {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -392,6 +421,72 @@
 .selectedPlanet {
   border-color: #5edaff;
   background: rgba(41, 149, 181, 0.12);
+}
+.shipContactList {
+  display: grid;
+  gap: 7px;
+  min-height: 42px;
+  margin: 12px 0 22px;
+  color: #537782;
+  font-size: 9px;
+}
+.shipContact {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid #173b48;
+  padding: 9px;
+  color: #a7d4dc;
+  text-align: left;
+  background: rgba(4, 19, 29, 0.84);
+  cursor: pointer;
+}
+.shipContact:hover,
+.shipContact:focus-visible {
+  border-color: #5edaff;
+  color: #e5fbff;
+  background: rgba(26, 86, 104, 0.28);
+}
+.shipContactMarker {
+  width: 10px;
+  height: 10px;
+  margin-left: 2px;
+  transform: rotate(45deg);
+  border: 1px solid #69daf2;
+  box-shadow: 0 0 8px rgba(72, 211, 241, 0.32);
+}
+.shipContact > span:nth-child(2) {
+  min-width: 0;
+}
+.shipContact strong,
+.shipContact small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shipContact strong {
+  font:
+    700 10px/1.25 ui-monospace,
+    monospace;
+}
+.shipContact small {
+  margin-top: 3px;
+  color: #5f8993;
+  font:
+    8px/1.25 ui-monospace,
+    monospace;
+  text-transform: uppercase;
+}
+.shipContact em {
+  color: #6ea0aa;
+  font:
+    700 8px ui-monospace,
+    monospace;
+  font-style: normal;
+  white-space: nowrap;
 }
 .arrival,
 .escape {

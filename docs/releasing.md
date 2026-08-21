@@ -64,6 +64,10 @@ release:
 Changing the Drive file requires updating both repository variables. A release
 fails before packaging if authentication, download, checksum validation,
 extraction, the 38-file completeness check, or 1024×512 WebP validation fails.
+After packaging, each Windows and macOS job also opens the generated `app.asar`
+and requires all 38 optimized maps under `renderer/dist/planet-textures`. The
+release is blocked if a map is missing or empty, or if raw `vendor-assets`,
+temporary `.codex-tmp` files, or duplicate `renderer/public` assets are present.
 
 ### Test the private asset pipeline in a PR
 

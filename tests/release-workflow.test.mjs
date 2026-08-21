@@ -42,6 +42,10 @@ test("main version bumps gate release publication on tests and all installers", 
   assert.match(workflow, /arm64\.dmg/);
   assert.match(workflow, /x64\.dmg/);
   assert.match(workflow, /Holocron3D\.mpackage/);
+  assert.match(workflow, /verify-packaged-planet-assets\.mjs win32 x64/);
+  assert.match(workflow, /verify-packaged-planet-assets\.mjs darwin \$\{\{ matrix\.arch \}\}/);
+  assert.match(workflow, /HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"/);
+  assert.match(workflow, /tools\/fetch-planet-assets\.mjs/);
   assert.match(workflow, /SHA256SUMS\.txt/);
   assert.match(workflow, /pnpm test:lua/);
   assert.match(workflow, /muddle-shadow-\$env:MUDDLER_VERSION/);
