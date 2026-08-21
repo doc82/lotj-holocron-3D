@@ -143,12 +143,22 @@ export interface PlayerShipLabel {
   y: number;
 }
 
+export interface PlanetSprite {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  size: number;
+  depth: number;
+}
+
 export interface TacticalEngineCallbacks {
   onSelect(id: string | null): void;
   onTooltip(tooltip: TacticalTooltip | null): void;
   onClusterLabels(labels: ClusterLabel[]): void;
   onCourseLabel(label: CourseLabel | null): void;
   onPlayerShipLabel(label: PlayerShipLabel | null): void;
+  onPlanetSprites(sprites: PlanetSprite[]): void;
   onFidelityChange(mode: TacticalFidelity): void;
   onCameraModeChange(mode: TacticalCameraMode): void;
   onMovementVector(vector: Vector3): void;
@@ -253,6 +263,7 @@ export class TacticalEngine {
   private clusterLabelSignature = "";
   private courseLabelSignature = "";
   private playerShipLabelSignature = "";
+  private planetSpriteSignature = "";
   private markerScale = 1;
   private markerReferencePixelsPerUnit = 1;
   private fidelity: TacticalFidelity = "strategic";
@@ -634,7 +645,9 @@ export class TacticalEngine {
   }
 
   private rebuildPointBuffers(): void {
-    const tacticalPoints = this.scene.points.filter((point) => point.kind !== "projectile");
+    const tacticalPoints = this.scene.points.filter(
+      (point) => point.kind !== "projectile" && !["celestial", "planet"].includes(point.kind),
+    );
     const strategic = tacticalPoints.flatMap((point) => {
       const customSize = this.scaledPointSize(point);
       const size =
@@ -648,7 +661,9 @@ export class TacticalEngine {
       return this.interleavedVertex(point.position3d, point.color, size, 0, this.headingFor(point));
     });
     const landmarks = this.scene.points
-      .filter((point) => !["ship", "observer", "projectile"].includes(point.kind))
+      .filter(
+        (point) => !["celestial", "planet", "ship", "observer", "projectile"].includes(point.kind),
+      )
       .flatMap((point) =>
         this.interleavedVertex(
           point.position3d,
@@ -1785,6 +1800,7 @@ export class TacticalEngine {
     this.publishClusterLabels();
     this.publishCourseLabel();
     this.publishPlayerShipLabel();
+    this.publishPlanetSprites();
     const focusMoving = this.cameraFocus.some(
       (value, index) => Math.abs(cameraTarget[index] - value) > 0.05,
     );
@@ -1836,6 +1852,39 @@ export class TacticalEngine {
     if (signature === this.clusterLabelSignature) return;
     this.clusterLabelSignature = signature;
     this.callbacks.onClusterLabels(labels);
+  }
+
+  private publishPlanetSprites(): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const sprites: PlanetSprite[] = [];
+    for (const point of this.scene.points) {
+      if (!["celestial", "planet"].includes(point.kind)) continue;
+      const screen = project(point.position3d, this.viewProjection, rect.width, rect.height);
+      if (!screen) continue;
+      sprites.push({
+        id: point.id,
+        name: point.name,
+        x: screen.x,
+        y: screen.y,
+        size: Math.min(112, Math.max(18, point.pointSize * this.markerScale)),
+        depth: screen.depth,
+      });
+    }
+    const signature = sprites
+      .map((sprite) =>
+        [
+          sprite.id,
+          sprite.name,
+          sprite.x.toFixed(1),
+          sprite.y.toFixed(1),
+          sprite.size.toFixed(1),
+          sprite.depth.toFixed(3),
+        ].join(":"),
+      )
+      .join("|");
+    if (signature === this.planetSpriteSignature) return;
+    this.planetSpriteSignature = signature;
+    this.callbacks.onPlanetSprites(sprites);
   }
 
   private publishCourseLabel(): void {

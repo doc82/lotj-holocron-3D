@@ -47,3 +47,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes lua5.1
           pnpm test:lua
+
+  planet-assets:
+    name: Private planet asset pipeline
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - id: planet-drive-auth
+        name: Authenticate to private planet asset storage
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
+      - name: Fetch and checksum planet texture bundle
+        run: node tools/fetch-planet-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
+          HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
+      - name: Validate all runtime texture maps
+        run: node tools/build-planet-textures.mjs --verify-output
+      - name: Build renderer with private textures
+        run: pnpm renderer:build
+      - name: Verify textures reached the renderer build
+        run: node tools/verify-renderer-planet-assets.mjs

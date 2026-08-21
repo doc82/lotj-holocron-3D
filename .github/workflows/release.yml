@@ -80,6 +80,8 @@ jobs:
     needs: [prepare, verify]
     if: needs.prepare.outputs.release == 'true'
     runs-on: windows-latest
+    env:
+      HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -108,6 +110,19 @@ jobs:
           "MUDDLER_HOME=$muddlerDistribution" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - id: planet-drive-auth
+        name: Authenticate to private planet asset storage
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
+      - name: Fetch and verify planet texture sources
+        run: node tools/fetch-planet-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
+          HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
       - name: Build Windows installer
         run: pnpm make:win
       - uses: actions/upload-artifact@v7
@@ -126,6 +141,8 @@ jobs:
     needs: [prepare, verify]
     if: needs.prepare.outputs.release == 'true'
     runs-on: macos-latest
+    env:
+      HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -157,6 +174,19 @@ jobs:
           echo "MUDDLER_HOME=$RUNNER_TEMP/muddler" >> "$GITHUB_ENV"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - id: planet-drive-auth
+        name: Authenticate to private planet asset storage
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
+      - name: Fetch and verify planet texture sources
+        run: node tools/fetch-planet-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
+          HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
       - name: Build macOS installer
         run: pnpm make:mac:${{ matrix.arch }}
       - uses: actions/upload-artifact@v7

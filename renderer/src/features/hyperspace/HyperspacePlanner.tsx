@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useLatestRef } from "../../hooks/useLatestRef";
+import { PlanetSphere } from "../../components/PlanetSphere";
 import {
   clampSectorCoordinate,
   escapeDestinationInRange,
@@ -106,27 +107,6 @@ function hash(value: string) {
   return Math.abs(result >>> 0);
 }
 
-function planetPalette(name: string) {
-  const named: Record<string, [string, string, string]> = {
-    "dromund kaas": ["#193d48", "#52717c", "#101c2d"],
-    tatooine: ["#c99143", "#f1d294", "#6d4023"],
-    coruscant: ["#343c53", "#e7b454", "#080b12"],
-    kashyyyk: ["#164f35", "#4f8d62", "#123d58"],
-    mustafar: ["#1b1718", "#ff5a1f", "#581412"],
-    kamino: ["#164c78", "#7fc4d9", "#d1e9ee"],
-    mandalore: ["#735f43", "#b6a57d", "#2f3941"],
-    "mon cala": ["#0b5f86", "#58b8c7", "#183d70"],
-  };
-  if (named[name.toLowerCase()]) return named[name.toLowerCase()];
-  const seed = hash(name);
-  const hue = seed % 360;
-  return [
-    `hsl(${hue} 48% 28%)`,
-    `hsl(${(hue + 38) % 360} 54% 55%)`,
-    `hsl(${(hue + 190) % 360} 42% 18%)`,
-  ] as const;
-}
-
 function Planet({
   planet,
   selected,
@@ -136,25 +116,17 @@ function Planet({
   selected?: boolean;
   onClick?(): void;
 }) {
-  const palette = planetPalette(planet.name);
   return (
     <button
       type="button"
       className={`${styles.planet} ${selected ? styles.selectedPlanet : ""}`}
-      style={
-        {
-          "--planet-a": palette[0],
-          "--planet-b": palette[1],
-          "--planet-c": palette[2],
-        } as React.CSSProperties
-      }
       onClick={(event) => {
         event.stopPropagation();
         onClick?.();
       }}
       aria-label={`Select ${planet.name}`}
     >
-      <span />
+      <PlanetSphere name={planet.name} className={styles.planetSphere} />
       <em>{planet.name}</em>
     </button>
   );

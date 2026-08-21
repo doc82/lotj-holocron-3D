@@ -91,6 +91,30 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.doesNotMatch(globalStyles, /\.uplink|\.titleStage|\.telemetry/);
 });
 
+test("cinematic mode keeps the tactical canvas mounted while hiding command chrome", async () => {
+  const [app, chrome, icons, css] = await Promise.all([
+    readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/app/TacticalChrome.tsx", "utf8"),
+    readFile("renderer/src/app/TacticalIcons.tsx", "utf8"),
+    readFile("renderer/src/app/App.module.css", "utf8"),
+  ]);
+
+  assert.match(app, /const \[cinematicMode, setCinematicMode\] = useState\(false\)/);
+  const tacticalMain = app.indexOf("cinematicMode ? styles.cinematicMode");
+  assert.ok(
+    tacticalMain >= 0 && tacticalMain < app.indexOf("<TacticalCanvas", tacticalMain),
+    "cinematic styling should wrap the still-mounted tactical canvas",
+  );
+  assert.match(app, /telemetry\.connected && !cinematicMode/);
+  assert.match(app, /aria-label="Exit cinematic mode"/);
+  assert.match(app, /if \(cinematicMode\)[\s\S]*?setCinematicMode\(false\)/);
+  assert.match(app, /event\.key\.toLowerCase\(\) !== "c"/);
+  assert.match(chrome, /aria-label="Enter cinematic mode"/);
+  assert.match(icons, /type: "radar" \| "grid" \| "sector" \| "cinematic"/);
+  assert.match(css, /\.cinematicMode \.commandDeckFrame\s*{\s*display: none/);
+  assert.match(css, /\.cinematicExit/);
+});
+
 test("release author and versions remain synchronized", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8"));
   const mudletPackage = JSON.parse(await readFile("mudlet-package/mfile", "utf8"));

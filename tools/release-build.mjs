@@ -23,6 +23,10 @@ function run(command, args, env = process.env) {
 }
 
 run(process.execPath, [
+  "tools/build-planet-textures.mjs",
+  process.env.HOLOCRON_PLANET_TEXTURES_PREBUILT === "1" ? "--verify-output" : "--required",
+]);
+run(process.execPath, [
   "node_modules/vite/bin/vite.js",
   "build",
   "--config",

@@ -89,3 +89,17 @@ updating as polling results arrive.
 - [Product roadmap](docs/roadmap.md) tracks completed and planned milestones.
 - [Electron migration notes](docs/electron-migration.md) preserve the desktop
   migration history and distribution considerations.
+
+## Planet texture credits
+
+Packaged releases may include optimized planet textures created by
+[Shiny_Man on CGTrader](https://www.cgtrader.com/designers/shinyman). His
+photorealistic planet work is used with attribution in this strictly non-profit
+project. The artist's usage statement and gallery are available from
+[SchinyMan on DeviantArt](https://www.deviantart.com/schinyman).
+
+These planet textures are separately licensed assets. They are not covered by
+the Holocron source code terms, may not be extracted or redistributed as a
+standalone texture pack, and may not be used for AI training or generation.
+See [third-party asset notices](docs/third-party-assets.md) for details and
+source links.

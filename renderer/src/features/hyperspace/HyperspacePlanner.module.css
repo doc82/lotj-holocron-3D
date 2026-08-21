@@ -379,24 +379,10 @@
   cursor: pointer;
   font: 700 10px monospace;
 }
-.planet span {
-  display: block;
+.planetSphere {
   width: 46px;
   height: 46px;
   margin: auto;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.5), transparent 18%),
-    repeating-linear-gradient(
-      18deg,
-      var(--planet-a) 0 9px,
-      var(--planet-b) 10px 17px,
-      var(--planet-c) 18px 25px
-    );
-  box-shadow:
-    inset -12px -7px 18px rgba(0, 0, 0, 0.72),
-    0 0 16px color-mix(in srgb, var(--planet-b) 55%, transparent);
-  animation: planet-spin 16s linear infinite;
 }
 .planet em {
   display: block;
@@ -567,14 +553,6 @@
 }
 .plot:disabled {
   opacity: 0.35;
-}
-@keyframes planet-spin {
-  to {
-    background-position:
-      92px 0,
-      92px 0,
-      92px 0;
-  }
 }
 @keyframes enter {
   from {

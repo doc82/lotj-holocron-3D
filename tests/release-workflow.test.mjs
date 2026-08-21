@@ -13,6 +13,23 @@ test("pull requests run isolated Lua behavior tests with explicit pnpm setup", a
   assert.doesNotMatch(workflow, /corepack/);
 });
 
+test("trusted pull requests test the private planet bundle without publishing it", async () => {
+  const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  assert.match(workflow, /name: Private planet asset pipeline/);
+  assert.match(workflow, /head\.repo\.full_name == github\.repository/);
+  assert.match(workflow, /github\.actor != 'dependabot\[bot\]'/);
+  assert.match(workflow, /google-github-actions\/auth@v3/);
+  assert.match(workflow, /secrets\.GOOGLE_DRIVE_CREDENTIALS/);
+  assert.match(workflow, /vars\.HOLOCRON_PLANET_ASSET_FILE_ID/);
+  assert.match(workflow, /vars\.HOLOCRON_PLANET_ASSET_SHA256/);
+  assert.match(workflow, /tools\/fetch-planet-assets\.mjs/);
+  assert.match(workflow, /build-planet-textures\.mjs --verify-output/);
+  assert.match(workflow, /pnpm renderer:build/);
+  assert.match(workflow, /tools\/verify-renderer-planet-assets\.mjs/);
+  assert.doesNotMatch(workflow, /pull_request_target/);
+  assert.doesNotMatch(workflow, /upload-artifact/);
+});
+
 test("main version bumps gate release publication on tests and all installers", async () => {
   const workflow = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(workflow, /branches: \[main\]/);

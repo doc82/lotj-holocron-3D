@@ -18,6 +18,68 @@
   filter: blur(12px) brightness(1.8);
 }
 
+.cinematicMode {
+  cursor: none;
+}
+
+.cinematicMode .commandDeckFrame {
+  display: none;
+}
+
+.cinematicExit {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  z-index: 70;
+  display: flex;
+  height: 34px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(82, 220, 244, 0.18);
+  padding: 0 10px 0 7px;
+  color: rgba(157, 234, 255, 0.5);
+  background: rgba(2, 13, 22, 0.34);
+  cursor: pointer;
+  opacity: 0.28;
+  transition:
+    opacity 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+  font:
+    700 9px/1 ui-monospace,
+    "Cascadia Mono",
+    monospace;
+  letter-spacing: 0.12em;
+}
+
+.cinematicExit:hover,
+.cinematicExit:focus-visible {
+  border-color: rgba(82, 220, 244, 0.72);
+  outline: none;
+  color: #d9f8ff;
+  background: rgba(2, 13, 22, 0.88);
+  opacity: 1;
+}
+
+.cinematicExit svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+  stroke-width: 1.35;
+}
+
+.cinematicExit kbd {
+  border: 1px solid currentColor;
+  padding: 2px 4px;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.06em;
+}
+
 .scanlines {
   position: absolute;
   inset: 0;
@@ -1400,6 +1462,11 @@
 }
 
 @media (max-width: 760px) {
+  .cinematicExit {
+    top: 12px;
+    right: 12px;
+  }
+
   .topbar {
     top: 12px;
     left: 12px;

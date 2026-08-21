@@ -18,6 +18,7 @@ interface TacticalHeaderProps {
   onToggleGrid(): void;
   onCameraMode(mode: TacticalCameraMode): void;
   onSectorView(): void;
+  onCinematicMode(): void;
   onPollingPaused(paused: boolean): void;
 }
 
@@ -37,6 +38,7 @@ export function TacticalHeader({
   onToggleGrid,
   onCameraMode,
   onSectorView,
+  onCinematicMode,
   onPollingPaused,
 }: TacticalHeaderProps) {
   return (
@@ -118,6 +120,15 @@ export function TacticalHeader({
               onClick={onSectorView}
             >
               <ViewIcon type="sector" />
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Enter cinematic mode"
+              data-tooltip="CINEMATIC MODE // HIDE TACTICAL UI [C]"
+              onClick={onCinematicMode}
+            >
+              <ViewIcon type="cinematic" />
             </button>
           </nav>
         </div>
