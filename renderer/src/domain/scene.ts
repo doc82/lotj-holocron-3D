@@ -37,6 +37,32 @@ function finite(value: unknown, fallback = 0): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
+export function planetSpritePixels(pointSize: number, pixelsPerUnit: number): number {
+  const strategicFloor = 8;
+  const closeRangeCeiling = 160;
+  const cameraScale = Math.sqrt(Math.max(0, finite(pixelsPerUnit)));
+  return clamp(Math.max(1, finite(pointSize, 1)) * cameraScale, strategicFloor, closeRangeCeiling);
+}
+
+export interface PlanetCameraView {
+  textureX: number;
+  textureY: number;
+  lightX: number;
+  lightY: number;
+}
+
+export function planetCameraView(yaw: number, pitch: number): PlanetCameraView {
+  const safeYaw = finite(yaw);
+  const safePitch = clamp(finite(pitch), -1.45, 1.45);
+  const longitudeTurns = (((-safeYaw / TAU) % 1) + 1) % 1;
+  return {
+    textureX: longitudeTurns * 200,
+    textureY: 50 + (safePitch / 1.45) * 30,
+    lightX: 50 + Math.sin(safeYaw) * 24,
+    lightY: 34 - Math.sin(safePitch) * 18,
+  };
+}
+
 export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">): {
   color: Color3;
   shape: number;

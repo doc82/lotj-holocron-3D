@@ -6,6 +6,8 @@ import {
   lookAt,
   multiply,
   orthographic,
+  planetCameraView,
+  planetSpritePixels,
   pointerToXZVector,
   project,
   sensorRangeFor,
@@ -150,6 +152,10 @@ export interface PlanetSprite {
   y: number;
   size: number;
   depth: number;
+  textureX: number;
+  textureY: number;
+  lightX: number;
+  lightY: number;
 }
 
 export interface TacticalEngineCallbacks {
@@ -1856,6 +1862,8 @@ export class TacticalEngine {
 
   private publishPlanetSprites(): void {
     const rect = this.canvas.getBoundingClientRect();
+    const pixelsPerUnit = Math.max(1, rect.height) / (2 * this.camera.distance);
+    const cameraView = planetCameraView(this.camera.yaw, this.camera.pitch);
     const sprites: PlanetSprite[] = [];
     for (const point of this.scene.points) {
       if (!["celestial", "planet"].includes(point.kind)) continue;
@@ -1866,8 +1874,9 @@ export class TacticalEngine {
         name: point.name,
         x: screen.x,
         y: screen.y,
-        size: Math.min(112, Math.max(18, point.pointSize * this.markerScale)),
+        size: planetSpritePixels(point.pointSize, pixelsPerUnit),
         depth: screen.depth,
+        ...cameraView,
       });
     }
     const signature = sprites
@@ -1879,6 +1888,10 @@ export class TacticalEngine {
           sprite.y.toFixed(1),
           sprite.size.toFixed(1),
           sprite.depth.toFixed(3),
+          sprite.textureX.toFixed(2),
+          sprite.textureY.toFixed(2),
+          sprite.lightX.toFixed(2),
+          sprite.lightY.toFixed(2),
         ].join(":"),
       )
       .join("|");
@@ -1924,6 +1937,7 @@ export class TacticalEngine {
 
   private pointAt(clientX: number, clientY: number, threshold: number): ScenePoint | null {
     const rect = this.canvas.getBoundingClientRect();
+    const pixelsPerUnit = Math.max(1, rect.height) / (2 * this.camera.distance);
     let closest: ScenePoint | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
     for (const point of this.scene.points) {
@@ -1933,7 +1947,10 @@ export class TacticalEngine {
         screen.x - (clientX - rect.left),
         screen.y - (clientY - rect.top),
       );
-      const markerRadius = (point.pointSize * this.markerScale) / 2 + 5;
+      const renderedSize = ["celestial", "planet"].includes(point.kind)
+        ? planetSpritePixels(point.pointSize, pixelsPerUnit)
+        : point.pointSize * this.markerScale;
+      const markerRadius = renderedSize / 2 + 5;
       const inside = distance < Math.max(threshold, markerRadius);
       const winsTie =
         closest &&

@@ -15,6 +15,7 @@ test("pull requests run isolated Lua behavior tests with explicit pnpm setup", a
 
 test("trusted pull requests test the private planet bundle without publishing it", async () => {
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  const fetcher = await readFile("tools/fetch-planet-assets.mjs", "utf8");
   assert.match(workflow, /name: Private planet asset pipeline/);
   assert.match(workflow, /head\.repo\.full_name == github\.repository/);
   assert.match(workflow, /github\.actor != 'dependabot\[bot\]'/);
@@ -28,6 +29,8 @@ test("trusted pull requests test the private planet bundle without publishing it
   assert.match(workflow, /tools\/verify-renderer-planet-assets\.mjs/);
   assert.doesNotMatch(workflow, /pull_request_target/);
   assert.doesNotMatch(workflow, /upload-artifact/);
+  assert.match(fetcher, /extractZip\(archivePath/);
+  assert.doesNotMatch(fetcher, /spawnSync\("tar"/);
 });
 
 test("main version bumps gate release publication on tests and all installers", async () => {

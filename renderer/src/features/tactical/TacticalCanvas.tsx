@@ -168,6 +168,12 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             key={planet.id}
             name={planet.name}
             className={`${styles.planetSprite} ${selectedId === planet.id ? styles.selectedPlanetSprite : ""}`}
+            view={{
+              textureX: planet.textureX,
+              textureY: planet.textureY,
+              lightX: planet.lightX,
+              lightY: planet.lightY,
+            }}
             style={{
               left: planet.x,
               top: planet.y,

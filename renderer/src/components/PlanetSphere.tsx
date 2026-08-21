@@ -7,9 +7,15 @@ interface PlanetSphereProps {
   name: string;
   className?: string;
   style?: CSSProperties;
+  view?: {
+    textureX: number;
+    textureY: number;
+    lightX: number;
+    lightY: number;
+  };
 }
 
-export function PlanetSphere({ name, className = "", style }: PlanetSphereProps) {
+export function PlanetSphere({ name, className = "", style, view }: PlanetSphereProps) {
   const visual = planetVisual(name);
   return (
     <span
@@ -21,6 +27,14 @@ export function PlanetSphere({ name, className = "", style }: PlanetSphereProps)
           "--planet-c": visual.palette[2],
           ...(visual.textureUrl ? { "--planet-texture": `url("${visual.textureUrl}")` } : {}),
           ...(visual.normalUrl ? { "--planet-normal": `url("${visual.normalUrl}")` } : {}),
+          ...(view
+            ? {
+                "--planet-view-x": `${view.textureX}%`,
+                "--planet-view-y": `${view.textureY}%`,
+                "--planet-light-x": `${view.lightX}%`,
+                "--planet-light-y": `${view.lightY}%`,
+              }
+            : {}),
           ...style,
         } as CSSProperties
       }

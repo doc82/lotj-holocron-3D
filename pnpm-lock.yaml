@@ -48,6 +48,9 @@ importers:
       electron:
         specifier: ^43.4.0
         version: 43.4.0(supports-color@8.1.1)
+      extract-zip:
+        specifier: 2.0.1
+        version: 2.0.1(supports-color@8.1.1)
       prettier:
         specifier: 3.9.6
         version: 3.9.6

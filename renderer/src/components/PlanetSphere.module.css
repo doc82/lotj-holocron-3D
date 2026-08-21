@@ -6,8 +6,16 @@
   border-radius: 50%;
   background-color: var(--planet-c);
   background-image:
-    radial-gradient(circle at 32% 25%, rgba(255, 255, 255, 0.68), transparent 16%),
-    radial-gradient(circle at 72% 68%, transparent 25%, rgba(0, 0, 0, 0.82) 76%),
+    radial-gradient(
+      circle at var(--planet-light-x, 32%) var(--planet-light-y, 25%),
+      rgba(255, 255, 255, 0.68),
+      transparent 16%
+    ),
+    radial-gradient(
+      circle at calc(100% - var(--planet-light-x, 32%)) calc(100% - var(--planet-light-y, 25%)),
+      transparent 25%,
+      rgba(0, 0, 0, 0.82) 76%
+    ),
     var(--planet-texture, none),
     repeating-linear-gradient(
       18deg,
@@ -18,14 +26,14 @@
   background-position:
     0 0,
     0 0,
-    0 0,
-    0 0;
+    var(--planet-view-x, 0%) var(--planet-view-y, 50%),
+    var(--planet-view-x, 0%) var(--planet-view-y, 50%);
   background-repeat: no-repeat, no-repeat, repeat-x, repeat-x;
   background-size:
     100% 100%,
     100% 100%,
-    auto 100%,
-    auto 100%;
+    200% 116%,
+    200% 116%;
   box-shadow:
     inset -9px -5px 15px rgba(0, 0, 0, 0.58),
     inset 3px 2px 6px rgba(188, 235, 255, 0.16),
@@ -39,9 +47,9 @@
   inset: 0;
   border-radius: inherit;
   background-image: var(--planet-normal, none);
-  background-position: 0 0;
+  background-position: var(--planet-view-x, 0%) var(--planet-view-y, 50%);
   background-repeat: repeat-x;
-  background-size: auto 100%;
+  background-size: 200% 116%;
   content: "";
   filter: grayscale(1) contrast(1.45);
   mix-blend-mode: soft-light;
@@ -51,18 +59,30 @@
 }
 
 @keyframes planet-spin {
+  from {
+    background-position:
+      0 0,
+      0 0,
+      var(--planet-view-x, 0%) var(--planet-view-y, 50%),
+      var(--planet-view-x, 0%) var(--planet-view-y, 50%);
+  }
+
   to {
     background-position:
       0 0,
       0 0,
-      200% 0,
-      0 0;
+      calc(var(--planet-view-x, 0%) + 200%) var(--planet-view-y, 50%),
+      calc(var(--planet-view-x, 0%) + 200%) var(--planet-view-y, 50%);
   }
 }
 
 @keyframes planet-normal-spin {
+  from {
+    background-position: var(--planet-view-x, 0%) var(--planet-view-y, 50%);
+  }
+
   to {
-    background-position: 200% 0;
+    background-position: calc(var(--planet-view-x, 0%) + 200%) var(--planet-view-y, 50%);
   }
 }
 

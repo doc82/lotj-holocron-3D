@@ -61,6 +61,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "electron": "^43.4.0",
+    "extract-zip": "2.0.1",
     "prettier": "3.9.6",
     "sharp": "^0.35.3",
     "typescript": "^7.0.2",

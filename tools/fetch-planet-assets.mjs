@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import extractZip from "extract-zip";
 import assignmentManifest from "../renderer/src/domain/planetTextureAssignments.json" with { type: "json" };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,8 +24,10 @@ if (!accessToken) throw new Error("HOLOCRON_GOOGLE_DRIVE_TOKEN is required.");
 
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), "holocron-planet-assets-"));
 const archivePath = path.join(temporaryRoot, "holocron-planet-runtime.zip");
+const extractionRoot = path.join(temporaryRoot, "extracted");
 const publicRoot = path.join(root, "renderer", "public");
 const textureRoot = path.join(publicRoot, "planet-textures");
+const extractedTextureRoot = path.join(extractionRoot, "planet-textures");
 
 async function sha256(file) {
   const hash = createHash("sha256");
@@ -55,21 +57,14 @@ try {
     );
   }
 
-  await mkdir(publicRoot, { recursive: true });
-  const extraction = spawnSync("tar", ["-xf", archivePath, "-C", publicRoot], {
-    cwd: root,
-    encoding: "utf8",
-  });
-  if (extraction.error) throw extraction.error;
-  if (extraction.status !== 0) {
-    throw new Error(extraction.stderr || extraction.stdout || "Could not extract planet assets.");
-  }
+  await mkdir(extractionRoot, { recursive: true });
+  await extractZip(archivePath, { dir: extractionRoot });
 
   const missing = [];
   for (const { textureKey } of assignmentManifest.assignments) {
     for (const suffix of [".webp", "-normal.webp"]) {
       try {
-        await stat(path.join(textureRoot, `${textureKey}${suffix}`));
+        await stat(path.join(extractedTextureRoot, `${textureKey}${suffix}`));
       } catch (error) {
         if (error?.code !== "ENOENT") throw error;
         missing.push(`${textureKey}${suffix}`);
@@ -79,6 +74,10 @@ try {
   if (missing.length) {
     throw new Error(`Planet runtime bundle is incomplete: ${missing.join(", ")}`);
   }
+
+  await mkdir(publicRoot, { recursive: true });
+  await rm(textureRoot, { recursive: true, force: true });
+  await cp(extractedTextureRoot, textureRoot, { recursive: true });
 
   console.log(
     `Verified and extracted ${assignmentManifest.assignments.length * 2} planet runtime maps.`,

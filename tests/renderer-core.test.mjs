@@ -10,6 +10,8 @@ import {
   lookAt,
   multiply,
   orthographic,
+  planetCameraView,
+  planetSpritePixels,
   pointerToXZVector,
   project,
   projectileVisual,
@@ -640,6 +642,34 @@ test("orthographic tactical scale projects ten pixels per distance unit", () => 
     Math.abs(gridPixelSpan - 60_000) < 0.01,
     "the ±3,000-unit grid should span 60,000 pixels at the 10 px/unit reference scale",
   );
+});
+
+test("planet sprites stay small at strategic scale and grow as the camera zooms in", () => {
+  const sizes = [0.1, 1, 4, 16, 100, 400].map((pixelsPerUnit) =>
+    planetSpritePixels(13, pixelsPerUnit),
+  );
+
+  assert.deepEqual(sizes, [8, 13, 26, 52, 130, 160]);
+  assert.ok(
+    sizes.every((size, index) => index === 0 || size >= sizes[index - 1]),
+    "increasing pixels-per-unit must never make a planet smaller",
+  );
+});
+
+test("planet surface projection follows tactical camera yaw and pitch", () => {
+  const front = planetCameraView(0, 0);
+  const orbited = planetCameraView(Math.PI / 2, 0.7);
+
+  assert.notEqual(orbited.textureX, front.textureX);
+  assert.ok(orbited.textureY > front.textureY);
+  assert.notEqual(orbited.lightX, front.lightX);
+  assert.notEqual(orbited.lightY, front.lightY);
+  for (const view of [front, orbited]) {
+    assert.ok(view.textureX >= 0 && view.textureX < 200);
+    assert.ok(view.textureY >= 20 && view.textureY <= 80);
+    assert.ok(view.lightX >= 26 && view.lightX <= 74);
+    assert.ok(view.lightY >= 16 && view.lightY <= 52);
+  }
 });
 
 test("course plotting keeps the X/Z vector endpoint under the pointer", () => {
