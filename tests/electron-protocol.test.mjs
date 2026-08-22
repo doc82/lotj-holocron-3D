@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
+  archiveExtractionPath,
   packagedPlanetAssetPaths,
   validatePackagedPlanetEntries,
 } from "../tools/verify-packaged-planet-assets.mjs";
@@ -157,6 +158,14 @@ test("Electron packaging includes only built planet textures", async () => {
 test("release verification requires every optimized texture and rejects source assets", () => {
   const expected = packagedPlanetAssetPaths();
   assert.equal(expected.length, 40);
+  assert.equal(
+    archiveExtractionPath(["\\renderer\\dist\\planet-textures\\alderaan.webp"], expected[0]),
+    "renderer\\dist\\planet-textures\\alderaan.webp",
+  );
+  assert.equal(
+    archiveExtractionPath(["/renderer/dist/planet-textures/alderaan.webp"], expected[0]),
+    "renderer/dist/planet-textures/alderaan.webp",
+  );
   assert.doesNotThrow(() => validatePackagedPlanetEntries(expected));
   assert.throws(
     () => validatePackagedPlanetEntries(expected.slice(1)),

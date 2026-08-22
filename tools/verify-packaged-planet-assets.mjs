@@ -19,6 +19,14 @@ function normalizedArchivePath(entry) {
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
 }
 
+export function archiveExtractionPath(entries, expected) {
+  const normalizedExpected = normalizedArchivePath(expected);
+  const entry = entries.find(
+    (candidate) => normalizedArchivePath(candidate) === normalizedExpected,
+  );
+  return entry?.replace(/^[/\\]+/, "");
+}
+
 export function validatePackagedPlanetEntries(entries) {
   const normalized = new Set(entries.map(normalizedArchivePath));
   const missing = packagedPlanetAssetPaths().filter((entry) => !normalized.has(entry));
@@ -46,9 +54,10 @@ export function verifyPackagedPlanetAssets(archivePath) {
   const entries = listPackage(archivePath, { isPack: false });
   validatePackagedPlanetEntries(entries);
 
-  const empty = packagedPlanetAssetPaths().filter(
-    (entry) => extractFile(archivePath, entry.slice(1)).byteLength === 0,
-  );
+  const empty = packagedPlanetAssetPaths().filter((entry) => {
+    const extractionPath = archiveExtractionPath(entries, entry);
+    return !extractionPath || extractFile(archivePath, extractionPath).byteLength === 0;
+  });
   if (empty.length) throw new Error(`Packaged planet texture maps are empty: ${empty.join(", ")}`);
 
   console.log(
