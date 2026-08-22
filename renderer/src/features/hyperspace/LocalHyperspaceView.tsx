@@ -204,7 +204,7 @@ export function LocalHyperspaceView({
   const expandedCluster = findScenePoint(renderedScene, expandedClusterId);
 
   const selectPoint = useCallback(
-    (id: string | null) => {
+    (id: string | null, updateDestination = true) => {
       const point = findScenePoint(renderedScene, id);
       if (!point || point.id === "player-ship" || point.kind === "prediction") {
         setSelectedId(null);
@@ -221,7 +221,7 @@ export function LocalHyperspaceView({
       setExpandedClusterId(null);
       setSelectedId(point.id);
       setPredictionEnabled(point.kind === "ship");
-      onDestinationChange(point.worldPosition);
+      if (updateDestination) onDestinationChange(point.worldPosition);
     },
     [onDestinationChange, renderedScene],
   );
@@ -280,7 +280,7 @@ export function LocalHyperspaceView({
         (point) =>
           targetKinds.includes(point.kind) && point.name.trim().toLowerCase() === normalizedTarget,
       );
-    if (target) selectPoint(target.id);
+    if (target) selectPoint(target.id, false);
   }, [renderedScene, requestedTargetName, selectPoint, shipTargetName]);
 
   const beginPointPlot = useCallback(() => {

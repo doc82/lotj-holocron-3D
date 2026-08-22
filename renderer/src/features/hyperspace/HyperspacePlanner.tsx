@@ -222,13 +222,19 @@ export function HyperspacePlanner({
       .toLowerCase()
       .includes(activeContactSearch),
   );
-  const updateLocalDestination = useCallback((destination: [number, number, number]) => {
-    setSelectedPlanetName("");
-    setSelectedShipTargetName("");
+  const setLocalDestination = useCallback((destination: [number, number, number]) => {
     setX(clampSectorCoordinate(destination[0]));
     setY(clampSectorCoordinate(destination[1]));
     setZ(clampSectorCoordinate(destination[2]));
   }, []);
+  const updateLocalDestination = useCallback(
+    (destination: [number, number, number]) => {
+      setSelectedPlanetName("");
+      setSelectedShipTargetName("");
+      setLocalDestination(destination);
+    },
+    [setLocalDestination],
+  );
   const updateTracking = useCallback((next: HyperspaceRoutePayload["tracking"] | undefined) => {
     setTracking((current) => {
       if (!current || !next) return current === next ? current : next;
@@ -277,10 +283,8 @@ export function HyperspacePlanner({
     if (!selectedPlanetPosition) return;
     const destination = randomSectorDestinationBeyond(selectedPlanetPosition, arrivalDistance);
     setTracking(undefined);
-    setX(destination[0]);
-    setY(destination[1]);
-    setZ(destination[2]);
-  }, [arrivalDistance, selectedPlanetPosition]);
+    setLocalDestination(destination);
+  }, [arrivalDistance, selectedPlanetPosition, setLocalDestination]);
 
   const primaryGalaxy = primaryGalaxyFor(mode, selectedSystem, currentGalaxy, catalog, current);
 
@@ -537,6 +541,7 @@ export function HyperspacePlanner({
                   onClick={() => {
                     setSelectedShipTargetName("");
                     setSelectedPlanetName(planet.name);
+                    setLocalDestination([planet.x || 0, planet.y || 0, planet.z || 0]);
                   }}
                 />
               ))
@@ -556,6 +561,11 @@ export function HyperspacePlanner({
                       onClick={() => {
                         setSelectedPlanetName("");
                         setSelectedShipTargetName(ship.name || ship.id);
+                        setLocalDestination([
+                          Number(ship.x) || 0,
+                          Number(ship.y) || 0,
+                          Number(ship.z) || 0,
+                        ]);
                       }}
                     />
                   ))

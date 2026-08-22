@@ -91,7 +91,9 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(localPlanner, /PLOT \+ TRACK MOVING TARGET/);
   assert.match(localPlanner, /NAVIGATOR \+30%/);
   assert.match(localPlanner, /prediction:target/);
+  assert.match(planner, /const setLocalDestination = useCallback/);
   assert.match(planner, /const updateLocalDestination = useCallback/);
+  assert.match(planner, /setSelectedPlanetName\(planet\.name\);[\s\S]*?setLocalDestination\(/);
   assert.match(planner, /planetTargetName=\{selectedPlanetName\}/);
   assert.match(planner, /shipTargetName=\{selectedShipTargetName\}/);
   assert.match(planner, /SECTOR CONTACT SEARCH/);
@@ -109,11 +111,11 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(localPlanner, /if \(!selected \|\| requestedTargetName\) return;/);
   assert.match(
     localPlanner,
-    /if \(!requestedTargetName\) return;[\s\S]*?shipTargetName \? \["ship"\] : \["celestial", "planet"\][\s\S]*?\.flatMap\(\(point\) => point\.members \?\? \[point\]\)[\s\S]*?selectPoint\(target\.id\)/,
+    /if \(!requestedTargetName\) return;[\s\S]*?shipTargetName \? \["ship"\] : \["celestial", "planet"\][\s\S]*?\.flatMap\(\(point\) => point\.members \?\? \[point\]\)[\s\S]*?selectPoint\(target\.id, false\)/,
   );
   assert.match(
     localPlanner,
-    /const selectPoint = useCallback[\s\S]*?setSelectedId\(point\.id\)[\s\S]*?onDestinationChange\(point\.worldPosition\)/,
+    /const selectPoint = useCallback[\s\S]*?setSelectedId\(point\.id\)[\s\S]*?if \(updateDestination\) onDestinationChange\(point\.worldPosition\)/,
   );
   assert.match(localPlanner, /prediction:observer/);
   assert.match(controller, /observeMotionTracks/);
