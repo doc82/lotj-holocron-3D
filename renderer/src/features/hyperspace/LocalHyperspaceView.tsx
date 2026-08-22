@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ViewIcon } from "../../app/TacticalIcons";
 import {
   calculateHyperspaceIntercept,
   type MotionTrack,
@@ -121,6 +122,7 @@ export function LocalHyperspaceView({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("rts");
+  const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
   const [pointMode, setPointMode] = useState<"idle" | "plotting" | "fixed">("idle");
   const [predictionEnabled, setPredictionEnabled] = useState(false);
   const [navigatorEnabled, setNavigatorEnabled] = useState(false);
@@ -370,7 +372,7 @@ export function LocalHyperspaceView({
         ref={tacticalRef}
         snapshot={renderedSnapshot}
         observerLabel="ROUTE ORIGIN"
-        radarBubbleEnabled
+        radarBubbleEnabled={radarBubbleEnabled}
         originGridEnabled
         selectedId={selectedId}
         onSelect={selectPoint}
@@ -393,6 +395,17 @@ export function LocalHyperspaceView({
       />
 
       <div className={styles.cameraControls} aria-label="Local hyperspace camera controls">
+        <span>VIEW</span>
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label={`${radarBubbleEnabled ? "Hide" : "Show"} radar bubble`}
+          aria-pressed={radarBubbleEnabled}
+          title={`${radarBubbleEnabled ? "Hide" : "Show"} radar bubble`}
+          onClick={() => setRadarBubbleEnabled((enabled) => !enabled)}
+        >
+          <ViewIcon type="radar" />
+        </button>
         <span>CAMERA</span>
         <button
           type="button"

@@ -76,6 +76,10 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.doesNotMatch(planner, /localGrid/);
   assert.match(planner, /LocalHyperspaceView/);
   assert.match(localPlanner, /TacticalCanvas/);
+  assert.match(localPlanner, /<ViewIcon type="radar"/);
+  assert.match(localPlanner, /radarBubbleEnabled=\{radarBubbleEnabled\}/);
+  assert.match(localPlanner, /setRadarBubbleEnabled\(\(enabled\) => !enabled\)/);
+  assert.match(localPlanner, /Hide" : "Show"\} radar bubble/);
   assert.match(localPlanner, /FOLLOW TARGET/);
   assert.match(localPlanner, /PLOT POINT \[M\]/);
   assert.match(localPlanner, /beginMovementPlanning/);
