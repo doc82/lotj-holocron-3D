@@ -13,12 +13,13 @@ test("pull requests run isolated Lua behavior tests with explicit pnpm setup", a
   assert.doesNotMatch(workflow, /corepack/);
 });
 
-test("trusted pull requests test the private planet bundle without publishing it", async () => {
-  const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+test("private planet bundle validation is manual and does not run on pull requests", async () => {
+  const ciWorkflow = await readFile(".github/workflows/ci.yml", "utf8");
+  const workflow = await readFile(".github/workflows/planet-assets.yml", "utf8");
   const fetcher = await readFile("tools/fetch-planet-assets.mjs", "utf8");
-  assert.match(workflow, /name: Private planet asset pipeline/);
-  assert.match(workflow, /head\.repo\.full_name == github\.repository/);
-  assert.match(workflow, /github\.actor != 'dependabot\[bot\]'/);
+  assert.match(workflow, /name: Private planet asset validation/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /pull_request:/);
   assert.match(workflow, /google-github-actions\/auth@v3/);
   assert.match(workflow, /secrets\.GOOGLE_DRIVE_CREDENTIALS/);
   assert.match(workflow, /vars\.HOLOCRON_PLANET_ASSET_FILE_ID/);
@@ -29,6 +30,8 @@ test("trusted pull requests test the private planet bundle without publishing it
   assert.match(workflow, /tools\/verify-renderer-planet-assets\.mjs/);
   assert.doesNotMatch(workflow, /pull_request_target/);
   assert.doesNotMatch(workflow, /upload-artifact/);
+  assert.doesNotMatch(ciWorkflow, /tools\/fetch-planet-assets\.mjs/);
+  assert.doesNotMatch(ciWorkflow, /Private planet asset/);
   assert.match(fetcher, /extractZip\(archivePath/);
   assert.doesNotMatch(fetcher, /spawnSync\("tar"/);
 });
