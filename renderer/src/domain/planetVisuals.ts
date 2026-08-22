@@ -56,6 +56,11 @@ export function normalizePlanetName(name: string) {
     .trim();
 }
 
+export function resolvePlanetAssetUrl(relativeUrl: string, baseUrl?: string): string {
+  const runtimeBase = baseUrl ?? (typeof document === "undefined" ? undefined : document.baseURI);
+  return runtimeBase ? new URL(relativeUrl, runtimeBase).href : relativeUrl;
+}
+
 const ASSIGNMENTS_BY_NAME = new Map(
   PLANET_TEXTURE_ASSIGNMENTS.map((assignment) => [
     normalizePlanetName(assignment.planet),

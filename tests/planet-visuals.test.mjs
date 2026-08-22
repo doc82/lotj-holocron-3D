@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { PLANET_TEXTURE_ASSIGNMENTS, planetVisual } from "../renderer/src/domain/planetVisuals.ts";
+import {
+  PLANET_TEXTURE_ASSIGNMENTS,
+  planetVisual,
+  resolvePlanetAssetUrl,
+} from "../renderer/src/domain/planetVisuals.ts";
 
 const CONFIRMED_PLANETS = [
   "Alderaan",
@@ -44,6 +48,16 @@ test("every confirmed world has its own texture and bump-map pair", () => {
 test("alternate names resolve to the same physical world", () => {
   assert.equal(planetVisual("Moraband").textureKey, planetVisual("Korriban").textureKey);
   assert.equal(planetVisual("Dac").textureKey, planetVisual("Mon Cala").textureKey);
+});
+
+test("planet texture URLs resolve from the renderer document instead of its CSS bundle", () => {
+  assert.equal(
+    resolvePlanetAssetUrl(
+      "./planet-textures/dromund-kaas.webp",
+      "file:///application/resources/app.asar/renderer/dist/index.html",
+    ),
+    "file:///application/resources/app.asar/renderer/dist/planet-textures/dromund-kaas.webp",
+  );
 });
 
 test("unknown planets receive a stable procedural visual without borrowing an assigned texture", () => {

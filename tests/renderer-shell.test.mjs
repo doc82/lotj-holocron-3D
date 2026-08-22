@@ -233,9 +233,10 @@ test("tactical renderer provides a toggleable three-plane world-origin grid", as
 });
 
 test("colocated contact clusters expose counts and an expandable member grid", async () => {
-  const [engine, canvas, app] = await Promise.all([
+  const [engine, canvas, canvasStyles, app] = await Promise.all([
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+    readFile("renderer/src/features/tactical/TacticalCanvas.module.css", "utf8"),
     readFile("renderer/src/app/App.tsx", "utf8"),
   ]);
 
@@ -245,6 +246,11 @@ test("colocated contact clusters expose counts and an expandable member grid", a
   assert.match(canvas, /Open group of/);
   assert.match(canvas, /onPointerEnter=.*setTooltip/s);
   assert.match(canvas, /tooltip\.groupSummary \|\| tooltip\.name/);
+  assert.match(engine, /point\.orbitingShipCount \?\? point\.memberCount/);
+  assert.match(engine, /member\.id === point\.orbitingPlanetId/);
+  assert.match(canvas, /styles\.orbitedPlanetSprite/);
+  assert.match(canvas, /styles\.orbitCount/);
+  assert.match(canvasStyles, /\.orbitCount[\s\S]*font-size: 18px/);
   assert.match(app, /COLOCATED CONTACTS/);
   assert.match(app, /styles\.memberGrid/);
   assert.match(app, /onMouseEnter=\{\(\) => onHover\(member\.id\)\}/);

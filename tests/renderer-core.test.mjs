@@ -829,6 +829,8 @@ test("exactly colocated ships and celestial bodies share a stable selectable clu
   assert.ok(cluster);
   assert.equal(cluster.memberCount, 3);
   assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.equal(cluster.orbitingPlanetId, "moon");
+  assert.equal(cluster.orbitingShipCount, 2);
   assert.deepEqual(
     cluster.members.map((member) => member.id),
     ["gore", "moon", "strega"],
@@ -862,6 +864,8 @@ test("the observer participates in a colocated contact cluster without losing it
   assert.ok(cluster, "the orbital position should expose a contact picker");
   assert.equal(cluster.memberCount, 3);
   assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.equal(cluster.orbitingPlanetId, "korriban");
+  assert.equal(cluster.orbitingShipCount, 2);
   assert.deepEqual(
     cluster.members.map((member) => member.id),
     ["korriban", "player-ship", "teehee3"],

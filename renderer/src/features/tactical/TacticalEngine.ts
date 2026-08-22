@@ -132,6 +132,7 @@ export interface ClusterLabel {
   worldPosition: Vector3;
   x: number;
   y: number;
+  orbitingPlanet: boolean;
 }
 
 export interface CourseLabel {
@@ -156,6 +157,7 @@ export interface PlanetSprite {
   textureY: number;
   lightX: number;
   lightY: number;
+  orbitingShipCount: number;
 }
 
 export interface TacticalEngineCallbacks {
@@ -1827,19 +1829,25 @@ export class TacticalEngine {
 
   private publishClusterLabels(): void {
     const rect = this.canvas.getBoundingClientRect();
+    const pixelsPerUnit = Math.max(1, rect.height) / (2 * this.camera.distance);
     const labels: ClusterLabel[] = [];
     for (const point of this.scene.points) {
       if (point.kind !== "cluster" || !point.memberCount) continue;
       const screen = project(point.position3d, this.viewProjection, rect.width, rect.height);
       if (!screen) continue;
+      const orbitingPlanet = point.members?.find((member) => member.id === point.orbitingPlanetId);
+      const planetRadius = orbitingPlanet
+        ? planetSpritePixels(orbitingPlanet.pointSize, pixelsPerUnit) / 2
+        : 0;
       labels.push({
         id: point.id,
-        count: point.memberCount,
+        count: point.orbitingShipCount ?? point.memberCount,
         summary: point.memberSummary || `${point.memberCount} CONTACTS`,
         distance: Math.hypot(...point.position3d),
         worldPosition: point.worldPosition,
         x: screen.x,
-        y: screen.y,
+        y: screen.y - planetRadius,
+        orbitingPlanet: Boolean(orbitingPlanet),
       });
     }
     const signature = labels
@@ -1851,6 +1859,7 @@ export class TacticalEngine {
           label.count,
           label.summary,
           label.distance.toFixed(1),
+          label.orbitingPlanet,
           ...label.worldPosition,
         ].join(":"),
       )
@@ -1866,17 +1875,23 @@ export class TacticalEngine {
     const cameraView = planetCameraView(this.camera.yaw, this.camera.pitch);
     const sprites: PlanetSprite[] = [];
     for (const point of this.scene.points) {
-      if (!["celestial", "planet"].includes(point.kind)) continue;
+      const planet = ["celestial", "planet"].includes(point.kind)
+        ? point
+        : point.kind === "cluster"
+          ? point.members?.find((member) => member.id === point.orbitingPlanetId)
+          : undefined;
+      if (!planet) continue;
       const screen = project(point.position3d, this.viewProjection, rect.width, rect.height);
       if (!screen) continue;
       sprites.push({
-        id: point.id,
-        name: point.name,
+        id: planet.id,
+        name: planet.name,
         x: screen.x,
         y: screen.y,
-        size: planetSpritePixels(point.pointSize, pixelsPerUnit),
+        size: planetSpritePixels(planet.pointSize, pixelsPerUnit),
         depth: screen.depth,
         ...cameraView,
+        orbitingShipCount: point.orbitingShipCount ?? 0,
       });
     }
     const signature = sprites
@@ -1892,6 +1907,7 @@ export class TacticalEngine {
           sprite.textureY.toFixed(2),
           sprite.lightX.toFixed(2),
           sprite.lightY.toFixed(2),
+          sprite.orbitingShipCount,
         ].join(":"),
       )
       .join("|");

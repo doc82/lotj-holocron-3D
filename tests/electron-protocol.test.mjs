@@ -12,7 +12,11 @@ import {
 
 import { createTelemetryHost } from "../electron/shared/protocol.mjs";
 import { ensureRelayToken, validateRelayAuth } from "../electron/shared/relay-auth.mjs";
-import { appDataPaths } from "../electron/shared/app-paths.mjs";
+import {
+  DEFAULT_OUT_REMOTE_DEBUGGING_PORT,
+  appDataPaths,
+  remoteDebuggingPortForExecutable,
+} from "../electron/shared/app-paths.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,9 +89,47 @@ test("Electron window and preload keep privileged APIs isolated", async () => {
   assert.match(main, /contextIsolation:\s*true/);
   assert.match(main, /sandbox:\s*true/);
   assert.match(main, /setWindowOpenHandler\(\(\) => \(\{ action: "deny" \}\)\)/);
+  assert.match(main, /appendSwitch\("remote-debugging-address", "127\.0\.0\.1"\)/);
+  assert.match(main, /appendSwitch\("remote-debugging-port", String\(remoteDebuggingPort\)\)/);
   assert.doesNotMatch(preload, /ipcRenderer:\s*ipcRenderer/);
   assert.doesNotMatch(preload, /send:\s*ipcRenderer\.send/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\(\s*"holocron"/);
+});
+
+test("unpacked out builds enable local debugging without exposing installed releases", () => {
+  assert.equal(
+    remoteDebuggingPortForExecutable(
+      "C:\\repo\\out\\LotJ Holocron 3D-win32-x64\\Holocron3D.exe",
+      {},
+    ),
+    DEFAULT_OUT_REMOTE_DEBUGGING_PORT,
+  );
+  assert.equal(
+    remoteDebuggingPortForExecutable(
+      "/repo/out/LotJ Holocron 3D-darwin-arm64/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D",
+      {},
+    ),
+    DEFAULT_OUT_REMOTE_DEBUGGING_PORT,
+  );
+  assert.equal(
+    remoteDebuggingPortForExecutable(
+      "C:\\Users\\Test\\AppData\\Local\\Holocron3D\\app-1.0.0\\Holocron3D.exe",
+      {},
+    ),
+    null,
+  );
+  assert.equal(
+    remoteDebuggingPortForExecutable("C:\\repo\\out\\Holocron3D.exe", {
+      HOLOCRON_REMOTE_DEBUGGING: "0",
+    }),
+    null,
+  );
+  assert.equal(
+    remoteDebuggingPortForExecutable("C:\\installed\\Holocron3D.exe", {
+      HOLOCRON_REMOTE_DEBUGGING_PORT: "9333",
+    }),
+    9333,
+  );
 });
 
 test("Electron packaging applies Holocron3D branding across Windows surfaces", async () => {

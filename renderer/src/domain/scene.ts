@@ -15,6 +15,8 @@ export interface ScenePoint extends TelemetryEntity {
   members?: ScenePoint[];
   memberCount?: number;
   memberSummary?: string;
+  orbitingPlanetId?: string;
+  orbitingShipCount?: number;
   markerShape: number;
   shipSize?: number;
 }
@@ -207,6 +209,10 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
     );
     const representative = unsortedMembers[0];
+    const orbitingPlanet = members.find((member) => ["celestial", "planet"].includes(member.kind));
+    const orbitingShipCount = orbitingPlanet
+      ? members.filter((member) => ["ship", "observer"].includes(member.kind)).length
+      : undefined;
     clusters.set(coordinateKey, {
       id: `cluster:${coordinateKey}`,
       name: `${members.length} contacts`,
@@ -221,6 +227,8 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       members,
       memberCount: members.length,
       memberSummary: summarizeContacts(members),
+      orbitingPlanetId: orbitingPlanet?.id,
+      orbitingShipCount,
       markerShape: 0,
     });
   }

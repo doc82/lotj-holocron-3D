@@ -167,7 +167,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
           <PlanetSphere
             key={planet.id}
             name={planet.name}
-            className={`${styles.planetSprite} ${selectedId === planet.id ? styles.selectedPlanetSprite : ""}`}
+            className={`${styles.planetSprite} ${planet.orbitingShipCount > 0 ? styles.orbitedPlanetSprite : ""} ${selectedId === planet.id ? styles.selectedPlanetSprite : ""}`}
             view={{
               textureX: planet.textureX,
               textureY: planet.textureY,
@@ -197,12 +197,18 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
           <button
             key={label.id}
             type="button"
-            className={styles.clusterCount}
+            className={`${styles.clusterCount} ${label.orbitingPlanet ? styles.orbitCount : ""}`}
             style={{ left: label.x, top: label.y }}
-            aria-label={`Open group of ${label.count} contacts`}
+            aria-label={
+              label.orbitingPlanet
+                ? `Open ${label.count} ships in orbit`
+                : `Open group of ${label.count} contacts`
+            }
             onPointerEnter={(event) =>
               setTooltip({
-                name: `${label.count} contacts`,
+                name: label.orbitingPlanet
+                  ? `${label.count} ships in orbit`
+                  : `${label.count} contacts`,
                 memberCount: label.count,
                 groupSummary: label.summary,
                 distance: label.distance,
