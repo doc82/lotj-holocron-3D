@@ -25,6 +25,7 @@ const CONFIRMED_PLANETS = [
   "Mon Cala",
   "Mustafar",
   "Nal Hutta",
+  "Nar Shaddaa",
   "Ryloth",
   "Tatooine",
   "Wroona",

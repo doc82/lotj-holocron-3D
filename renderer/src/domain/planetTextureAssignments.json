@@ -113,6 +113,13 @@
       "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/exotic-planet-03-4k"
     },
     {
+      "planet": "Nar Shaddaa",
+      "textureKey": "nar-shaddaa",
+      "terrain": "urban",
+      "source": "Nar Shaddaa - 4k Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/nar-shaddaa-4k-star-wars-planet-texture"
+    },
+    {
       "planet": "Ryloth",
       "textureKey": "ryloth",
       "terrain": "desert",

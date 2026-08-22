@@ -51,7 +51,9 @@ export function verifyPackagedPlanetAssets(archivePath) {
   );
   if (empty.length) throw new Error(`Packaged planet texture maps are empty: ${empty.join(", ")}`);
 
-  console.log(`Verified 38 optimized planet texture maps in ${archivePath}.`);
+  console.log(
+    `Verified ${packagedPlanetAssetPaths().length} optimized planet texture maps in ${archivePath}.`,
+  );
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";

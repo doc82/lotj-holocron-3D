@@ -156,7 +156,7 @@ test("Electron packaging includes only built planet textures", async () => {
 
 test("release verification requires every optimized texture and rejects source assets", () => {
   const expected = packagedPlanetAssetPaths();
-  assert.equal(expected.length, 38);
+  assert.equal(expected.length, 40);
   assert.doesNotThrow(() => validatePackagedPlanetEntries(expected));
   assert.throws(
     () => validatePackagedPlanetEntries(expected.slice(1)),

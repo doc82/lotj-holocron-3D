@@ -63,9 +63,9 @@ release:
 
 Changing the Drive file requires updating both repository variables. A release
 fails before packaging if authentication, download, checksum validation,
-extraction, the 38-file completeness check, or 1024×512 WebP validation fails.
+extraction, the 40-file completeness check, or 1024×512 WebP validation fails.
 After packaging, each Windows and macOS job also opens the generated `app.asar`
-and requires all 38 optimized maps under `renderer/dist/planet-textures`. The
+and requires all 40 optimized maps under `renderer/dist/planet-textures`. The
 release is blocked if a map is missing or empty, or if raw `vendor-assets`,
 temporary `.codex-tmp` files, or duplicate `renderer/public` assets are present.
 
@@ -73,7 +73,7 @@ temporary `.codex-tmp` files, or duplicate `renderer/public` assets are present.
 
 Open a pull request from a branch in this repository. The
 **CI / Private planet asset pipeline** job authenticates with the same secret,
-downloads the same Drive ZIP, verifies its SHA-256 and all 38 1024×512 WebPs,
+downloads the same Drive ZIP, verifies its SHA-256 and all 40 1024×512 WebPs,
 builds the renderer, and confirms that every map reached
 `renderer/dist/planet-textures`. It does not package an installer, upload the
 textures as an Actions artifact, or publish a release.

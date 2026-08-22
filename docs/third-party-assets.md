@@ -38,6 +38,6 @@ for worlds without a dedicated texture.
 
 Each of these worlds has its own runtime diffuse and bump/normal pair: Alderaan,
 Arkania, Bespin, Corellia, Coruscant, Dantooine, Dromund Kaas, Hapes, Ithor,
-Kashyyyk, Korriban, Lorrd, Mandalore, Mon Cala, Mustafar, Nal Hutta, Ryloth,
-Tatooine, and Wroona. Dac and Moraband are treated as aliases for Mon Cala and
-Korriban rather than separate planets.
+Kashyyyk, Korriban, Lorrd, Mandalore, Mon Cala, Mustafar, Nal Hutta, Nar
+Shaddaa, Ryloth, Tatooine, and Wroona. Dac and Moraband are treated as aliases
+for Mon Cala and Korriban rather than separate planets.
