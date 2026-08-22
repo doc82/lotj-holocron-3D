@@ -235,6 +235,14 @@ export function HyperspacePlanner({
     },
     [setLocalDestination],
   );
+  const selectLocalPlanet = useCallback(
+    ({ name, destination }: { name: string; destination: [number, number, number] }) => {
+      setSelectedShipTargetName("");
+      setSelectedPlanetName(name);
+      setLocalDestination(destination);
+    },
+    [setLocalDestination],
+  );
   const updateTracking = useCallback((next: HyperspaceRoutePayload["tracking"] | undefined) => {
     setTracking((current) => {
       if (!current || !next) return current === next ? current : next;
@@ -412,6 +420,7 @@ export function HyperspacePlanner({
               planetTargetName={selectedPlanetName}
               shipTargetName={selectedShipTargetName}
               onDestinationChange={updateLocalDestination}
+              onPlanetSelect={selectLocalPlanet}
               onTrackingChange={updateTracking}
             />
           ) : (
@@ -538,11 +547,12 @@ export function HyperspacePlanner({
                   key={planet.name}
                   planet={planet}
                   selected={selectedPlanetName === planet.name}
-                  onClick={() => {
-                    setSelectedShipTargetName("");
-                    setSelectedPlanetName(planet.name);
-                    setLocalDestination([planet.x || 0, planet.y || 0, planet.z || 0]);
-                  }}
+                  onClick={() =>
+                    selectLocalPlanet({
+                      name: planet.name,
+                      destination: [planet.x || 0, planet.y || 0, planet.z || 0],
+                    })
+                  }
                 />
               ))
             ) : (

@@ -27,6 +27,7 @@ interface LocalHyperspaceViewProps {
   planetTargetName?: string;
   shipTargetName?: string;
   onDestinationChange(destination: Vector3): void;
+  onPlanetSelect(planet: { name: string; destination: Vector3 }): void;
   onTrackingChange(tracking: HyperspaceRoutePayload["tracking"] | undefined): void;
 }
 
@@ -113,6 +114,7 @@ export function LocalHyperspaceView({
   planetTargetName,
   shipTargetName,
   onDestinationChange,
+  onPlanetSelect,
   onTrackingChange,
 }: LocalHyperspaceViewProps) {
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
@@ -221,9 +223,15 @@ export function LocalHyperspaceView({
       setExpandedClusterId(null);
       setSelectedId(point.id);
       setPredictionEnabled(point.kind === "ship");
-      if (updateDestination) onDestinationChange(point.worldPosition);
+      if (updateDestination) {
+        if (["celestial", "planet"].includes(point.kind)) {
+          onPlanetSelect({ name: point.name, destination: point.worldPosition });
+        } else {
+          onDestinationChange(point.worldPosition);
+        }
+      }
     },
-    [onDestinationChange, renderedScene],
+    [onDestinationChange, onPlanetSelect, renderedScene],
   );
 
   useEffect(() => {

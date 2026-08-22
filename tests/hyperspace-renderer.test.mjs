@@ -93,9 +93,11 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(localPlanner, /prediction:target/);
   assert.match(planner, /const setLocalDestination = useCallback/);
   assert.match(planner, /const updateLocalDestination = useCallback/);
-  assert.match(planner, /setSelectedPlanetName\(planet\.name\);[\s\S]*?setLocalDestination\(/);
+  assert.match(planner, /const selectLocalPlanet = useCallback/);
+  assert.match(planner, /setSelectedPlanetName\(name\);[\s\S]*?setLocalDestination\(destination\)/);
   assert.match(planner, /planetTargetName=\{selectedPlanetName\}/);
   assert.match(planner, /shipTargetName=\{selectedShipTargetName\}/);
+  assert.match(planner, /onPlanetSelect=\{selectLocalPlanet\}/);
   assert.match(planner, /SECTOR CONTACT SEARCH/);
   assert.match(planner, /type="search"/);
   assert.match(planner, /KNOWN SECTOR SHIPS/);
@@ -115,7 +117,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   );
   assert.match(
     localPlanner,
-    /const selectPoint = useCallback[\s\S]*?setSelectedId\(point\.id\)[\s\S]*?if \(updateDestination\) onDestinationChange\(point\.worldPosition\)/,
+    /const selectPoint = useCallback[\s\S]*?setSelectedId\(point\.id\)[\s\S]*?\["celestial", "planet"\]\.includes\(point\.kind\)[\s\S]*?onPlanetSelect\(\{ name: point\.name, destination: point\.worldPosition \}\)/,
   );
   assert.match(localPlanner, /prediction:observer/);
   assert.match(controller, /observeMotionTracks/);
