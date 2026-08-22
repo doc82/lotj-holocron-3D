@@ -13,7 +13,13 @@ import {
   validateIntent,
 } from "../shared/protocol.mjs";
 import { ensureRelayToken, validateRelayAuth } from "../shared/relay-auth.mjs";
-import { appDataPaths } from "../shared/app-paths.mjs";
+import { appDataPaths, remoteDebuggingPortForExecutable } from "../shared/app-paths.mjs";
+
+const remoteDebuggingPort = remoteDebuggingPortForExecutable(process.execPath);
+if (remoteDebuggingPort) {
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+  app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebuggingPort));
+}
 
 const root = app.getAppPath();
 const rendererEntry = path.join(root, "renderer", "dist", "index.html");
@@ -41,6 +47,10 @@ function debug(message) {
   if (process.env.HOLOCRON_DEBUG_STDERR === "1") {
     process.stderr.write(`[Holocron3D/Electron] ${message}\n`);
   }
+}
+
+if (remoteDebuggingPort) {
+  debug(`out-build debugging enabled on 127.0.0.1:${remoteDebuggingPort}`);
 }
 
 function write(message) {

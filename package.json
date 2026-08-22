@@ -1,14 +1,14 @@
 {
   "name": "lotj-holocron-3d",
   "productName": "LotJ Holocron 3D",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "A real-time 3D tactical renderer for Legends of the Jedi space telemetry.",
   "author": "Veska",
   "private": true,
   "type": "module",
   "main": "electron/main/bootstrap.mjs",
   "scripts": {
-    "check": "pnpm format:check && pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check tools/build-relay.mjs && node --check tools/build-mudlet-package.mjs && node --check tools/release-build.mjs && node --check tools/release-version.mjs && node --check tools/bump-version.mjs && node --check tools/run-lua-tests.mjs && node --check tools/build-macos-icon.mjs && node --check tools/build-dmg.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/app-paths.mjs && node --check forge.config.cjs",
+    "check": "pnpm format:check && pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check tools/build-planet-textures.mjs && node --check tools/fetch-planet-assets.mjs && node --check tools/preview-planet-textures.mjs && node --check tools/verify-renderer-planet-assets.mjs && node --check tools/verify-packaged-planet-assets.mjs && node --check tools/build-relay.mjs && node --check tools/build-mudlet-package.mjs && node --check tools/release-build.mjs && node --check tools/release-version.mjs && node --check tools/bump-version.mjs && node --check tools/run-lua-tests.mjs && node --check tools/build-macos-icon.mjs && node --check tools/build-dmg.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/app-paths.mjs && node --check forge.config.cjs",
     "version:patch": "node tools/bump-version.mjs patch",
     "version:minor": "node tools/bump-version.mjs minor",
     "version:major": "node tools/bump-version.mjs major",
@@ -22,6 +22,8 @@
     "format:go:check": "node tools/format-go.mjs --check",
     "renderer:dev": "vite --config vite.renderer.config.ts",
     "renderer:build": "vite build --config vite.renderer.config.ts",
+    "assets:planets": "node tools/build-planet-textures.mjs",
+    "preview:planets": "node tools/preview-planet-textures.mjs",
     "renderer:typecheck": "tsc --noEmit",
     "electron:dev": "node tools/electron-dev.mjs",
     "electron:smoke": "pnpm renderer:build && node tools/electron-smoke.mjs",
@@ -59,7 +61,9 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "electron": "^43.4.0",
+    "extract-zip": "2.0.1",
     "prettier": "3.9.6",
+    "sharp": "^0.35.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.1"
   }

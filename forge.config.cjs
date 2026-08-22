@@ -23,8 +23,9 @@ module.exports = {
       path.resolve(__dirname, "out", "mudlet", "Holocron3D.mpackage"),
     ],
     ignore: [
+      /^\/(\.codex-tmp|vendor-assets)(\/|$)/,
       /^\/(docs|mudlet|poc|relay|tests|tools)(\/|$)/,
-      /^\/renderer\/(src|index\.html|styles\.css)(\/|$)/,
+      /^\/renderer\/(public|src|index\.html|styles\.css)(\/|$)/,
       /^\/(tsconfig\.json|vite\.renderer\.config\.ts)$/,
       /^\/\.electron-smoke-profile(\/|$)/,
       /^\/\.gocache(\/|$)/,

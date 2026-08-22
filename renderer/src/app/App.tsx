@@ -42,6 +42,7 @@ import { useShipDossierController } from "../features/telemetry/useShipDossierCo
 import styles from "./App.module.css";
 import { CommandActionPanel } from "./CommandActionPanel";
 import { PollingPausedOverlay, TacticalHeader } from "./TacticalChrome";
+import { ViewIcon } from "./TacticalIcons";
 import {
   CommandIssuerPanel,
   ContactClusterPanel,
@@ -61,6 +62,7 @@ export function App() {
   const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
+  const [cinematicMode, setCinematicMode] = useState(false);
   const [commandLocked, setCommandLocked] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
@@ -324,7 +326,7 @@ export function App() {
     connected: telemetry.connected,
     landed,
     pollingPaused,
-    keyboardEnabled: !hyperspacePlanner && !managementOpen,
+    keyboardEnabled: !hyperspacePlanner && !managementOpen && !cinematicMode,
     commandLocked,
     setCommandLocked,
     setAlert: setCommandAlert,
@@ -435,6 +437,12 @@ export function App() {
   useEffect(() => {
     const handleManagementKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (cinematicMode) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setCinematicMode(false);
+        return;
+      }
       if (managementOpen) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -459,6 +467,7 @@ export function App() {
     return () => window.removeEventListener("keydown", handleManagementKey, true);
   }, [
     activeRoute,
+    cinematicMode,
     hyperspacePlanner,
     managementOpen,
     navigationMode,
@@ -467,6 +476,38 @@ export function App() {
     starting,
     targetDrawerOpen,
   ]);
+
+  useEffect(() => {
+    const handleCinematicKey = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "c" ||
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      )
+        return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))
+      )
+        return;
+      if (
+        !cinematicMode &&
+        (!spaceTelemetryActive || starting || managementOpen || hyperspacePlanner)
+      )
+        return;
+      event.preventDefault();
+      setCinematicMode((active) => !active);
+    };
+    window.addEventListener("keydown", handleCinematicKey);
+    return () => window.removeEventListener("keydown", handleCinematicKey);
+  }, [cinematicMode, hyperspacePlanner, managementOpen, spaceTelemetryActive, starting]);
+
+  useEffect(() => {
+    if (!spaceTelemetryActive) setCinematicMode(false);
+  }, [spaceTelemetryActive]);
 
   const targetSelectedShip = shipCommands.targetSelectedShip;
   const toggleAutotrack = shipCommands.toggleAutotrack;
@@ -507,7 +548,9 @@ export function App() {
             onEscape={() => void escapeHyperspace()}
           />
         )}
-      <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
+      <main
+        className={`${styles.experience} ${starting ? styles.startupActive : ""} ${cinematicMode ? styles.cinematicMode : ""}`}
+      >
         <TacticalCanvas
           ref={tacticalRef}
           snapshot={classifiedSnapshot}
@@ -527,7 +570,7 @@ export function App() {
         />
         <div className={styles.scanlines} aria-hidden="true" />
 
-        {managementMenu}
+        {!cinematicMode && managementMenu}
 
         {pollingPaused && (
           <PollingPausedOverlay
@@ -536,30 +579,46 @@ export function App() {
           />
         )}
 
-        <TacticalHeader
-          connected={telemetry.connected}
-          identity={
-            viewpointMemberKey
-              ? `REMOTE UPLINK // ${activeTacticalView ? "LIVE" : "AWAITING RADAR"} // ${viewpointMember?.name || viewpointMemberKey}`
-              : "HOLOCRON 3D // LIVE TACTICAL"
-          }
-          systemName={telemetry.snapshot ? scene.system : "Awaiting telemetry"}
-          radarBubbleEnabled={radarBubbleEnabled}
-          originGridEnabled={originGridEnabled}
-          navigationActive={navigationMode !== "idle"}
-          cameraMode={cameraMode}
-          cameraFocusName={cameraFocusPoint?.name}
-          pollingPaused={pollingPaused}
-          pollingPausePending={pollingPausePending}
-          connectionLabel={telemetry.connectionLabel}
-          onToggleRadar={() => setRadarBubbleEnabled((enabled) => !enabled)}
-          onToggleGrid={() => setOriginGridEnabled((enabled) => !enabled)}
-          onCameraMode={chooseCameraMode}
-          onSectorView={() => tacticalRef.current?.sectorView()}
-          onPollingPaused={(paused) => void changePollingPause(paused)}
-        />
+        {!cinematicMode && (
+          <TacticalHeader
+            connected={telemetry.connected}
+            identity={
+              viewpointMemberKey
+                ? `REMOTE UPLINK // ${activeTacticalView ? "LIVE" : "AWAITING RADAR"} // ${viewpointMember?.name || viewpointMemberKey}`
+                : "HOLOCRON 3D // LIVE TACTICAL"
+            }
+            systemName={telemetry.snapshot ? scene.system : "Awaiting telemetry"}
+            radarBubbleEnabled={radarBubbleEnabled}
+            originGridEnabled={originGridEnabled}
+            navigationActive={navigationMode !== "idle"}
+            cameraMode={cameraMode}
+            cameraFocusName={cameraFocusPoint?.name}
+            pollingPaused={pollingPaused}
+            pollingPausePending={pollingPausePending}
+            connectionLabel={telemetry.connectionLabel}
+            onToggleRadar={() => setRadarBubbleEnabled((enabled) => !enabled)}
+            onToggleGrid={() => setOriginGridEnabled((enabled) => !enabled)}
+            onCameraMode={chooseCameraMode}
+            onSectorView={() => tacticalRef.current?.sectorView()}
+            onCinematicMode={() => setCinematicMode(true)}
+            onPollingPaused={(paused) => void changePollingPause(paused)}
+          />
+        )}
 
-        {telemetry.connected && (
+        {cinematicMode && (
+          <button
+            type="button"
+            className={styles.cinematicExit}
+            aria-label="Exit cinematic mode"
+            onClick={() => setCinematicMode(false)}
+          >
+            <ViewIcon type="cinematic" />
+            <span>EXIT CINEMATIC</span>
+            <kbd>ESC</kbd>
+          </button>
+        )}
+
+        {telemetry.connected && !cinematicMode && (
           <CommandScopeRail
             fleet={fleet}
             localName={localName}
@@ -569,7 +628,7 @@ export function App() {
           />
         )}
 
-        {telemetry.connected && (
+        {telemetry.connected && !cinematicMode && (
           <TargetShortcutRail
             targets={targetShortcuts}
             drawerOpen={targetDrawerOpen}
@@ -580,7 +639,7 @@ export function App() {
           />
         )}
 
-        {telemetry.connected && scopeDrawerOpen && (
+        {telemetry.connected && !cinematicMode && scopeDrawerOpen && (
           <FleetScopeDrawer
             label={commandIssuerLabel}
             fleet={fleet}
@@ -598,7 +657,7 @@ export function App() {
           />
         )}
 
-        {shipDossier && dossierShip && (
+        {!cinematicMode && shipDossier && dossierShip && (
           <ShipDossierPanel
             ship={dossierShip}
             mode={shipDossier.mode}
@@ -610,7 +669,7 @@ export function App() {
           />
         )}
 
-        {hyperspacePlanner && (
+        {!cinematicMode && hyperspacePlanner && (
           <HyperspacePlanner
             mode={hyperspacePlanner.mode}
             recipientLabel={hyperspacePlanner.routeScope.recipientLabel || "YOUR SHIP"}
@@ -640,7 +699,7 @@ export function App() {
           />
         )}
 
-        {activeRoute && !hyperspacePlanner && (
+        {!cinematicMode && activeRoute && !hyperspacePlanner && (
           <NavigationComputer
             route={activeRoute}
             state={hyperspaceState}
@@ -654,7 +713,7 @@ export function App() {
           />
         )}
 
-        {telemetry.connected && navigationMode !== "idle" && (
+        {telemetry.connected && !cinematicMode && navigationMode !== "idle" && (
           <NavigationDrawer
             mode={navigationMode}
             kind={pendingNavigationMode}
@@ -768,7 +827,7 @@ export function App() {
           </div>
         )}
 
-        {expandedCluster?.members && (
+        {!cinematicMode && expandedCluster?.members && (
           <ContactClusterPanel
             cluster={expandedCluster}
             selectedId={selectedId}

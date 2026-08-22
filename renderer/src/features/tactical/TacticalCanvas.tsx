@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
+import { PlanetSphere } from "../../components/PlanetSphere";
 import { formatCoordinate } from "../../domain/scene";
 import { RangeMeter } from "../telemetry/RangeMeter";
 import type {
@@ -15,6 +16,7 @@ import {
   type ClusterLabel,
   type CourseLabel,
   type PlayerShipLabel,
+  type PlanetSprite,
   type TacticalCameraMode,
   type TacticalFidelity,
   type TacticalTooltip,
@@ -76,6 +78,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     const [clusterLabels, setClusterLabels] = useState<ClusterLabel[]>([]);
     const [courseLabel, setCourseLabel] = useState<CourseLabel | null>(null);
     const [playerShipLabel, setPlayerShipLabel] = useState<PlayerShipLabel | null>(null);
+    const [planetSprites, setPlanetSprites] = useState<PlanetSprite[]>([]);
     const [fidelity, setFidelity] = useState<TacticalFidelity>("strategic");
     const callbacksRef = useLatestRef({
       onSelect,
@@ -93,6 +96,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
         onClusterLabels: setClusterLabels,
         onCourseLabel: setCourseLabel,
         onPlayerShipLabel: setPlayerShipLabel,
+        onPlanetSprites: setPlanetSprites,
         onFidelityChange: setFidelity,
         onCameraModeChange: (mode) => callbacksRef.current.onCameraModeChange(mode),
         onMovementVector: (vector) => callbacksRef.current.onMovementVector(vector),
@@ -159,6 +163,26 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     return (
       <>
         <canvas ref={canvasRef} className={styles.space} aria-label="3D system map" />
+        {planetSprites.map((planet) => (
+          <PlanetSphere
+            key={planet.id}
+            name={planet.name}
+            className={`${styles.planetSprite} ${planet.orbitingShipCount > 0 ? styles.orbitedPlanetSprite : ""} ${selectedId === planet.id ? styles.selectedPlanetSprite : ""}`}
+            view={{
+              textureX: planet.textureX,
+              textureY: planet.textureY,
+              lightX: planet.lightX,
+              lightY: planet.lightY,
+            }}
+            style={{
+              left: planet.x,
+              top: planet.y,
+              width: planet.size,
+              height: planet.size,
+              zIndex: Math.max(2, Math.round(20 - planet.depth * 8)),
+            }}
+          />
+        ))}
         {snapshot && playerShipLabel && (
           <div
             className={styles.playerShipLabel}
@@ -173,12 +197,18 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
           <button
             key={label.id}
             type="button"
-            className={styles.clusterCount}
+            className={`${styles.clusterCount} ${label.orbitingPlanet ? styles.orbitCount : ""}`}
             style={{ left: label.x, top: label.y }}
-            aria-label={`Open group of ${label.count} contacts`}
+            aria-label={
+              label.orbitingPlanet
+                ? `Open ${label.count} ships in orbit`
+                : `Open group of ${label.count} contacts`
+            }
             onPointerEnter={(event) =>
               setTooltip({
-                name: `${label.count} contacts`,
+                name: label.orbitingPlanet
+                  ? `${label.count} ships in orbit`
+                  : `${label.count} contacts`,
                 memberCount: label.count,
                 groupSummary: label.summary,
                 distance: label.distance,

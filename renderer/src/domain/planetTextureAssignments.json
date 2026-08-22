@@ -1,0 +1,148 @@
+{
+  "assignments": [
+    {
+      "planet": "Alderaan",
+      "textureKey": "alderaan",
+      "terrain": "terran",
+      "source": "Terran Planet 09 Version 1 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/terran-planet-09-version-1-4k"
+    },
+    {
+      "planet": "Arkania",
+      "textureKey": "arkania",
+      "terrain": "ice",
+      "source": "Csilla - 4k Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/csilla-4k-star-wars-planet-texture"
+    },
+    {
+      "planet": "Bespin",
+      "textureKey": "bespin",
+      "terrain": "gas-giant",
+      "source": "Gas Giant Planet 01 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/gas-giant-planet-01-4k"
+    },
+    {
+      "planet": "Corellia",
+      "textureKey": "corellia",
+      "terrain": "terran",
+      "source": "Taris - 4k Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/taris-4k-star-wars-planet-texture"
+    },
+    {
+      "planet": "Coruscant",
+      "textureKey": "coruscant",
+      "terrain": "urban",
+      "source": "Coruscant - Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/coruscant-star-wars-planet-texture"
+    },
+    {
+      "planet": "Dantooine",
+      "textureKey": "dantooine",
+      "terrain": "terran",
+      "source": "Terran Planet 05",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/terran-planet-05"
+    },
+    {
+      "planet": "Dromund Kaas",
+      "textureKey": "dromund-kaas",
+      "terrain": "exotic",
+      "source": "Exotic Planet 02 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/exotic-planet-02-4k"
+    },
+    {
+      "planet": "Hapes",
+      "textureKey": "hapes",
+      "terrain": "terran",
+      "source": "Terran Planet 10 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/terran-planet-10-4k"
+    },
+    {
+      "planet": "Ithor",
+      "textureKey": "ithor",
+      "terrain": "exotic",
+      "source": "Exotic Planet 01 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/exotic-planet-01-4k"
+    },
+    {
+      "planet": "Kashyyyk",
+      "textureKey": "kashyyyk",
+      "terrain": "exotic",
+      "source": "Felucia - Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/felucia-star-wars-planet-texture"
+    },
+    {
+      "planet": "Korriban",
+      "textureKey": "korriban",
+      "terrain": "desert",
+      "source": "Korriban - 4k Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/korriban-4k-star-wars-planet-texture"
+    },
+    {
+      "planet": "Lorrd",
+      "textureKey": "lorrd",
+      "terrain": "desert",
+      "source": "Desert Planet 02",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/desert-planet-02"
+    },
+    {
+      "planet": "Mandalore",
+      "textureKey": "mandalore",
+      "terrain": "desert",
+      "source": "Mandalore (Legends) - 4k Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/mandalore-legends-16k-star-wars-planet-texture"
+    },
+    {
+      "planet": "Mon Cala",
+      "textureKey": "mon-cala",
+      "terrain": "oceanic",
+      "source": "Oceanic Planet 05 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/oceanic-planet-05-4k"
+    },
+    {
+      "planet": "Mustafar",
+      "textureKey": "mustafar",
+      "terrain": "volcanic",
+      "source": "Volcanic Planet 06 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/volcanic-planet-06-4k"
+    },
+    {
+      "planet": "Nal Hutta",
+      "textureKey": "nal-hutta",
+      "terrain": "exotic",
+      "source": "Exotic Planet 03 - 4k",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/exotic-planet-03-4k"
+    },
+    {
+      "planet": "Nar Shaddaa",
+      "textureKey": "nar-shaddaa",
+      "terrain": "urban",
+      "source": "Nar Shaddaa - 4k Star Wars Planet Texture",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/nar-shaddaa-4k-star-wars-planet-texture"
+    },
+    {
+      "planet": "Ryloth",
+      "textureKey": "ryloth",
+      "terrain": "desert",
+      "source": "Desert Planet 07",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/desert-planet-07"
+    },
+    {
+      "planet": "Tatooine",
+      "textureKey": "tatooine",
+      "terrain": "desert",
+      "source": "Desert Planet 05",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/desert-planet-05"
+    },
+    {
+      "planet": "Wroona",
+      "textureKey": "wroona",
+      "terrain": "oceanic",
+      "source": "Oceanic Planet 02",
+      "sourceUrl": "https://www.cgtrader.com/free-3d-models/space/planet/oceanic-planet-02"
+    }
+  ],
+  "aliases": {
+    "Dac": "Mon Cala",
+    "Moraband": "Korriban"
+  }
+}

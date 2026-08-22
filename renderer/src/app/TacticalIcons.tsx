@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
 
-export function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
+export function ViewIcon({ type }: { type: "radar" | "grid" | "sector" | "cinematic" }) {
   if (type === "radar")
     return (
       <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -15,6 +15,13 @@ export function ViewIcon({ type }: { type: "radar" | "grid" | "sector" }) {
     return (
       <svg viewBox="0 0 32 32" aria-hidden="true">
         <path d="M5 24 12 8h8l7 16ZM8 19h16M10 14h12M12 8l-2 16M20 8l2 16" />
+      </svg>
+    );
+  if (type === "cinematic")
+    return (
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M11 6H6v5M21 6h5v5M11 26H6v-5M21 26h5v-5" />
+        <path d="m10 13 6-3 6 3v7l-6 3-6-3Z" />
       </svg>
     );
   return (

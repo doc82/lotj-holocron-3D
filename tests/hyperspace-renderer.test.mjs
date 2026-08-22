@@ -76,6 +76,10 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.doesNotMatch(planner, /localGrid/);
   assert.match(planner, /LocalHyperspaceView/);
   assert.match(localPlanner, /TacticalCanvas/);
+  assert.match(localPlanner, /<ViewIcon type="radar"/);
+  assert.match(localPlanner, /radarBubbleEnabled=\{radarBubbleEnabled\}/);
+  assert.match(localPlanner, /setRadarBubbleEnabled\(\(enabled\) => !enabled\)/);
+  assert.match(localPlanner, /Hide" : "Show"\} radar bubble/);
   assert.match(localPlanner, /FOLLOW TARGET/);
   assert.match(localPlanner, /PLOT POINT \[M\]/);
   assert.match(localPlanner, /beginMovementPlanning/);
@@ -91,17 +95,33 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(localPlanner, /PLOT \+ TRACK MOVING TARGET/);
   assert.match(localPlanner, /NAVIGATOR \+30%/);
   assert.match(localPlanner, /prediction:target/);
+  assert.match(planner, /const setLocalDestination = useCallback/);
   assert.match(planner, /const updateLocalDestination = useCallback/);
+  assert.match(planner, /const selectLocalPlanet = useCallback/);
+  assert.match(planner, /setSelectedPlanetName\(name\);[\s\S]*?setLocalDestination\(destination\)/);
   assert.match(planner, /planetTargetName=\{selectedPlanetName\}/);
+  assert.match(planner, /shipTargetName=\{selectedShipTargetName\}/);
+  assert.match(planner, /onPlanetSelect=\{selectLocalPlanet\}/);
+  assert.match(planner, /SECTOR CONTACT SEARCH/);
+  assert.match(planner, /type="search"/);
+  assert.match(planner, /KNOWN SECTOR SHIPS/);
+  assert.match(planner, /ship\.name \|\| ship\.id/);
+  assert.match(planner, /ship\.class \|\| ""/);
+  assert.match(planner, /ship\.shipCategory \|\| ""/);
+  assert.match(planner, /setSelectedShipTargetName\(ship\.name \|\| ship\.id\)/);
   assert.match(planner, /RANDOM LOCATION/);
   assert.match(planner, /\[500, 1000, 2000\]/);
   assert.match(planner, /randomSectorDestinationBeyond\(selectedPlanetPosition, arrivalDistance\)/);
   assert.match(planner, /!planetArrivalClear/);
   assert.doesNotMatch(planner, /if \(!selectedPlanet\) return;[\s\S]*?setX\(/);
-  assert.match(localPlanner, /if \(!selected \|\| planetTargetName\) return;/);
+  assert.match(localPlanner, /if \(!selected \|\| requestedTargetName\) return;/);
   assert.match(
     localPlanner,
-    /if \(!planetTargetName\) return;[\s\S]*?setSelectedId\(null\)[\s\S]*?setPredictionEnabled\(false\)/,
+    /if \(!requestedTargetName\) return;[\s\S]*?shipTargetName \? \["ship"\] : \["celestial", "planet"\][\s\S]*?\.flatMap\(\(point\) => point\.members \?\? \[point\]\)[\s\S]*?selectPoint\(target\.id, false\)/,
+  );
+  assert.match(
+    localPlanner,
+    /const selectPoint = useCallback[\s\S]*?setSelectedId\(point\.id\)[\s\S]*?\["celestial", "planet"\]\.includes\(point\.kind\)[\s\S]*?onPlanetSelect\(\{ name: point\.name, destination: point\.worldPosition \}\)/,
   );
   assert.match(localPlanner, /prediction:observer/);
   assert.match(controller, /observeMotionTracks/);

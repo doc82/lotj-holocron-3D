@@ -10,6 +10,8 @@ import {
   lookAt,
   multiply,
   orthographic,
+  planetCameraView,
+  planetSpritePixels,
   pointerToXZVector,
   project,
   projectileVisual,
@@ -642,6 +644,34 @@ test("orthographic tactical scale projects ten pixels per distance unit", () => 
   );
 });
 
+test("planet sprites stay small at strategic scale and grow as the camera zooms in", () => {
+  const sizes = [0.1, 1, 4, 16, 100, 400].map((pixelsPerUnit) =>
+    planetSpritePixels(13, pixelsPerUnit),
+  );
+
+  assert.deepEqual(sizes, [8, 13, 26, 52, 130, 160]);
+  assert.ok(
+    sizes.every((size, index) => index === 0 || size >= sizes[index - 1]),
+    "increasing pixels-per-unit must never make a planet smaller",
+  );
+});
+
+test("planet surface projection follows tactical camera yaw and pitch", () => {
+  const front = planetCameraView(0, 0);
+  const orbited = planetCameraView(Math.PI / 2, 0.7);
+
+  assert.notEqual(orbited.textureX, front.textureX);
+  assert.ok(orbited.textureY > front.textureY);
+  assert.notEqual(orbited.lightX, front.lightX);
+  assert.notEqual(orbited.lightY, front.lightY);
+  for (const view of [front, orbited]) {
+    assert.ok(view.textureX >= 0 && view.textureX < 200);
+    assert.ok(view.textureY >= 20 && view.textureY <= 80);
+    assert.ok(view.lightX >= 26 && view.lightX <= 74);
+    assert.ok(view.lightY >= 16 && view.lightY <= 52);
+  }
+});
+
 test("course plotting keeps the X/Z vector endpoint under the pointer", () => {
   const camera = new OrbitCamera();
   camera.distance = 100;
@@ -799,6 +829,8 @@ test("exactly colocated ships and celestial bodies share a stable selectable clu
   assert.ok(cluster);
   assert.equal(cluster.memberCount, 3);
   assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.equal(cluster.orbitingPlanetId, "moon");
+  assert.equal(cluster.orbitingShipCount, 2);
   assert.deepEqual(
     cluster.members.map((member) => member.id),
     ["gore", "moon", "strega"],
@@ -832,6 +864,8 @@ test("the observer participates in a colocated contact cluster without losing it
   assert.ok(cluster, "the orbital position should expose a contact picker");
   assert.equal(cluster.memberCount, 3);
   assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.equal(cluster.orbitingPlanetId, "korriban");
+  assert.equal(cluster.orbitingShipCount, 2);
   assert.deepEqual(
     cluster.members.map((member) => member.id),
     ["korriban", "player-ship", "teehee3"],

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useLatestRef } from "../../hooks/useLatestRef";
+import { PlanetSphere } from "../../components/PlanetSphere";
 import {
   clampSectorCoordinate,
   escapeDestinationInRange,
@@ -15,6 +16,7 @@ import type {
   GalaxySystem,
   HyperspaceRoutePayload,
   SystemSnapshot,
+  TelemetryEntity,
 } from "../../types/telemetry";
 import { LocalHyperspaceView } from "./LocalHyperspaceView";
 import styles from "./HyperspacePlanner.module.css";
@@ -106,27 +108,6 @@ function hash(value: string) {
   return Math.abs(result >>> 0);
 }
 
-function planetPalette(name: string) {
-  const named: Record<string, [string, string, string]> = {
-    "dromund kaas": ["#193d48", "#52717c", "#101c2d"],
-    tatooine: ["#c99143", "#f1d294", "#6d4023"],
-    coruscant: ["#343c53", "#e7b454", "#080b12"],
-    kashyyyk: ["#164f35", "#4f8d62", "#123d58"],
-    mustafar: ["#1b1718", "#ff5a1f", "#581412"],
-    kamino: ["#164c78", "#7fc4d9", "#d1e9ee"],
-    mandalore: ["#735f43", "#b6a57d", "#2f3941"],
-    "mon cala": ["#0b5f86", "#58b8c7", "#183d70"],
-  };
-  if (named[name.toLowerCase()]) return named[name.toLowerCase()];
-  const seed = hash(name);
-  const hue = seed % 360;
-  return [
-    `hsl(${hue} 48% 28%)`,
-    `hsl(${(hue + 38) % 360} 54% 55%)`,
-    `hsl(${(hue + 190) % 360} 42% 18%)`,
-  ] as const;
-}
-
 function Planet({
   planet,
   selected,
@@ -136,26 +117,35 @@ function Planet({
   selected?: boolean;
   onClick?(): void;
 }) {
-  const palette = planetPalette(planet.name);
   return (
     <button
       type="button"
       className={`${styles.planet} ${selected ? styles.selectedPlanet : ""}`}
-      style={
-        {
-          "--planet-a": palette[0],
-          "--planet-b": palette[1],
-          "--planet-c": palette[2],
-        } as React.CSSProperties
-      }
       onClick={(event) => {
         event.stopPropagation();
         onClick?.();
       }}
       aria-label={`Select ${planet.name}`}
     >
-      <span />
+      <PlanetSphere name={planet.name} className={styles.planetSphere} />
       <em>{planet.name}</em>
+    </button>
+  );
+}
+
+function ShipContact({ ship, onClick }: { ship: TelemetryEntity; onClick(): void }) {
+  const name = ship.name || ship.id;
+  const classification = String(ship.class || ship.shipCategory || "Unknown class");
+  return (
+    <button type="button" className={styles.shipContact} onClick={onClick}>
+      <span className={styles.shipContactMarker} aria-hidden="true" />
+      <span>
+        <strong>{name}</strong>
+        <small>{classification}</small>
+      </span>
+      {Number.isFinite(Number(ship.distance)) && (
+        <em>{Math.round(Number(ship.distance)).toLocaleString()} u</em>
+      )}
     </button>
   );
 }
@@ -183,6 +173,8 @@ export function HyperspacePlanner({
   const [selectedName, setSelectedName] = useState(currentSystem || systems[0]?.name || "");
   const selectedSystem = systems.find((system) => system.name === selectedName) || systems[0];
   const [selectedPlanetName, setSelectedPlanetName] = useState("");
+  const [selectedShipTargetName, setSelectedShipTargetName] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
   const selectedPlanet = selectedSystem?.planets.find(
     (planet) => planet.name === selectedPlanetName,
   );
@@ -203,12 +195,54 @@ export function HyperspacePlanner({
   const [escapeSy, setEscapeSy] = useState(0);
   const [escapeSz, setEscapeSz] = useState(0);
   const [escapeDistance, setEscapeDistance] = useState(1);
-  const updateLocalDestination = useCallback((destination: [number, number, number]) => {
-    setSelectedPlanetName("");
+  const knownSectorShips = useMemo(() => {
+    const ships = new Map<string, TelemetryEntity>();
+    for (const entity of snapshot?.entities ?? []) {
+      if (entity.kind !== "ship") continue;
+      const name = String(entity.name || entity.id).trim();
+      if (!name) continue;
+      ships.set(entity.id || name.toLowerCase(), entity);
+    }
+    return [...ships.values()].sort((left, right) =>
+      String(left.name || left.id).localeCompare(String(right.name || right.id), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  }, [snapshot]);
+  const normalizedContactSearch = contactSearch.trim().toLowerCase();
+  const activeContactSearch = mode === "local" ? normalizedContactSearch : "";
+  const sidebarPlanets =
+    mode === "local" ? (current?.planets ?? []) : (selectedSystem?.planets ?? []);
+  const visiblePlanets = sidebarPlanets.filter((planet) =>
+    `${planet.name} ${planet.government || ""}`.toLowerCase().includes(activeContactSearch),
+  );
+  const visibleShips = knownSectorShips.filter((ship) =>
+    `${ship.name || ship.id} ${ship.class || ""} ${ship.shipCategory || ""}`
+      .toLowerCase()
+      .includes(activeContactSearch),
+  );
+  const setLocalDestination = useCallback((destination: [number, number, number]) => {
     setX(clampSectorCoordinate(destination[0]));
     setY(clampSectorCoordinate(destination[1]));
     setZ(clampSectorCoordinate(destination[2]));
   }, []);
+  const updateLocalDestination = useCallback(
+    (destination: [number, number, number]) => {
+      setSelectedPlanetName("");
+      setSelectedShipTargetName("");
+      setLocalDestination(destination);
+    },
+    [setLocalDestination],
+  );
+  const selectLocalPlanet = useCallback(
+    ({ name, destination }: { name: string; destination: [number, number, number] }) => {
+      setSelectedShipTargetName("");
+      setSelectedPlanetName(name);
+      setLocalDestination(destination);
+    },
+    [setLocalDestination],
+  );
   const updateTracking = useCallback((next: HyperspaceRoutePayload["tracking"] | undefined) => {
     setTracking((current) => {
       if (!current || !next) return current === next ? current : next;
@@ -257,10 +291,8 @@ export function HyperspacePlanner({
     if (!selectedPlanetPosition) return;
     const destination = randomSectorDestinationBeyond(selectedPlanetPosition, arrivalDistance);
     setTracking(undefined);
-    setX(destination[0]);
-    setY(destination[1]);
-    setZ(destination[2]);
-  }, [arrivalDistance, selectedPlanetPosition]);
+    setLocalDestination(destination);
+  }, [arrivalDistance, selectedPlanetPosition, setLocalDestination]);
 
   const primaryGalaxy = primaryGalaxyFor(mode, selectedSystem, currentGalaxy, catalog, current);
 
@@ -386,7 +418,9 @@ export function HyperspacePlanner({
               hyperspeed={hyperspeed}
               motionTracks={motionTracks}
               planetTargetName={selectedPlanetName}
+              shipTargetName={selectedShipTargetName}
               onDestinationChange={updateLocalDestination}
+              onPlanetSelect={selectLocalPlanet}
               onTrackingChange={updateTracking}
             />
           ) : (
@@ -490,17 +524,69 @@ export function HyperspacePlanner({
               </dl>
             </>
           )}
-          <p className={styles.kicker}>PLANETARY CONTACTS</p>
-          <div className={styles.planetList}>
-            {(mode === "local" ? current?.planets : selectedSystem?.planets)?.map((planet) => (
-              <Planet
-                key={planet.name}
-                planet={planet}
-                selected={selectedPlanetName === planet.name}
-                onClick={() => setSelectedPlanetName(planet.name)}
+          {mode === "local" && (
+            <label className={styles.contactSearch}>
+              <span>SECTOR CONTACT SEARCH</span>
+              <input
+                type="search"
+                value={contactSearch}
+                onChange={(event) => setContactSearch(event.target.value)}
+                placeholder="PLANET, SHIP, OR CLASS"
+                aria-label="Search celestial contacts and known ships"
               />
-            )) || <span>NO PLANETS CATALOGED</span>}
+              <small>
+                {visiblePlanets.length} CELESTIAL // {visibleShips.length} SHIPS
+              </small>
+            </label>
+          )}
+          <p className={styles.kicker}>CELESTIAL CONTACTS</p>
+          <div className={styles.planetList}>
+            {visiblePlanets.length ? (
+              visiblePlanets.map((planet) => (
+                <Planet
+                  key={planet.name}
+                  planet={planet}
+                  selected={selectedPlanetName === planet.name}
+                  onClick={() =>
+                    selectLocalPlanet({
+                      name: planet.name,
+                      destination: [planet.x || 0, planet.y || 0, planet.z || 0],
+                    })
+                  }
+                />
+              ))
+            ) : (
+              <span>{activeContactSearch ? "NO MATCHING CELESTIALS" : "NO PLANETS CATALOGED"}</span>
+            )}
           </div>
+          {mode === "local" && (
+            <>
+              <p className={styles.kicker}>KNOWN SECTOR SHIPS</p>
+              <div className={styles.shipContactList}>
+                {visibleShips.length ? (
+                  visibleShips.map((ship) => (
+                    <ShipContact
+                      key={ship.id}
+                      ship={ship}
+                      onClick={() => {
+                        setSelectedPlanetName("");
+                        setSelectedShipTargetName(ship.name || ship.id);
+                        setLocalDestination([
+                          Number(ship.x) || 0,
+                          Number(ship.y) || 0,
+                          Number(ship.z) || 0,
+                        ]);
+                      }}
+                    />
+                  ))
+                ) : (
+                  <span>
+                    {activeContactSearch ? "NO MATCHING SHIPS" : "NO SHIPS CURRENTLY KNOWN"}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
           {selectedPlanet && (
             <div className={styles.arrival}>
               <strong>PLANET ARRIVAL REFERENCE</strong>

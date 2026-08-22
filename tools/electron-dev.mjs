@@ -37,10 +37,12 @@ function stop(child) {
 let electron;
 try {
   await waitForVite();
+  const electronEnv = { ...process.env, HOLOCRON_RENDERER_URL: rendererUrl };
+  delete electronEnv.ELECTRON_RUN_AS_NODE;
   electron = spawn(electronPath, [root], {
     cwd: root,
     stdio: "inherit",
-    env: { ...process.env, HOLOCRON_RENDERER_URL: rendererUrl },
+    env: electronEnv,
   });
   electron.once("exit", (code) => {
     shuttingDown = true;

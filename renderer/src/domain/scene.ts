@@ -15,6 +15,8 @@ export interface ScenePoint extends TelemetryEntity {
   members?: ScenePoint[];
   memberCount?: number;
   memberSummary?: string;
+  orbitingPlanetId?: string;
+  orbitingShipCount?: number;
   markerShape: number;
   shipSize?: number;
 }
@@ -35,6 +37,32 @@ export function clamp(value: number, minimum: number, maximum: number): number {
 function finite(value: unknown, fallback = 0): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+export function planetSpritePixels(pointSize: number, pixelsPerUnit: number): number {
+  const strategicFloor = 8;
+  const closeRangeCeiling = 160;
+  const cameraScale = Math.sqrt(Math.max(0, finite(pixelsPerUnit)));
+  return clamp(Math.max(1, finite(pointSize, 1)) * cameraScale, strategicFloor, closeRangeCeiling);
+}
+
+export interface PlanetCameraView {
+  textureX: number;
+  textureY: number;
+  lightX: number;
+  lightY: number;
+}
+
+export function planetCameraView(yaw: number, pitch: number): PlanetCameraView {
+  const safeYaw = finite(yaw);
+  const safePitch = clamp(finite(pitch), -1.45, 1.45);
+  const longitudeTurns = (((-safeYaw / TAU) % 1) + 1) % 1;
+  return {
+    textureX: longitudeTurns * 200,
+    textureY: 50 + (safePitch / 1.45) * 30,
+    lightX: 50 + Math.sin(safeYaw) * 24,
+    lightY: 34 - Math.sin(safePitch) * 18,
+  };
 }
 
 export function projectileVisual(entity: Pick<TelemetryEntity, "name" | "class">): {
@@ -181,6 +209,10 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
     );
     const representative = unsortedMembers[0];
+    const orbitingPlanet = members.find((member) => ["celestial", "planet"].includes(member.kind));
+    const orbitingShipCount = orbitingPlanet
+      ? members.filter((member) => ["ship", "observer"].includes(member.kind)).length
+      : undefined;
     clusters.set(coordinateKey, {
       id: `cluster:${coordinateKey}`,
       name: `${members.length} contacts`,
@@ -195,6 +227,8 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       members,
       memberCount: members.length,
       memberSummary: summarizeContacts(members),
+      orbitingPlanetId: orbitingPlanet?.id,
+      orbitingShipCount,
       markerShape: 0,
     });
   }

@@ -13,3 +13,6 @@ mudlet-package/build/
 mudlet-package/.output
 mudlet-package/src/resources/
 renderer/dist/
+.codex-tmp/
+vendor-assets/shinyman/
+renderer/public/planet-textures/

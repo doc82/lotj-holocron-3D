@@ -1,6 +1,20 @@
 import os from "node:os";
 import path from "node:path";
 
+export const DEFAULT_OUT_REMOTE_DEBUGGING_PORT = 9237;
+
+export function remoteDebuggingPortForExecutable(executablePath, env = process.env) {
+  if (env.HOLOCRON_REMOTE_DEBUGGING === "0") return null;
+  const configuredPort = Number(env.HOLOCRON_REMOTE_DEBUGGING_PORT);
+  if (Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65_535) {
+    return configuredPort;
+  }
+  if (env.HOLOCRON_REMOTE_DEBUGGING === "1") return DEFAULT_OUT_REMOTE_DEBUGGING_PORT;
+  return /(^|[\\/])out[\\/]/i.test(String(executablePath || ""))
+    ? DEFAULT_OUT_REMOTE_DEBUGGING_PORT
+    : null;
+}
+
 export function appDataPaths(env = process.env, platform = process.platform, home = os.homedir()) {
   const targetPath = platform === "win32" ? path.win32 : path.posix;
   let defaultBase;
