@@ -4711,6 +4711,15 @@ function Scraper.startPolling(options)
   return true
 end
 
+function Scraper.startStartupPolling(options)
+  local pollingReady, pollingError = Scraper.startPolling(options)
+  if not pollingReady then
+    return nil, pollingError
+  end
+  queueInitialStateSweep("Holocron startup", true)
+  return true
+end
+
 function Scraper.stopPolling()
   cancelPollTimer()
   cancelSensorTickWait(true)
@@ -7452,11 +7461,9 @@ function Scraper.setup(proxy, options)
   )
   if not options or options.polling ~= false then
     local pollingOptions = options and options.polling or nil
-    local pollingReady, pollingError = Scraper.startPolling(pollingOptions)
+    local pollingReady, pollingError = Scraper.startStartupPolling(pollingOptions)
     if not pollingReady then
       diagnostic("warn", "telemetry polling could not start: " .. tostring(pollingError))
-    else
-      queueInitialStateSweep("Holocron startup", true)
     end
   end
   return true

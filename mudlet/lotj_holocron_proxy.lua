@@ -15,6 +15,8 @@ local Proxy = {
   seenIntentOrder = {},
   onDiagnostic = nil,
   onReady = nil,
+  onDisconnect = nil,
+  ready = false,
 }
 
 local parsersLoaded, parsersOrError = pcall(require, "lotj_holocron_parsers")
@@ -72,6 +74,21 @@ function Proxy.isRunning()
 
   local ok, running = pcall(Proxy.process.isRunning)
   return ok and running == true
+end
+
+function Proxy.isReady()
+  return Proxy.ready == true and Proxy.isRunning()
+end
+
+local function markDisconnected(reason)
+  local wasReady = Proxy.ready == true
+  Proxy.ready = false
+  if wasReady and type(Proxy.onDisconnect) == "function" then
+    local ok, err = pcall(Proxy.onDisconnect, reason)
+    if not ok then
+      diagnostic("error", "onDisconnect callback failed: " .. tostring(err))
+    end
+  end
 end
 
 function Proxy.sendMessage(message)
@@ -203,6 +220,7 @@ function Proxy.handleMessage(message)
   end
 
   if message.type == "ready" then
+    Proxy.ready = true
     Proxy.websocketUrl = message.websocketUrl
     Proxy.rendererUrl = message.rendererUrl
     Proxy.renderer = message.renderer
@@ -252,7 +270,11 @@ function Proxy.handleMessage(message)
   end
 
   if message.type == "bridge_diagnostic" then
-    diagnostic(tostring(message.level or "info"), tostring(message.message or ""))
+    local bridgeMessage = tostring(message.message or "")
+    if bridgeMessage:find("desktop bridge disconnected", 1, true) then
+      markDisconnected(bridgeMessage)
+    end
+    diagnostic(tostring(message.level or "info"), bridgeMessage)
     return
   end
 
@@ -291,6 +313,7 @@ function Proxy.handleProcessOutput(chunk)
       -- tolerate leading whitespace and keep it away from the JSON decoder.
       local relayFailure = raw:match("^%s*Holocron3D relay:%s*(.+)$")
       if relayFailure then
+        markDisconnected(relayFailure)
         diagnostic("warn", "desktop bridge disconnected: " .. relayFailure)
       else
         local message, decodeError = decode(raw)
@@ -319,6 +342,7 @@ function Proxy.start(program, arguments)
   end
 
   Proxy.readBuffer = ""
+  Proxy.ready = false
   Proxy.seenIntentIds = {}
   Proxy.seenIntentOrder = {}
   local args = arguments or {}
@@ -354,6 +378,7 @@ function Proxy.stop()
   end
 
   if not Proxy.process then
+    Proxy.ready = false
     return true
   end
 
@@ -365,6 +390,7 @@ function Proxy.stop()
   end
 
   Proxy.process = nil
+  Proxy.ready = false
   Proxy.readBuffer = ""
   return true
 end

@@ -200,6 +200,24 @@ local function resolveDevExecutable(path)
   return nil
 end
 
+local function resolveDevRelay(executable)
+  local directory = normalizePath(executable):match("^(.*)/[^/]+$")
+  if not directory then
+    return nil
+  end
+  local candidates = {
+    directory .. "/resources/holocron-relay.exe",
+    directory .. "/resources/holocron-relay",
+    directory .. "/../Resources/holocron-relay",
+  }
+  for _, candidate in ipairs(candidates) do
+    if fileExists(candidate) then
+      return candidate
+    end
+  end
+  return nil
+end
+
 local function writeDevExecutable(path)
   local file, openError = io.open(Package.devConfigPath, "wb")
   if not file then
@@ -263,15 +281,23 @@ function Package.start()
 
   local relay, launcher, token, squirrel = installedPaths()
   local devExecutable = readDevExecutable()
-  if not fileExists(relay) then
-    say("red", "the desktop app is not installed or has not been opened yet")
-    say("yellow", "install Holocron3D, open it once, then enter: h3d start")
-    return nil, "desktop app unavailable"
-  end
   if devExecutable and not fileExists(devExecutable) then
     say("red", "development mode points to a missing executable: " .. devExecutable)
     say("yellow", "rebuild it, choose a new path, or enter: h3d dev off")
     return nil, "development executable unavailable"
+  end
+  if devExecutable then
+    local devRelay = resolveDevRelay(devExecutable)
+    if not devRelay then
+      say("red", "development mode could not find the relay packaged beside: " .. devExecutable)
+      say("yellow", "rebuild it with pnpm package, then enter: h3d start")
+      return nil, "development relay unavailable"
+    end
+    relay = devRelay
+  elseif not fileExists(relay) then
+    say("red", "the desktop app is not installed or has not been opened yet")
+    say("yellow", "install Holocron3D, open it once, then enter: h3d start")
+    return nil, "desktop app unavailable"
   end
   if not devExecutable and not fileExists(launcher) then
     say("red", "the installed desktop app launcher is unavailable")
@@ -292,16 +318,37 @@ function Package.start()
     local color = level == "error" and "red" or level == "warn" and "yellow" or "cyan"
     say(color, message)
   end
-  lotjHolocron3D.onReady = function()
-    confirmation("green", "Mudlet is connected to the desktop renderer")
-  end
-
   local scraperLoaded, scraperOrError = pcall(require, "lotj_holocron_scraper")
   if not scraperLoaded then
     say("red", "could not load live scraping: " .. tostring(scraperOrError))
     return nil, scraperOrError
   end
-  local scraperReady, scraperError = scraperOrError.setup(lotjHolocron3D)
+  local scraper = scraperOrError
+  local resumePollingAfterReconnect = false
+  lotjHolocron3D.onReady = function()
+    confirmation("green", "Mudlet is connected to the desktop renderer")
+    local polling = scraper.getPollingState()
+    if resumePollingAfterReconnect then
+      resumePollingAfterReconnect = false
+      scraper.setPollingPaused(false, "bridge reconnected")
+    elseif not polling.enabled and not polling.resumeWhenInSpace then
+      local pollingReady, pollingError = scraper.startStartupPolling()
+      if not pollingReady then
+        say("red", "telemetry polling could not start: " .. tostring(pollingError))
+      end
+    end
+  end
+  lotjHolocron3D.onDisconnect = function()
+    local polling = scraper.getPollingState()
+    resumePollingAfterReconnect = (polling.enabled or polling.resumeWhenInSpace)
+      and not polling.paused
+    if resumePollingAfterReconnect then
+      scraper.setPollingPaused(true, "bridge disconnected")
+      confirmation("yellow", "desktop connection lost; telemetry polling suspended")
+    end
+  end
+
+  local scraperReady, scraperError = scraper.setup(lotjHolocron3D, { polling = false })
   if not scraperReady then
     say("red", "could not start live scraping: " .. tostring(scraperError))
     return nil, scraperError
@@ -350,12 +397,18 @@ function Package.setPollingPaused(paused)
 end
 
 function Package.status()
-  local connected = lotjHolocron3D and lotjHolocron3D.isRunning and lotjHolocron3D.isRunning()
+  local running = lotjHolocron3D and lotjHolocron3D.isRunning and lotjHolocron3D.isRunning()
+  local connected = lotjHolocron3D and lotjHolocron3D.isReady and lotjHolocron3D.isReady()
   local polling = lotjHolocron3D
     and lotjHolocron3D.scraper
     and lotjHolocron3D.scraper.getPollingState
     and lotjHolocron3D.scraper.getPollingState()
-  say(connected and "green" or "yellow", connected and "bridge connected" or "bridge stopped")
+  say(
+    connected and "green" or "yellow",
+    connected and "bridge connected"
+      or running and "bridge started; waiting for desktop connection"
+      or "bridge stopped"
+  )
   if polling then
     local pollingMessage = polling.paused and "telemetry polling PAUSED"
       or not polling.enabled and "telemetry polling disabled"
