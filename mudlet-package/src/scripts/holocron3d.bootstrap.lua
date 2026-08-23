@@ -32,8 +32,17 @@ local function platformName()
   if reported:find("win", 1, true) then
     return "windows"
   end
-  if jit and tostring(jit.os):lower() == "osx" then
-    return "macos"
+  if reported:find("linux", 1, true) then
+    return "linux"
+  end
+  if jit then
+    local jitOS = tostring(jit.os):lower()
+    if jitOS == "osx" then
+      return "macos"
+    end
+    if jitOS == "linux" then
+      return "linux"
+    end
   end
   return "windows"
 end
@@ -92,7 +101,8 @@ end
 loadSettings()
 
 local function installedPaths()
-  if platformName() == "macos" then
+  local platform = platformName()
+  if platform == "macos" then
     local home = (os.getenv("HOME") or ""):gsub("\\", "/")
     local root = home .. "/Library/Application Support/Holocron3D"
     local applications = {
@@ -102,6 +112,34 @@ local function installedPaths()
     local launcher = applications[1]
     for _, candidate in ipairs(applications) do
       if fileExists(candidate) then
+        launcher = candidate
+        break
+      end
+    end
+    return root .. "/bin/holocron-relay", launcher, root .. "/bridge-token", false
+  end
+  if platform == "linux" then
+    local home = (os.getenv("HOME") or ""):gsub("\\", "/")
+    local dataHome = (os.getenv("XDG_DATA_HOME") or ""):gsub("\\", "/")
+    if dataHome == "" then
+      dataHome = home .. "/.local/share"
+    end
+    local root = dataHome .. "/Holocron3D"
+    local launcherFile = io.open(root .. "/desktop-launcher", "rb")
+    local recordedLauncher = ""
+    if launcherFile then
+      recordedLauncher = trim(launcherFile:read("*l")):gsub("\\", "/")
+      launcherFile:close()
+    end
+    local applications = {
+      recordedLauncher,
+      home .. "/.local/opt/Holocron3D/Holocron3D",
+      home .. "/Applications/Holocron3D/Holocron3D",
+      "/opt/Holocron3D/Holocron3D",
+    }
+    local launcher = applications[2]
+    for _, candidate in ipairs(applications) do
+      if candidate ~= "" and fileExists(candidate) then
         launcher = candidate
         break
       end
@@ -141,6 +179,9 @@ local function resolveDevExecutable(path)
     table.insert(candidates, path .. "/Holocron3D.exe")
     table.insert(candidates, path .. "/LotJ Holocron 3D-win32-x64/Holocron3D.exe")
     table.insert(candidates, path .. "/out/LotJ Holocron 3D-win32-x64/Holocron3D.exe")
+    table.insert(candidates, path .. "/Holocron3D")
+    table.insert(candidates, path .. "/LotJ Holocron 3D-linux-x64/Holocron3D")
+    table.insert(candidates, path .. "/out/LotJ Holocron 3D-linux-x64/Holocron3D")
     table.insert(candidates, path .. "/LotJ Holocron 3D.app/Contents/MacOS/Holocron3D")
     table.insert(
       candidates,

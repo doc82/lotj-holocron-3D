@@ -10,6 +10,9 @@ const arch = process.argv[4] || process.arch;
 if (platform === "darwin" && process.platform !== "darwin") {
   throw new Error("macOS application and DMG artifacts must be built on macOS.");
 }
+if (platform === "linux" && process.platform !== "linux") {
+  throw new Error("Linux application archives must be built on Linux.");
+}
 
 function run(command, args, env = process.env) {
   const result = spawnSync(command, args, {
@@ -35,7 +38,8 @@ run(process.execPath, [
 run(process.execPath, ["tools/build-relay.mjs", platform, arch]);
 run(process.execPath, ["tools/build-mudlet-package.mjs"]);
 if (platform === "darwin") run(process.execPath, ["tools/build-macos-icon.mjs"]);
-const forgeAction = platform === "darwin" && action === "make" ? "package" : action;
+const forgeAction =
+  (platform === "darwin" || platform === "linux") && action === "make" ? "package" : action;
 run(
   process.execPath,
   [
@@ -52,4 +56,7 @@ run(
 );
 if (platform === "darwin" && action === "make") {
   run(process.execPath, ["tools/build-dmg.mjs", arch]);
+}
+if (platform === "linux" && action === "make") {
+  run(process.execPath, ["tools/build-linux-archive.mjs", arch]);
 }

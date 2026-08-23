@@ -1,7 +1,7 @@
 # Building and packaging
 
 Holocron3D produces platform-native relays, Mudlet packages, unpacked Electron
-applications, and Windows/macOS installers. Complete the
+applications, Windows/macOS installers, and a portable Linux archive. Complete the
 [development setup](development.md) before running these workflows.
 
 ## Windows artifacts
@@ -36,9 +36,25 @@ the DMG with Apple's `hdiutil`. A macOS application or DMG cannot be produced on
 Windows. Signing and notarization can be added later without changing the
 artifact layout.
 
+## Linux artifacts
+
+Build Linux artifacts on Linux x64. Set `MUDDLER_HOME` to a distribution
+containing `bin/muddle` or `bin/muddle.sh`.
+
+```bash
+pnpm package:linux
+pnpm make:linux
+```
+
+`pnpm package:linux` creates the unpacked Electron application with a native
+Linux relay. `pnpm make:linux` additionally creates the portable archive at
+`out/make/tar.gz/linux/x64/LotJ-Holocron-3D-<version>-linux-x64.tar.gz`.
+The archive extracts to a single `Holocron3D` directory and preserves executable
+permissions. Linux artifacts must be built on Linux.
+
 For an actual release, follow the complete [release runbook](releasing.md). It
-requires attaching and verifying the Windows installer, both macOS DMGs, and
-the Mudlet package before the GitHub release is published.
+requires attaching and verifying the Windows installer, both macOS DMGs, the
+Linux archive, and the Mudlet package before the GitHub release is published.
 
 ## Development commands
 
@@ -54,12 +70,15 @@ the Mudlet package before the GitHub release is published.
 | `pnpm relay:build:win`       | Build the Windows x64 relay.                                                     |
 | `pnpm relay:build:mac:arm64` | Cross-build the Apple Silicon relay.                                             |
 | `pnpm relay:build:mac:x64`   | Cross-build the Intel macOS relay.                                               |
+| `pnpm relay:build:linux`     | Build the Linux x64 relay.                                                       |
 | `pnpm mudlet:package`        | Build `out/mudlet/Holocron3D.mpackage`.                                          |
 | `pnpm electron:smoke`        | Launch Electron with representative telemetry.                                   |
 | `pnpm package`               | Build the relay, Mudlet package, and unpacked Electron app for the current host. |
 | `pnpm make:win`              | Build the complete Squirrel Windows installer.                                   |
 | `pnpm make:mac:arm64`        | Build the Apple Silicon application and DMG on macOS.                            |
 | `pnpm make:mac:x64`          | Build the Intel application and DMG on macOS.                                    |
+| `pnpm package:linux`         | Build the unpacked Linux x64 application on Linux.                               |
+| `pnpm make:linux`            | Build the portable Linux x64 application archive on Linux.                       |
 
 The parser and scraper use isolated Lua 5.1 tests with fresh Mudlet globals,
 timers, captures, and snapshots for every test:
@@ -85,6 +104,9 @@ Generated outputs are ignored by Git:
   `relay/bin/darwin-x64/holocron-relay` — macOS relays
 - `out/LotJ Holocron 3D-darwin-{arm64,x64}/` — unpacked macOS applications
 - `out/make/dmg/darwin/{arm64,x64}/` — macOS DMG releases
+- `relay/bin/linux-x64/holocron-relay` — Linux relay executable
+- `out/LotJ Holocron 3D-linux-x64/` — unpacked Linux application
+- `out/make/tar.gz/linux/x64/` — portable Linux release archive
 
 ## Clean dependency reinstall
 

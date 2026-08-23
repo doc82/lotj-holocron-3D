@@ -1,23 +1,24 @@
 # Releasing Holocron3D
 
 Use this checklist for every Holocron3D release. A release is not complete until
-the installers for every supported platform are attached to the GitHub release
-and their downloads have been verified.
+the distributable artifact for every supported platform is attached to the
+GitHub release and every download has been verified.
 
 ## Required release assets
 
-Every release must include all four user-facing artifacts:
+Every release must include all five user-facing artifacts:
 
-| Platform            | Required asset                         | Build location                                       |
-| ------------------- | -------------------------------------- | ---------------------------------------------------- |
-| Windows x64         | `Holocron3D-Setup.exe`                 | `out/make/squirrel.windows/x64/Holocron3D-Setup.exe` |
-| macOS Apple Silicon | `LotJ-Holocron-3D-<version>-arm64.dmg` | `out/make/dmg/darwin/arm64/`                         |
-| macOS Intel         | `LotJ-Holocron-3D-<version>-x64.dmg`   | `out/make/dmg/darwin/x64/`                           |
-| Mudlet package      | `Holocron3D.mpackage`                  | `out/mudlet/Holocron3D.mpackage`                     |
+| Platform            | Required asset                                | Build location                                       |
+| ------------------- | --------------------------------------------- | ---------------------------------------------------- |
+| Windows x64         | `Holocron3D-Setup.exe`                        | `out/make/squirrel.windows/x64/Holocron3D-Setup.exe` |
+| macOS Apple Silicon | `LotJ-Holocron-3D-<version>-arm64.dmg`        | `out/make/dmg/darwin/arm64/`                         |
+| macOS Intel         | `LotJ-Holocron-3D-<version>-x64.dmg`          | `out/make/dmg/darwin/x64/`                           |
+| Linux x64           | `LotJ-Holocron-3D-<version>-linux-x64.tar.gz` | `out/make/tar.gz/linux/x64/`                         |
+| Mudlet package      | `Holocron3D.mpackage`                         | `out/mudlet/Holocron3D.mpackage`                     |
 
 Do not substitute an unpacked application directory, source archive, relay
-binary, or Squirrel `.nupkg` file for an installer. GitHub's automatically
-generated source archives do not contain an installable application.
+binary, or Squirrel `.nupkg` file for a listed release artifact. GitHub's
+automatically generated source archives do not contain an installable application.
 
 ## Automated release path
 
@@ -28,9 +29,9 @@ branch protection to require the **CI / Full test suite** check before merging.
 After a PR merges, the **Release** workflow compares `package.json` between the
 old and new `main` commits. If the version did not change, it exits without
 creating a release. If the version increased, it repeats the full test suite,
-builds all required Windows, macOS, and Mudlet artifacts, verifies their names
-and sizes, generates `SHA256SUMS.txt`, and publishes the release only after every
-job succeeds.
+builds all required Windows, macOS, Linux, and Mudlet artifacts, verifies their
+names and sizes, generates `SHA256SUMS.txt`, and publishes the release only after
+every job succeeds.
 
 For a release PR, update all synchronized version declarations and let the
 existing version-consistency test verify them. `package.json` is the trigger and
@@ -44,7 +45,7 @@ and publishes it. It refuses to overwrite an already-published release.
 
 ### Private planet asset configuration
 
-The Windows and macOS jobs fetch the separately licensed optimized runtime
+The Windows, macOS, and Linux jobs fetch the separately licensed optimized runtime
 bundle from a private Google Drive file. Configure this once before running a
 release:
 
@@ -64,7 +65,7 @@ release:
 Changing the Drive file requires updating both repository variables. A release
 fails before packaging if authentication, download, checksum validation,
 extraction, the 40-file completeness check, or 1024×512 WebP validation fails.
-After packaging, each Windows and macOS job also opens the generated `app.asar`
+After packaging, each Windows, macOS, and Linux job also opens the generated `app.asar`
 and requires all 40 optimized maps under `renderer/dist/planet-textures`. The
 release is blocked if a map is missing or empty, or if raw `vendor-assets`,
 temporary `.codex-tmp` files, or duplicate `renderer/public` assets are present.
@@ -179,13 +180,33 @@ available. Because the current builds are unsigned, document the expected
 Gatekeeper warning in the release notes.
 
 The **Release** GitHub Actions workflow builds both DMGs on
-native macOS runners. Run it for the merged release commit and download all four
-workflow artifacts before creating the GitHub release.
+native macOS runners.
 
-## 4. Create and attach the GitHub release
+## 4. Build the Linux archive
+
+Build the Linux x64 artifact on Linux:
+
+```bash
+pnpm make:linux
+node tools/verify-packaged-planet-assets.mjs linux x64
+node tools/verify-linux-archive.mjs x64
+```
+
+Verify the versioned archive exists and is non-empty:
+
+```bash
+ls -lh out/make/tar.gz/linux/x64/*.tar.gz
+```
+
+Extract it on a representative x64 Linux desktop, open `Holocron3D/Holocron3D`
+once, and confirm the bundled Mudlet package and relay are installed beneath
+`${XDG_DATA_HOME:-$HOME/.local/share}/Holocron3D`. The **Release** workflow builds
+and verifies this archive on an Ubuntu runner.
+
+## 5. Create and attach the GitHub release
 
 The automated workflow creates the tag from the exact merged commit and keeps
-the GitHub release in draft state while uploading. It uploads all four assets
+the GitHub release in draft state while uploading. It uploads all five assets
 from the table above plus `SHA256SUMS.txt`; it will not publish a release
 containing only GitHub's generated source archives.
 
@@ -194,7 +215,7 @@ upload the artifacts:
 
 ```text
 gh release create v<version> --draft --title "Holocron3D v<version>" --notes-file <release-notes-file>
-gh release upload v<version> <windows-exe> <arm64-dmg> <x64-dmg> <mudlet-mpackage>
+gh release upload v<version> <windows-exe> <arm64-dmg> <x64-dmg> <linux-tar-gz> <mudlet-mpackage>
 ```
 
 Before publishing, open the draft release page and confirm its asset list
@@ -203,13 +224,14 @@ contains exactly the intended version of:
 - `Holocron3D-Setup.exe`
 - `LotJ-Holocron-3D-<version>-arm64.dmg`
 - `LotJ-Holocron-3D-<version>-x64.dmg`
+- `LotJ-Holocron-3D-<version>-linux-x64.tar.gz`
 - `Holocron3D.mpackage`
 
 If any required installer is missing, keep the release as a draft and finish
 the corresponding platform build. Never publish first with a plan to attach an
 installer later.
 
-## 5. Verify the published downloads
+## 6. Verify the published downloads
 
 After publishing:
 
@@ -217,10 +239,10 @@ After publishing:
    testing only the local build output.
 2. Confirm each downloaded file is non-empty and opens as the expected file
    type.
-3. Install or mount at least the Windows `.exe` and both macOS `.dmg` files on
-   their supported platforms.
+3. Install or mount at least the Windows `.exe`, both macOS `.dmg` files, and the
+   Linux archive on their supported platforms.
 4. Confirm the release page prominently identifies which installer applies to
-   Windows x64, macOS Apple Silicon, and macOS Intel users.
+   Windows x64, macOS Apple Silicon, macOS Intel, and Linux x64 users.
 
 Only after these checks pass should the release be announced to users.
 
@@ -231,8 +253,9 @@ Only after these checks pass should the release be announced to users.
 - [ ] Windows x64 installer was built and smoke-tested.
 - [ ] macOS Apple Silicon DMG was built and smoke-tested.
 - [ ] macOS Intel DMG was built and smoke-tested.
+- [ ] Linux x64 archive was built, verified, and smoke-tested.
 - [ ] Standalone Mudlet package was built.
-- [ ] Draft GitHub release contains all four required assets.
-- [ ] `SHA256SUMS.txt` covers all four required assets.
+- [ ] Draft GitHub release contains all five required assets.
+- [ ] `SHA256SUMS.txt` covers all five required assets.
 - [ ] Assets were downloaded back from GitHub and verified.
 - [ ] Release was published only after attachment verification.

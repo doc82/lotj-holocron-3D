@@ -1,6 +1,6 @@
 # LotJ Holocron 3D
 
-LotJ Holocron 3D is a Windows and macOS desktop tactical renderer for space
+LotJ Holocron 3D is a Windows, macOS, and Linux desktop tactical renderer for space
 telemetry from [Legends of the Jedi](https://www.legendsofthejedi.com/). A
 Mudlet package polls the game's read-only ship and contact commands, normalizes
 their output, and streams snapshots through a native local relay to a sandboxed
@@ -15,9 +15,9 @@ LotJ
 ```
 
 The desktop pipeline is operational and has been validated against live LotJ
-output. Windows x64 and macOS Intel/Apple Silicon release builds are supported.
-The current artifacts are unsigned, so Windows SmartScreen or macOS Gatekeeper
-may display a warning. Linux packaging remains a post-MVP deliverable.
+output. Windows x64, macOS Intel/Apple Silicon, and Linux x64 release builds are
+supported. The current artifacts are unsigned, so Windows SmartScreen or macOS
+Gatekeeper may display a warning. Linux is distributed as a portable archive.
 
 End users do not need Node.js, Go, Java, or a repository checkout. Those tools
 are required only when developing or building releases.
@@ -55,6 +55,29 @@ connect it to your normal LotJ Mudlet profile.
 
 5. Enter `h3d status` in Mudlet. The package launches the installed application
    from `/Applications/LotJ Holocron 3D.app` when it is not already running.
+
+### Linux x64
+
+1. Download `LotJ-Holocron-3D-<version>-linux-x64.tar.gz`.
+2. Extract it into your user application directory:
+
+   ```bash
+   mkdir -p "$HOME/.local/opt"
+   tar -xzf LotJ-Holocron-3D-<version>-linux-x64.tar.gz -C "$HOME/.local/opt"
+   ```
+
+3. Open `$HOME/.local/opt/Holocron3D/Holocron3D` once. This installs the native
+   relay and records the portable application's location for Mudlet.
+4. In Mudlet's Package Manager, install:
+
+   ```text
+   ~/.local/share/Holocron3D/mudlet/Holocron3D.mpackage
+   ```
+
+   When `XDG_DATA_HOME` is set, use
+   `$XDG_DATA_HOME/Holocron3D/mudlet/Holocron3D.mpackage` instead.
+
+5. Enter `h3d status` in Mudlet.
 
 The Mudlet package loads in the off state so it cannot interfere with the LotJ
 login cycle. After logging in and entering a ship cockpit, enter `h3d start` to

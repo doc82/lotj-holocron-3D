@@ -39,6 +39,7 @@ export function appDataPaths(env = process.env, platform = process.platform, hom
     relay: targetPath.join(base, "bin", relayName),
     mudlet: targetPath.join(base, "mudlet"),
     mudletPackage: targetPath.join(base, "mudlet", "Holocron3D.mpackage"),
+    launcher: targetPath.join(base, "desktop-launcher"),
     token: env.HOLOCRON_RELAY_TOKEN_FILE || targetPath.join(base, "bridge-token"),
     logs: targetPath.join(base, "logs"),
     log: targetPath.join(base, "logs", "holocron3d.log"),

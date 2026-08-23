@@ -6,12 +6,12 @@ const targetPlatform = process.env.HOLOCRON_TARGET_PLATFORM || process.platform;
 const targetArch = process.env.HOLOCRON_TARGET_ARCH || process.arch;
 const relayPlatform = targetPlatform === "win32" ? "windows" : targetPlatform;
 const relayName = targetPlatform === "win32" ? "holocron-relay.exe" : "holocron-relay";
-const appIcon = path.resolve(
-  __dirname,
-  "assets",
-  "icon",
-  targetPlatform === "darwin" ? "holocron3d.icns" : "holocron3d.ico",
-);
+const appIcon =
+  targetPlatform === "darwin"
+    ? path.resolve(__dirname, "assets", "icon", "holocron3d.icns")
+    : targetPlatform === "win32"
+      ? path.resolve(__dirname, "assets", "icon", "holocron3d.ico")
+      : path.resolve(__dirname, "assets", "icon", "holocron3d-icon.png");
 
 module.exports = {
   packagerConfig: {

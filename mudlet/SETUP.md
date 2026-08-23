@@ -2,7 +2,7 @@
 
 This guide assumes you have never added a package to Mudlet before. Holocron3D
 listens for read-only space-information commands and streams normalized data to
-the Windows desktop renderer without competing with existing LotJ aliases.
+the desktop renderer without competing with existing LotJ aliases.
 
 ## Installed Windows setup
 
@@ -21,6 +21,19 @@ in, enter `h3d start`. Use `h3d status`, `h3d stop`, `h3d snapshot`, `h3d
 profile`, and `h3d help` as needed. Mudlet stores its own copy after import, so
 the source `.mpackage` does not need to remain selected or open. This follows
 Mudlet's standard Package Manager flow.
+
+## Installed Linux setup
+
+1. Extract the release archive into `$HOME/.local/opt` and open
+   `$HOME/.local/opt/Holocron3D/Holocron3D` once.
+2. Open your normal LotJ profile in Mudlet.
+3. Open the Package Manager and install
+   `~/.local/share/Holocron3D/mudlet/Holocron3D.mpackage`. If you set
+   `XDG_DATA_HOME`, use that directory in place of `~/.local/share`.
+4. Log in normally, then enter `h3d start` from a ship cockpit.
+
+The desktop app records its current portable path when it opens, allowing the
+Mudlet package to launch it again without requiring a system-wide install.
 
 To profile Mudlet performance, enter `h3d profile start`, use the client
 normally for at least 30 seconds, and enter `h3d profile stop`. Use
