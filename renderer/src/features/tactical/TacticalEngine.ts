@@ -24,7 +24,7 @@ import type {
   Vector3,
   WeaponType,
 } from "../../types/telemetry";
-import { shipModelFor } from "../../domain/shipModels";
+import { shipModelFor, tacticalShipPixelsForScale } from "../../domain/shipModels";
 import {
   combatVisualStyle,
   planCombatEvent,
@@ -56,7 +56,8 @@ const VERTEX_SOURCE = `
     gl_Position = u_viewProjection * vec4(a_position, 1.0);
     vec4 headingPosition = u_viewProjection * vec4(a_position + a_heading, 1.0);
     vec2 headingDelta = headingPosition.xy / headingPosition.w - gl_Position.xy / gl_Position.w;
-    gl_PointSize = max(2.0 * u_pixelRatio, a_size * u_pixelRatio * u_markerScale);
+    float markerPixels = a_size < 0.0 ? -a_size : a_size * u_markerScale;
+    gl_PointSize = max(2.0 * u_pixelRatio, markerPixels * u_pixelRatio);
     v_color = a_color;
     v_shape = a_shape;
     v_hasHeading = length(headingDelta) > 0.00001 ? 1.0 : 0.0;
@@ -702,9 +703,7 @@ export class TacticalEngine {
       const customSize = this.scaledPointSize(point);
       const size =
         point.kind === "cluster"
-          ? this.scaleMode === "tactical"
-            ? point.pointSize
-            : Math.min(32, Math.max(14, Math.round(point.pointSize * 0.58)))
+          ? -point.pointSize
           : point.kind === "prediction"
             ? customSize
             : point.kind === "observer"
@@ -720,9 +719,11 @@ export class TacticalEngine {
         this.interleavedVertex(
           point.position3d,
           point.color,
-          point.kind === "prediction"
-            ? this.scaledPointSize(point) / Math.max(1, this.markerScale)
-            : point.pointSize,
+          point.kind === "cluster"
+            ? -point.pointSize
+            : point.kind === "prediction"
+              ? this.scaledPointSize(point) / Math.max(1, this.markerScale)
+              : point.pointSize,
           0,
           this.headingFor(point),
         ),
@@ -1654,12 +1655,10 @@ export class TacticalEngine {
   }
 
   private tacticalShipPixels(modelScale: number): number {
-    return Math.min(
+    return tacticalShipPixelsForScale(
+      modelScale,
+      TACTICAL_VIEW_SETTINGS.tacticalMinimumShipPixels,
       TACTICAL_VIEW_SETTINGS.tacticalMaximumShipPixels,
-      Math.max(
-        TACTICAL_VIEW_SETTINGS.tacticalMinimumShipPixels,
-        TACTICAL_VIEW_SETTINGS.tacticalMinimumShipPixels + (modelScale - 1) * 8,
-      ),
     );
   }
 
@@ -2043,9 +2042,11 @@ export class TacticalEngine {
       );
       const renderedSize = ["celestial", "planet"].includes(point.kind)
         ? planetSpritePixels(point.pointSize, pixelsPerUnit)
-        : this.scaleMode === "tactical" && ["ship", "observer"].includes(point.kind)
-          ? this.tacticalShipPixels(shipModelFor(point.shipCategory).scale)
-          : point.pointSize * this.markerScale;
+        : point.kind === "cluster"
+          ? point.pointSize
+          : this.scaleMode === "tactical" && ["ship", "observer"].includes(point.kind)
+            ? this.tacticalShipPixels(shipModelFor(point.shipCategory).scale)
+            : point.pointSize * this.markerScale;
       const markerRadius = renderedSize / 2 + 5;
       const inside = distance < Math.max(threshold, markerRadius);
       const winsTie =

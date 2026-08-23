@@ -353,10 +353,9 @@ test("strategic and tactical scale modes retain adjustable sector and combat dis
   assert.match(engine, /this\.viewDistances\[this\.scaleMode\] = this\.camera\.targetDistance/);
   assert.match(engine, /this\.scaleMode === "tactical" \? 1 : zoomModelBlend/);
   assert.match(engine, /tacticalMinimumShipPixels: 24/);
-  assert.match(
-    engine,
-    /point\.kind === "cluster"[\s\S]*this\.scaleMode === "tactical"[\s\S]*point\.pointSize \* 0\.58/,
-  );
+  assert.match(engine, /point\.kind === "cluster"\s*\? -point\.pointSize/);
+  assert.match(engine, /float markerPixels = a_size < 0\.0 \? -a_size : a_size \* u_markerScale/);
+  assert.match(models, /export function tacticalShipPixelsForCategory/);
   assert.match(engine, /rebuildShipMeshBuffer/);
   assert.match(engine, /gl\.TRIANGLES, false, modelBlend/);
   assert.match(engine, /gl\.POINTS,\s*true,\s*Math\.max\(0\.12, 1 - modelBlend\)/);

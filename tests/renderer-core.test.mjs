@@ -662,17 +662,22 @@ test("planet sprites remain visible strategically and dwarf ships tactically", (
   );
 });
 
-test("cluster markers inherit a readable hierarchy from their largest ship class", () => {
+test("cluster markers match their largest ship class without growing with density", () => {
   const fighters = [
-    { kind: "ship", markerShape: 2 },
-    { kind: "ship", markerShape: 2 },
+    { kind: "ship", shipCategory: "starfighter" },
+    { kind: "ship", shipCategory: "starfighter" },
   ];
-  const frigateGroup = [fighters[0], { kind: "ship", markerShape: 7 }];
-  const battleshipGroup = [fighters[0], { kind: "ship", markerShape: 9 }];
+  const frigateGroup = [fighters[0], { kind: "ship", shipCategory: "frigate" }];
+  const battleshipGroup = [fighters[0], { kind: "ship", shipCategory: "battleship" }];
+  const crowdedBattleshipGroup = [
+    ...battleshipGroup,
+    ...Array.from({ length: 20 }, () => fighters[0]),
+  ];
 
-  assert.equal(clusterPointSize(fighters), 30);
-  assert.equal(clusterPointSize(frigateGroup), 48);
-  assert.equal(clusterPointSize(battleshipGroup), 55);
+  assert.equal(clusterPointSize(fighters), 24);
+  assert.equal(clusterPointSize(frigateGroup), 36);
+  assert.equal(clusterPointSize(battleshipGroup), 46);
+  assert.equal(clusterPointSize(crowdedBattleshipGroup), 46);
 });
 
 test("planet surface projection follows tactical camera yaw and pitch", () => {

@@ -1,4 +1,5 @@
 import type { Color3, SystemSnapshot, TelemetryEntity, Vector3 } from "../types/telemetry";
+import { tacticalShipPixelsForCategory } from "./shipModels.ts";
 
 const TAU = Math.PI * 2;
 export const BASE_SENSOR_RANGE = 500;
@@ -130,14 +131,15 @@ export function summarizeContacts(members: Array<Pick<ScenePoint, "kind">>): str
     .join(", ");
 }
 
-export function clusterPointSize(members: Array<Pick<ScenePoint, "kind" | "markerShape">>): number {
+export function clusterPointSize(
+  members: Array<Pick<ScenePoint, "kind" | "shipCategory">>,
+): number {
   const ships = members.filter((member) => ["ship", "observer"].includes(member.kind));
-  const largestShipTier = ships.reduce((largest, member) => {
-    const tier = finite(member.markerShape);
-    return Math.max(largest, tier > 0 ? tier : 5);
-  }, 1);
-  const densityBonus = Math.min(8, Math.sqrt(Math.max(0, ships.length - 1)) * 3);
-  return Math.round(clamp(20 + largestShipTier * 3.5 + densityBonus, 24, 72));
+  const largestShipPixels = ships.reduce(
+    (largest, member) => Math.max(largest, tacticalShipPixelsForCategory(member.shipCategory)),
+    24,
+  );
+  return Math.round(largestShipPixels);
 }
 
 const SHIP_CLASSES: Record<string, { hangarSize: number; markerPixels: number; shape: number }> = {
