@@ -11,7 +11,7 @@ export function ManagementMenu({ onClose }: Props) {
 
   return (
     <div className={styles.backdrop} role="presentation">
-      <section className={styles.menu} aria-label="Management menu">
+      <section className={styles.menu} role="dialog" aria-modal="true" aria-label="Management menu">
         <header>
           <div>
             <small>HOLOCRON MANAGEMENT</small>

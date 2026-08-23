@@ -5,6 +5,12 @@
   --gold: #ffd957;
   --panel: rgba(5, 13, 25, 0.78);
   --line: rgba(91, 219, 243, 0.24);
+  --layer-scene: 0;
+  --layer-scene-overlay: 90;
+  --layer-ui: 100;
+  --layer-ui-tooltip: 150;
+  --layer-toast: 200;
+  --layer-modal: 300;
   font-family: "Segoe UI", Inter, system-ui, sans-serif;
 }
 

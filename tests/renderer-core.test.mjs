@@ -670,9 +670,9 @@ test("cluster markers inherit a readable hierarchy from their largest ship class
   const frigateGroup = [fighters[0], { kind: "ship", markerShape: 7 }];
   const battleshipGroup = [fighters[0], { kind: "ship", markerShape: 9 }];
 
-  assert.equal(clusterPointSize(fighters), 18);
-  assert.equal(clusterPointSize(frigateGroup), 28);
-  assert.equal(clusterPointSize(battleshipGroup), 32);
+  assert.equal(clusterPointSize(fighters), 30);
+  assert.equal(clusterPointSize(frigateGroup), 48);
+  assert.equal(clusterPointSize(battleshipGroup), 55);
 });
 
 test("planet surface projection follows tactical camera yaw and pitch", () => {

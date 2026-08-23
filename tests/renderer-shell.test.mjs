@@ -347,12 +347,16 @@ test("strategic and tactical scale modes retain adjustable sector and combat dis
   }
   assert.match(engine, /STRATEGIC_DOT_PPU/);
   assert.match(engine, /MODEL_DETAIL_PPU/);
-  assert.match(engine, /tacticalDistance: 1_000/);
+  assert.match(engine, /tacticalDistance: 100/);
   assert.match(engine, /strategicDistance: 50_000/);
   assert.match(engine, /setScaleMode\(mode: TacticalScaleMode\): void/);
   assert.match(engine, /this\.viewDistances\[this\.scaleMode\] = this\.camera\.targetDistance/);
   assert.match(engine, /this\.scaleMode === "tactical" \? 1 : zoomModelBlend/);
   assert.match(engine, /tacticalMinimumShipPixels: 24/);
+  assert.match(
+    engine,
+    /point\.kind === "cluster"[\s\S]*this\.scaleMode === "tactical"[\s\S]*point\.pointSize \* 0\.58/,
+  );
   assert.match(engine, /rebuildShipMeshBuffer/);
   assert.match(engine, /gl\.TRIANGLES, false, modelBlend/);
   assert.match(engine, /gl\.POINTS,\s*true,\s*Math\.max\(0\.12, 1 - modelBlend\)/);
@@ -362,6 +366,38 @@ test("strategic and tactical scale modes retain adjustable sector and combat dis
   assert.match(app, /onScaleMode=\{\(mode\) => tacticalRef\.current\?\.setScaleMode\(mode\)\}/);
   assert.match(canvas, /STRATEGIC \/\/ SECTOR/);
   assert.match(canvas, /TACTICAL \/\/ COMBAT/);
+});
+
+test("scene, interface, toast, and modal layers cannot overpaint one another", async () => {
+  const [app, appStyles, canvas, canvasStyles, globalStyles, navigation, navigationStyles] =
+    await Promise.all([
+      readFile("renderer/src/app/App.tsx", "utf8"),
+      readFile("renderer/src/app/App.module.css", "utf8"),
+      readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
+      readFile("renderer/src/features/tactical/TacticalCanvas.module.css", "utf8"),
+      readFile("renderer/styles.css", "utf8"),
+      readFile("renderer/src/features/hyperspace/NavigationComputer.tsx", "utf8"),
+      readFile("renderer/src/features/hyperspace/NavigationComputer.module.css", "utf8"),
+    ]);
+
+  assert.match(
+    globalStyles,
+    /--layer-scene: 0;[\s\S]*--layer-ui: 100;[\s\S]*--layer-toast: 200;[\s\S]*--layer-modal: 300;/,
+  );
+  assert.match(canvas, /className=\{styles\.sceneLayer\}/);
+  assert.match(canvasStyles, /\.sceneLayer \{[\s\S]*isolation: isolate;/);
+  assert.match(app, /className=\{styles\.uiLayer\}/);
+  assert.match(
+    appStyles,
+    /\.uiLayer \{[\s\S]*z-index: var\(--layer-ui\);[\s\S]*isolation: isolate;/,
+  );
+  assert.match(appStyles, /\.commandToasts \{[\s\S]*z-index: var\(--layer-toast\);/);
+  assert.match(appStyles, /\.pollingPausedOverlay \{[\s\S]*z-index: var\(--layer-modal\);/);
+  assert.match(navigation, /createPortal\([\s\S]*document\.body/);
+  assert.match(
+    navigationStyles,
+    /\.modalBackdrop \{[\s\S]*position: fixed;[\s\S]*z-index: var\(--layer-modal\);/,
+  );
 });
 
 test("Homeworld-style shell separates issuer, target, actions, and the temporary formation drawer", async () => {
@@ -834,7 +870,10 @@ test("combat exposes installed weapon controls and telemetry-driven projectile e
   }
   assert.match(panelCss, /weapons-enter/);
   assert.match(panelCss, /grid-template-columns: repeat\(auto-fit, minmax\(21px, 1fr\)\)/);
-  assert.match(panelCss, /\.panel button::after \{[^}]*left: 0;[^}]*z-index: 1000;/s);
+  assert.match(
+    panelCss,
+    /\.panel button::after \{[^}]*left: 0;[^}]*z-index: var\(--layer-ui-tooltip\);/s,
+  );
   assert.doesNotMatch(
     panelCss.match(/\.panel \{[^}]*\}/s)?.[0] || "",
     /position: absolute|bottom:|left:|min-width:/,

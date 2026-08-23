@@ -175,7 +175,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     );
 
     return (
-      <>
+      <div className={styles.sceneLayer}>
         <canvas ref={canvasRef} className={styles.space} aria-label="3D system map" />
         {planetSprites.map((planet) => (
           <PlanetSphere
@@ -268,7 +268,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             )}
           </div>
         )}
-      </>
+      </div>
     );
   },
 );

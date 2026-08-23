@@ -136,8 +136,8 @@ export function clusterPointSize(members: Array<Pick<ScenePoint, "kind" | "marke
     const tier = finite(member.markerShape);
     return Math.max(largest, tier > 0 ? tier : 5);
   }, 1);
-  const densityBonus = Math.min(6, Math.sqrt(Math.max(0, ships.length - 1)) * 2);
-  return Math.round(clamp(12 + largestShipTier * 2 + densityBonus, 14, 40));
+  const densityBonus = Math.min(8, Math.sqrt(Math.max(0, ships.length - 1)) * 3);
+  return Math.round(clamp(20 + largestShipTier * 3.5 + densityBonus, 24, 72));
 }
 
 const SHIP_CLASSES: Record<string, { hangarSize: number; markerPixels: number; shape: number }> = {

@@ -111,7 +111,7 @@ const MODEL_DETAIL_PPU = 2.25;
 // These are intentionally centralized while the two camera regimes are being
 // tuned. OrbitCamera.distance is the visible vertical half-span in world units.
 export const TACTICAL_VIEW_SETTINGS = {
-  tacticalDistance: 1_000,
+  tacticalDistance: 100,
   strategicDistance: 50_000,
   tacticalMinimumShipPixels: 24,
   tacticalMaximumShipPixels: 72,
@@ -702,7 +702,9 @@ export class TacticalEngine {
       const customSize = this.scaledPointSize(point);
       const size =
         point.kind === "cluster"
-          ? point.pointSize
+          ? this.scaleMode === "tactical"
+            ? point.pointSize
+            : Math.min(32, Math.max(14, Math.round(point.pointSize * 0.58)))
           : point.kind === "prediction"
             ? customSize
             : point.kind === "observer"
