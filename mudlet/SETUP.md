@@ -15,10 +15,12 @@ the Windows desktop renderer without competing with existing LotJ aliases.
 %LOCALAPPDATA%\Holocron3D\mudlet\Holocron3D.mpackage
 ```
 
-The package starts automatically. Enter `h3d status` in Mudlet to verify it, or
-use `h3d start`, `h3d stop`, `h3d snapshot`, `h3d profile`, and `h3d help` as needed. Mudlet
-stores its own copy after import, so the source `.mpackage` does not need to
-remain selected or open. This follows Mudlet's standard Package Manager flow.
+The package loads in the off state and prints `waiting for h3d start to begin
+Holocron3D`, so it cannot interrupt username or password entry. After logging
+in, enter `h3d start`. Use `h3d status`, `h3d stop`, `h3d snapshot`, `h3d
+profile`, and `h3d help` as needed. Mudlet stores its own copy after import, so
+the source `.mpackage` does not need to remain selected or open. This follows
+Mudlet's standard Package Manager flow.
 
 To profile Mudlet performance, enter `h3d profile start`, use the client
 normally for at least 30 seconds, and enter `h3d profile stop`. Use
@@ -142,10 +144,9 @@ The following messages should appear in Mudlet, usually within a second:
 
 The exact order of the last few lines can vary. That is normal.
 
-On profile startup, polling is armed but remains dormant while Mudlet is
-connecting or displaying the login screen. It activates only after a launch
-message or a successfully parsed manual space command confirms that the
-character is in space.
+On profile startup, Holocron3D remains completely off until `h3d start` is
+entered. It does not launch the desktop bridge or arm telemetry polling during
+the login cycle.
 
 Developers can opt into the unpacked Electron build instead of the installed
 application:

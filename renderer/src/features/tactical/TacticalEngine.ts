@@ -108,8 +108,23 @@ const MINIMUM_ORIGIN_GRID_STEP = 500;
 const STRATEGIC_DOT_PPU = 0.95;
 const MODEL_DETAIL_PPU = 2.25;
 
+// These are intentionally centralized while the two camera regimes are being
+// tuned. OrbitCamera.distance is the visible vertical half-span in world units.
+export const TACTICAL_VIEW_SETTINGS = {
+  tacticalDistance: 1_000,
+  strategicDistance: 50_000,
+  tacticalMinimumShipPixels: 24,
+  tacticalMaximumShipPixels: 72,
+} as const;
+
 export type TacticalFidelity = "strategic" | "transition" | "model";
 export type TacticalCameraMode = "player" | "rts" | "selection";
+export type TacticalScaleMode = "strategic" | "tactical";
+
+export interface TacticalViewDistances {
+  strategic: number;
+  tactical: number;
+}
 
 export interface TacticalTooltip {
   name: string;
@@ -169,6 +184,7 @@ export interface TacticalEngineCallbacks {
   onPlanetSprites(sprites: PlanetSprite[]): void;
   onFidelityChange(mode: TacticalFidelity): void;
   onCameraModeChange(mode: TacticalCameraMode): void;
+  onScaleModeChange(mode: TacticalScaleMode): void;
   onMovementVector(vector: Vector3): void;
   onMovementCommit(): void;
   onMovementCancel(): void;
@@ -284,6 +300,11 @@ export class TacticalEngine {
   private heightGuideShown = false;
   private heightGuideFadeStartedAt: number | null = null;
   private cameraMode: TacticalCameraMode = "player";
+  private scaleMode: TacticalScaleMode = "tactical";
+  private viewDistances: TacticalViewDistances = {
+    strategic: TACTICAL_VIEW_SETTINGS.strategicDistance,
+    tactical: TACTICAL_VIEW_SETTINGS.tacticalDistance,
+  };
   private cameraTargetId: string | null = null;
   private cameraFocus: Vector3 = [0, 0, 0];
   private freeFocusWorld: Vector3 = [0, 0, 0];
@@ -369,7 +390,7 @@ export class TacticalEngine {
     if (this.firstSnapshot) {
       this.interpolator.setTarget(nextScene, now, 0);
       this.scene = nextScene;
-      this.camera.fit(this.fitRadius(), true);
+      this.applyScaleDistance(true);
       this.updateMarkerReference();
       this.firstSnapshot = false;
       this.lastMotionSnapshotAt = now;
@@ -386,7 +407,7 @@ export class TacticalEngine {
       this.scene = this.interpolator.sample(now);
     }
     if (radarRangeBecameAvailable && !wasFirstSnapshot) {
-      this.camera.fit(this.fitRadius());
+      this.applyScaleDistance();
       this.updateMarkerReference();
     }
     this.requestRender();
@@ -399,9 +420,30 @@ export class TacticalEngine {
   }
 
   sectorView(): void {
-    this.camera.fit(this.fitRadius());
-    const strategicDistance = Math.max(1, this.canvas.clientHeight) / (2 * STRATEGIC_DOT_PPU);
-    this.camera.targetDistance = Math.max(this.camera.targetDistance, strategicDistance);
+    this.setScaleMode("strategic");
+    this.camera.targetDistance = Math.max(this.viewDistances.strategic, this.fitRadius());
+    this.viewDistances.strategic = this.camera.targetDistance;
+    this.updateMarkerReference();
+    this.requestRender();
+  }
+
+  setScaleMode(mode: TacticalScaleMode): void {
+    if (mode !== this.scaleMode) {
+      this.viewDistances[this.scaleMode] = this.camera.targetDistance;
+      this.scaleMode = mode;
+      this.callbacks.onScaleModeChange(mode);
+    }
+    this.applyScaleDistance();
+    this.updateMarkerReference();
+    this.requestRender();
+  }
+
+  setViewDistances(distances: Partial<TacticalViewDistances>): void {
+    for (const mode of ["strategic", "tactical"] as const) {
+      const distance = Number(distances[mode]);
+      if (Number.isFinite(distance) && distance > 0) this.viewDistances[mode] = distance;
+    }
+    this.applyScaleDistance();
     this.updateMarkerReference();
     this.requestRender();
   }
@@ -660,7 +702,7 @@ export class TacticalEngine {
       const customSize = this.scaledPointSize(point);
       const size =
         point.kind === "cluster"
-          ? Math.min(18, point.pointSize)
+          ? point.pointSize
           : point.kind === "prediction"
             ? customSize
             : point.kind === "observer"
@@ -702,6 +744,7 @@ export class TacticalEngine {
     for (const point of this.scene.points) {
       if (!["ship", "observer"].includes(point.kind)) continue;
       const model = shipModelFor(point.shipCategory);
+      const renderedScale = this.renderedShipScale(model.scale);
       const heading = this.headingFor(point);
       const magnitude = Math.hypot(...heading);
       const forward: Vector3 =
@@ -723,11 +766,11 @@ export class TacticalEngine {
       ];
       const world = (local: Vector3): Vector3 => [
         point.position3d[0] +
-          model.scale * (right[0] * local[0] + up[0] * local[1] + forward[0] * local[2]),
+          renderedScale * (right[0] * local[0] + up[0] * local[1] + forward[0] * local[2]),
         point.position3d[1] +
-          model.scale * (right[1] * local[0] + up[1] * local[1] + forward[1] * local[2]),
+          renderedScale * (right[1] * local[0] + up[1] * local[1] + forward[1] * local[2]),
         point.position3d[2] +
-          model.scale * (right[2] * local[0] + up[2] * local[1] + forward[2] * local[2]),
+          renderedScale * (right[2] * local[0] + up[2] * local[1] + forward[2] * local[2]),
       ];
       for (let index = 0; index < model.triangles.length; index += 3) {
         const a = world(model.triangles[index]);
@@ -1198,7 +1241,7 @@ export class TacticalEngine {
     const selected = this.findPointById(this.selectedId || undefined);
     if (selected && ["ship", "observer"].includes(selected.kind)) {
       const center = selected.position3d;
-      const modelScale = shipModelFor(selected.shipCategory).scale;
+      const modelScale = this.renderedShipScale(shipModelFor(selected.shipCategory).scale);
       const radius = Math.max(modelScale * 1.85, this.camera.distance * 0.018);
       const segments = 72;
       const appendRing = (
@@ -1592,6 +1635,38 @@ export class TacticalEngine {
     return contentRadius * (this.originGridEnabled ? 1.1 : 1.22);
   }
 
+  private applyScaleDistance(immediate = false): void {
+    const distance = Math.max(this.camera.minimumDistance, this.viewDistances[this.scaleMode]);
+    this.camera.maximumDistance = Math.max(this.camera.maximumDistance, distance * 4);
+    this.camera.targetDistance = distance;
+    if (immediate) this.camera.distance = distance;
+  }
+
+  private zoomCamera(delta: number): void {
+    this.camera.zoom(delta);
+    this.viewDistances[this.scaleMode] = this.camera.targetDistance;
+  }
+
+  private pixelsPerUnit(): number {
+    return Math.max(1, this.canvas.clientHeight) / (2 * Math.max(0.001, this.camera.distance));
+  }
+
+  private tacticalShipPixels(modelScale: number): number {
+    return Math.min(
+      TACTICAL_VIEW_SETTINGS.tacticalMaximumShipPixels,
+      Math.max(
+        TACTICAL_VIEW_SETTINGS.tacticalMinimumShipPixels,
+        TACTICAL_VIEW_SETTINGS.tacticalMinimumShipPixels + (modelScale - 1) * 8,
+      ),
+    );
+  }
+
+  private renderedShipScale(modelScale: number): number {
+    if (this.scaleMode !== "tactical") return modelScale;
+    const minimumWorldScale = this.tacticalShipPixels(modelScale) / (2 * this.pixelsPerUnit());
+    return Math.max(modelScale, minimumWorldScale);
+  }
+
   private updateMarkerReference(): void {
     const fitPixelsPerUnit =
       Math.max(1, this.canvas.clientHeight) / (2 * this.camera.targetDistance);
@@ -1723,10 +1798,11 @@ export class TacticalEngine {
     const halfHeight = this.camera.distance;
     const halfWidth = halfHeight * aspect;
     const pixelsPerUnit = Math.max(1, this.canvas.clientHeight) / (2 * halfHeight);
-    const modelBlend = Math.max(
+    const zoomModelBlend = Math.max(
       0,
       Math.min(1, (pixelsPerUnit - STRATEGIC_DOT_PPU) / (MODEL_DETAIL_PPU - STRATEGIC_DOT_PPU)),
     );
+    const modelBlend = this.scaleMode === "tactical" ? 1 : zoomModelBlend;
     const nextFidelity: TacticalFidelity =
       modelBlend <= 0.05 ? "strategic" : modelBlend >= 0.95 ? "model" : "transition";
     if (nextFidelity !== this.fidelity) {
@@ -1965,7 +2041,9 @@ export class TacticalEngine {
       );
       const renderedSize = ["celestial", "planet"].includes(point.kind)
         ? planetSpritePixels(point.pointSize, pixelsPerUnit)
-        : point.pointSize * this.markerScale;
+        : this.scaleMode === "tactical" && ["ship", "observer"].includes(point.kind)
+          ? this.tacticalShipPixels(shipModelFor(point.shipCategory).scale)
+          : point.pointSize * this.markerScale;
       const markerRadius = renderedSize / 2 + 5;
       const inside = distance < Math.max(threshold, markerRadius);
       const winsTie =
@@ -2131,7 +2209,7 @@ export class TacticalEngine {
       }
       return;
     }
-    this.camera.zoom(event.deltaY);
+    this.zoomCamera(event.deltaY);
     this.requestRender();
   };
 
@@ -2178,8 +2256,8 @@ export class TacticalEngine {
       if (event.key === "ArrowRight" || key === "d") this.camera.orbit(-18, 0);
       if (event.key === "ArrowUp" || key === "w") this.camera.orbit(0, 18);
       if (event.key === "ArrowDown" || key === "s") this.camera.orbit(0, -18);
-      if (key === "q") this.camera.zoom(-120);
-      if (key === "e") this.camera.zoom(120);
+      if (key === "q") this.zoomCamera(-120);
+      if (key === "e") this.zoomCamera(120);
     }
     this.requestRender();
   };

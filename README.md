@@ -56,9 +56,9 @@ connect it to your normal LotJ Mudlet profile.
 5. Enter `h3d status` in Mudlet. The package launches the installed application
    from `/Applications/LotJ Holocron 3D.app` when it is not already running.
 
-The Mudlet package starts automatically after installation. Enter a ship
-cockpit where LotJ permits the telemetry commands; the renderer will begin
-updating as polling results arrive.
+The Mudlet package loads in the off state so it cannot interfere with the LotJ
+login cycle. After logging in and entering a ship cockpit, enter `h3d start` to
+launch the renderer and begin telemetry polling.
 
 ## Documentation
 

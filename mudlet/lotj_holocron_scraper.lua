@@ -164,6 +164,7 @@ local handleShieldStatus
 local queueObserverHydration
 local clearObserverHydration
 local queueObserverInfo
+local queueInitialStateSweep
 local dispatchSpaceProbe
 local recountFleetOrder
 local requestProjectileRadarReconciliation
@@ -584,6 +585,10 @@ local function captureOwnsLine(capture, value)
       radarSystemName(value) ~= nil
       or isCoordinateRow(value)
       or lower:match("battlegroup:%s*$")
+      or (
+        lower:find("seat", 1, true)
+        and (lower:find("co-pilot", 1, true) or lower:find("copilot", 1, true))
+      )
     then
       return markResponseStarted(capture)
     end
@@ -630,6 +635,7 @@ local function captureOwnsLine(capture, value)
           lower:find("not ", 1, true)
           or lower:find("no ", 1, true)
           or lower:find("aren't", 1, true)
+          or lower:find("fighter cockpit to manage squadrons", 1, true)
         )
       )
     then
@@ -734,6 +740,145 @@ local function freshState()
       combatTargets = {},
     },
   }
+end
+
+local function resetObserverContext(name, reason)
+  local previous = Scraper.state or freshState()
+  local previousMetadata = previous.metadata or {}
+  local nextState = freshState()
+  nextState.observer.name = trim(name) ~= "" and trim(name) or "Player Ship"
+  for _, key in ipairs({
+    "inSpace",
+    "spaceStateReason",
+    "spaceStateChangedAt",
+    "mudletCompatibility",
+    "polling",
+    "automationArmed",
+    "automationDisarmedReason",
+  }) do
+    if previousMetadata[key] ~= nil then
+      nextState.metadata[key] = type(previousMetadata[key]) == "table"
+          and copyTable(previousMetadata[key])
+        or previousMetadata[key]
+    end
+  end
+  nextState.metadata.observerGeneration = (tonumber(previousMetadata.observerGeneration) or 0) + 1
+  nextState.metadata.observerTransition = {
+    from = trim(previous.observer and previous.observer.name),
+    to = nextState.observer.name,
+    reason = reason or "observer identity changed",
+    observedAt = os.time(),
+  }
+  local wantedName = nextState.observer.name:lower()
+  for kind, fleet in pairs(previousMetadata.formations or {}) do
+    local includesObserver = false
+    for _, member in ipairs(type(fleet) == "table" and fleet.members or {}) do
+      if trim(member.name):lower() == wantedName then
+        includesObserver = true
+        break
+      end
+    end
+    if includesObserver then
+      local preservedFleet = copyTable(fleet)
+      nextState.metadata.formations[kind] = preservedFleet
+      if preservedFleet.active == true then
+        nextState.metadata.fleet = preservedFleet
+      end
+    end
+  end
+  Scraper.state = nextState
+  Scraper.scanState = {}
+  Scraper.destruction = { nextEventId = 0, destroyedNames = {} }
+
+  Scraper.polling.hydrationQueue = {}
+  Scraper.polling.lastFleetRadarAt = 0
+  Scraper.polling.lastBattlegroupAt = 0
+  Scraper.polling.lastSquadronAt = 0
+  Scraper.polling.lastAutomaticCommandAt = {}
+  Scraper.polling.radarRefreshPending = false
+  Scraper.polling.radarRefreshReason = nil
+  Scraper.polling.radarRefreshGeneration = 0
+  Scraper.polling.radarRefreshIssuedGeneration = 0
+  Scraper.polling.fleetRadarRefreshPending = false
+  Scraper.polling.fleetRadarRefreshIssuedGeneration = 0
+  safeKill("killTimer", Scraper.polling.sensorTickTimerId)
+  Scraper.polling.sensorTickTimerId = nil
+  Scraper.polling.sensorPollPending = false
+  Scraper.polling.sensorPollPendingCommand = nil
+  Scraper.polling.sensorPollPendingSince = nil
+  Scraper.polling.sensorTickGranted = false
+  Scraper.polling.sensorTickSource = nil
+  Scraper.polling.sensorTickSequence = nil
+  Scraper.polling.sensorTickBypassPending = false
+
+  safeKill("killTimer", Scraper.combat.targetReconcileTimerId)
+  safeKill("killTimer", Scraper.combat.projectileReconcileTimerId)
+  Scraper.combat.targetReconcileTimerId = nil
+  Scraper.combat.projectileReconcileTimerId = nil
+  Scraper.combat.targetName = nil
+  Scraper.combat.pendingTargetName = nil
+  Scraper.combat.pendingTargetContext = nil
+  Scraper.combat.pendingTargetPreviousName = nil
+  Scraper.combat.lastActivityAt = 0
+  Scraper.combat.lastRadarAt = 0
+  Scraper.combat.projectileRadarPending = false
+  Scraper.projectileTracking = { nextId = 0, tracks = {} }
+
+  Scraper.shipGmcp.lastAt = 0
+  Scraper.shipGmcp.damageSequence = nil
+  safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
+  Scraper.autotrack.timeoutTimerId = nil
+  Scraper.autotrack.observed = nil
+  Scraper.autotrack.pending = false
+  Scraper.autotrack.intentId = nil
+  Scraper.autotrack.retryCount = 0
+  safeKill("killTimer", Scraper.fleetCommand.verificationTimerId)
+  Scraper.fleetCommand.verificationTimerId = nil
+  Scraper.fleetCommand.currentMemberName = nil
+  Scraper.fleetCommand.holdUntil = 0
+  safeKill("killTimer", Scraper.shields.damageTimerId)
+  safeKill("killTimer", Scraper.shields.actionTimerId)
+  Scraper.shields.damageTimerId = nil
+  Scraper.shields.actionTimerId = nil
+  Scraper.shields.recharging = false
+  Scraper.shields.awaiting = false
+  Scraper.shields.attempts = 0
+  Scraper.shields.statusPending = false
+  Scraper.shields.manualIntentId = nil
+  Scraper.shields.activationPending = false
+  safeKill("killTimer", Scraper.hyperspace.statusTimerId)
+  safeKill("killTimer", Scraper.hyperspace.reentryRefreshTimerId)
+  Scraper.hyperspace.phase = "idle"
+  Scraper.hyperspace.statusTimerId = nil
+  Scraper.hyperspace.reentryRefreshTimerId = nil
+  Scraper.hyperspace.activeIntentId = nil
+  Scraper.hyperspace.pendingLocalJumpUntil = 0
+  Scraper.hyperspace.fleetJumpQueue = {}
+  Scraper.hyperspace.activeSample = nil
+  Scraper.hyperspace.pendingArrivalSample = nil
+  Scraper.hyperspace.hyperjumpCompleteObserved = false
+  Scraper.hyperspace.realspaceLurchObserved = false
+  Scraper.hyperspace.awaitingArrivalRadar = false
+  Scraper.hyperspace.reentrySystemName = nil
+
+  if queueObserverHydration then
+    queueObserverHydration()
+  end
+  if nextState.metadata.inSpace == true and queueInitialStateSweep then
+    queueInitialStateSweep(reason or "observer identity changed", false)
+  end
+  diagnostic(
+    "info",
+    "observer context changed from "
+      .. tostring(
+        nextState.metadata.observerTransition.from ~= ""
+            and nextState.metadata.observerTransition.from
+          or "an unknown ship"
+      )
+      .. " to "
+      .. nextState.observer.name
+      .. "; refreshing ship-scoped telemetry"
+  )
 end
 
 local function epochMilliseconds()
@@ -1355,6 +1500,17 @@ local function applyStatus(result, sentCommand)
         .. " but received "
         .. (parsedName ~= "" and parsedName or "an unnamed ship")
   end
+  local observerName =
+    trim(Scraper.state and Scraper.state.observer and Scraper.state.observer.name)
+  if
+    isObserver
+    and parsedName ~= ""
+    and observerName ~= ""
+    and observerName:lower() ~= "player ship"
+    and parsedName:lower() ~= observerName:lower()
+  then
+    resetObserverContext(parsedName, "unqualified status identified a different ship")
+  end
   local destination
   if isObserver then
     destination = Scraper.state.observer
@@ -1450,15 +1606,12 @@ local function applyInfo(result, sentCommand)
   end
   if
     isObserver
+    and parsedName ~= ""
     and observerName ~= ""
     and observerName:lower() ~= "player ship"
     and parsedName:lower() ~= observerName:lower()
   then
-    return false,
-      "info response identity mismatch; expected "
-        .. observerName
-        .. " but received "
-        .. (parsedName ~= "" and parsedName or "an unnamed ship")
+    resetObserverContext(parsedName, "unqualified info identified a different ship")
   end
   local scannedName = parsedName ~= "" and parsedName or requestedName
   local destination = isObserver and Scraper.state.observer or findEntity({ name = scannedName })
@@ -1610,6 +1763,7 @@ function Scraper.applyResult(result, sentCommand, captureContext)
   else
     if source == "fleetradar" then
       Scraper.polling.lastFleetRadarAt = os.time()
+      Scraper.state.metadata.fleetRadarUnavailableReason = result.unavailableReason
       local refreshSatisfied = normalizedCommand(sentCommand) == "fleetradar"
         and Scraper.polling.fleetRadarRefreshPending == true
         and tonumber(Scraper.polling.fleetRadarRefreshIssuedGeneration or 0)
@@ -1691,6 +1845,7 @@ function Scraper.applyResult(result, sentCommand, captureContext)
       preservedNewerGmcpObserver = preserveNewerGmcpObserver == true,
     }
   end
+  Scraper.state.metadata.sources[source] = os.time()
   Scraper.state.metadata.lastSource = source
   Scraper.state.metadata.lastObservedAt = os.time()
   return true
@@ -1911,7 +2066,7 @@ local function clearInitialStateSweep()
   end
 end
 
-local function queueInitialStateSweep(reason, allowSpaceProbe)
+queueInitialStateSweep = function(reason, allowSpaceProbe)
   Scraper.state = Scraper.state or freshState()
   Scraper.polling.initializationQueue = {
     "radar",
@@ -4112,10 +4267,6 @@ local function fleetStatusCommandDue(now, combatActive)
   local metadata = Scraper.state and Scraper.state.metadata or {}
   local activeKind = metadata.fleet and metadata.fleet.active == true and metadata.fleet.kind or nil
   local formations = metadata.formations or {}
-  local bothKnownInactive = formations.battlegroup
-    and formations.battlegroup.active == false
-    and formations.squadron
-    and formations.squadron.active == false
   local activeInterval = combatActive
       and (Scraper.polling.combatFleetStatusIntervalSeconds or Scraper.COMBAT_FLEET_STATUS_INTERVAL_SECONDS)
     or (Scraper.polling.fleetStatusIntervalSeconds or Scraper.FLEET_STATUS_INTERVAL_SECONDS)
@@ -4144,8 +4295,9 @@ local function fleetStatusCommandDue(now, combatActive)
     end
   end
   for _, candidate in ipairs(candidates) do
+    local knownInactive = formations[candidate.kind] and formations[candidate.kind].active == false
     candidate.interval = activeKind == candidate.kind and activeInterval
-      or (activeKind ~= nil or bothKnownInactive) and inactiveInterval
+      or (activeKind ~= nil or knownInactive) and inactiveInterval
       or activeInterval
     candidate.overdue = now - candidate.lastAt - candidate.interval
   end
@@ -4210,6 +4362,13 @@ local function pollOnce()
   local fleetRadarInterval = combatActive
       and (Scraper.polling.combatFleetRadarIntervalSeconds or Scraper.COMBAT_FLEETRADAR_INTERVAL_SECONDS)
     or (Scraper.polling.fleetRadarIntervalSeconds or Scraper.FLEETRADAR_INTERVAL_SECONDS)
+  if Scraper.state.metadata.fleetRadarUnavailableReason == "copilot_seat_required" then
+    fleetRadarInterval = math.max(
+      fleetRadarInterval,
+      Scraper.polling.inactiveFormationProbeIntervalSeconds
+        or Scraper.INACTIVE_FORMATION_PROBE_INTERVAL_SECONDS
+    )
+  end
   local fleetRadarDue = now - (Scraper.polling.lastFleetRadarAt or 0) >= fleetRadarInterval
   local projectileRadarPending = Scraper.combat.projectileRadarPending == true
   local fleetStatusDue = fleetStatusCommandDue(now, combatActive)

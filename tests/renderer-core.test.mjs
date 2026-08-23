@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  MINIMUM_INSPECTION_DISTANCE,
   OrbitCamera,
   SceneInterpolator,
   buildScene,
+  clusterPointSize,
   easeOutCubic,
   findScenePoint,
   lookAt,
@@ -644,16 +646,33 @@ test("orthographic tactical scale projects ten pixels per distance unit", () => 
   );
 });
 
-test("planet sprites stay small at strategic scale and grow as the camera zooms in", () => {
-  const sizes = [0.1, 1, 4, 16, 100, 400].map((pixelsPerUnit) =>
+test("planet sprites remain visible strategically and dwarf ships tactically", () => {
+  const sizes = [0.1, 1, 4, 16, 100, 400, 1_600].map((pixelsPerUnit) =>
     planetSpritePixels(13, pixelsPerUnit),
   );
 
-  assert.deepEqual(sizes, [8, 13, 26, 52, 130, 160]);
+  assert.deepEqual(sizes, [33, 104, 208, 400, 400, 400, 400]);
+  assert.ok(
+    planetSpritePixels(13, 0.4) > 60,
+    "a planet at the default tactical scale should dwarf ordinary capital-ship models",
+  );
   assert.ok(
     sizes.every((size, index) => index === 0 || size >= sizes[index - 1]),
     "increasing pixels-per-unit must never make a planet smaller",
   );
+});
+
+test("cluster markers inherit a readable hierarchy from their largest ship class", () => {
+  const fighters = [
+    { kind: "ship", markerShape: 2 },
+    { kind: "ship", markerShape: 2 },
+  ];
+  const frigateGroup = [fighters[0], { kind: "ship", markerShape: 7 }];
+  const battleshipGroup = [fighters[0], { kind: "ship", markerShape: 9 }];
+
+  assert.equal(clusterPointSize(fighters), 18);
+  assert.equal(clusterPointSize(frigateGroup), 28);
+  assert.equal(clusterPointSize(battleshipGroup), 32);
 });
 
 test("planet surface projection follows tactical camera yaw and pitch", () => {
@@ -762,10 +781,11 @@ test("disabled ship condition survives scene construction", () => {
 
 test("orbit camera cannot detach from the player focus", () => {
   const camera = new OrbitCamera();
-  camera.fit(500, true);
-  assert.ok(
-    camera.minimumDistance <= 1.25,
-    "close tactical zoom should be substantially deeper than fit view",
+  camera.fit(100_000, true);
+  assert.equal(
+    camera.minimumDistance,
+    MINIMUM_INSPECTION_DISTANCE,
+    "a large strategic fit must not prevent close inspection",
   );
   camera.orbit(100, -10_000);
   camera.zoom(-1_000_000);
@@ -829,6 +849,7 @@ test("exactly colocated ships and celestial bodies share a stable selectable clu
   assert.ok(cluster);
   assert.equal(cluster.memberCount, 3);
   assert.equal(cluster.memberSummary, "2 SHIPS, 1 PLANET");
+  assert.deepEqual(cluster.color, [1, 0.34, 0.05]);
   assert.equal(cluster.orbitingPlanetId, "moon");
   assert.equal(cluster.orbitingShipCount, 2);
   assert.deepEqual(

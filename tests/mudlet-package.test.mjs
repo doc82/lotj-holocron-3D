@@ -39,7 +39,11 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
     bootstrap,
     /if level ~= "error" and level ~= "warn" and not Package\.settings\.debug then\s+return\s+end/,
   );
-  assert.match(bootstrap, /tempTimer\(0, function\(\)\s+Package\.start\(\)\s+end\)/);
+  assert.doesNotMatch(bootstrap, /tempTimer\(0, function\(\)\s+Package\.start\(\)/);
+  assert.match(
+    bootstrap,
+    /tempTimer\(0, function\(\)\s+Package\.stop\(true\)\s+say\("yellow", "waiting for h3d start to begin Holocron3D"\)\s+end\)/,
+  );
   for (const source of ["parsers", "proxy", "scraper"]) {
     assert.match(build, new RegExp(`lotj_holocron_${source}\\.lua`));
   }

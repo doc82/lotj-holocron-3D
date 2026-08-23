@@ -541,5 +541,6 @@ function Package.command(action, argument)
 end
 
 tempTimer(0, function()
-  Package.start()
+  Package.stop(true)
+  say("yellow", "waiting for h3d start to begin Holocron3D")
 end)

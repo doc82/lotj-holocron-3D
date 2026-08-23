@@ -1,4 +1,4 @@
-import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
+import type { TacticalCameraMode, TacticalScaleMode } from "../features/tactical/TacticalEngine";
 import styles from "./App.module.css";
 import { CameraIcon, PollingControlIcon, ViewIcon } from "./TacticalIcons";
 
@@ -10,6 +10,7 @@ interface TacticalHeaderProps {
   originGridEnabled: boolean;
   navigationActive: boolean;
   cameraMode: TacticalCameraMode;
+  scaleMode: TacticalScaleMode;
   cameraFocusName?: string;
   pollingPaused: boolean;
   pollingPausePending: boolean;
@@ -17,7 +18,7 @@ interface TacticalHeaderProps {
   onToggleRadar(): void;
   onToggleGrid(): void;
   onCameraMode(mode: TacticalCameraMode): void;
-  onSectorView(): void;
+  onScaleMode(mode: TacticalScaleMode): void;
   onCinematicMode(): void;
   onPollingPaused(paused: boolean): void;
 }
@@ -30,6 +31,7 @@ export function TacticalHeader({
   originGridEnabled,
   navigationActive,
   cameraMode,
+  scaleMode,
   cameraFocusName,
   pollingPaused,
   pollingPausePending,
@@ -37,7 +39,7 @@ export function TacticalHeader({
   onToggleRadar,
   onToggleGrid,
   onCameraMode,
-  onSectorView,
+  onScaleMode,
   onCinematicMode,
   onPollingPaused,
 }: TacticalHeaderProps) {
@@ -114,12 +116,25 @@ export function TacticalHeader({
             </button>
             <button
               type="button"
-              className={styles.iconButton}
+              disabled={navigationActive}
+              className={`${styles.iconButton} ${styles.scaleModeButton} ${scaleMode === "strategic" ? styles.activeViewControl : ""}`}
               aria-label="Open strategic sector view"
+              aria-pressed={scaleMode === "strategic"}
               data-tooltip="STRATEGIC SECTOR VIEW"
-              onClick={onSectorView}
+              onClick={() => onScaleMode("strategic")}
             >
-              <ViewIcon type="sector" />
+              STRAT
+            </button>
+            <button
+              type="button"
+              disabled={navigationActive}
+              className={`${styles.iconButton} ${styles.scaleModeButton} ${scaleMode === "tactical" ? styles.activeViewControl : ""}`}
+              aria-label="Open tactical combat view"
+              aria-pressed={scaleMode === "tactical"}
+              data-tooltip="TACTICAL COMBAT VIEW"
+              onClick={() => onScaleMode("tactical")}
+            >
+              TAC
             </button>
             <button
               type="button"

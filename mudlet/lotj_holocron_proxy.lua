@@ -286,11 +286,19 @@ function Proxy.handleProcessOutput(chunk)
     if #raw > Proxy.MAX_LINE_BYTES then
       diagnostic("error", "oversized bridge message was discarded")
     elseif raw ~= "" then
-      local message, decodeError = decode(raw)
-      if message then
-        Proxy.handleMessage(message)
+      -- Older relay builds wrote transport failures as plain stderr. Mudlet
+      -- may indent process stderr before delivering it to this callback, so
+      -- tolerate leading whitespace and keep it away from the JSON decoder.
+      local relayFailure = raw:match("^%s*Holocron3D relay:%s*(.+)$")
+      if relayFailure then
+        diagnostic("warn", "desktop bridge disconnected: " .. relayFailure)
       else
-        diagnostic("error", "invalid bridge JSON: " .. tostring(decodeError))
+        local message, decodeError = decode(raw)
+        if message then
+          Proxy.handleMessage(message)
+        else
+          diagnostic("error", "invalid bridge JSON: " .. tostring(decodeError))
+        end
       end
     end
   end

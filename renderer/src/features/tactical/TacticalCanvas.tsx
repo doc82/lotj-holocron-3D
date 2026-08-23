@@ -19,13 +19,17 @@ import {
   type PlanetSprite,
   type TacticalCameraMode,
   type TacticalFidelity,
+  type TacticalScaleMode,
   type TacticalTooltip,
+  type TacticalViewDistances,
 } from "./TacticalEngine";
 import styles from "./TacticalCanvas.module.css";
 
 export interface TacticalCanvasHandle {
   fitSystem(): void;
   sectorView(): void;
+  setScaleMode(mode: TacticalScaleMode): void;
+  setViewDistances(distances: Partial<TacticalViewDistances>): void;
   resetOrientation(): void;
   setCameraMode(mode: TacticalCameraMode, targetId?: string): void;
   focusPoint(targetId: string): void;
@@ -50,6 +54,7 @@ interface TacticalCanvasProps {
   onMovementCommit(): void;
   onMovementCancel(): void;
   onCameraModeChange(mode: TacticalCameraMode): void;
+  onScaleModeChange?(mode: TacticalScaleMode): void;
 }
 
 export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasProps>(
@@ -69,6 +74,7 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
       onMovementCommit,
       onMovementCancel,
       onCameraModeChange,
+      onScaleModeChange,
     },
     ref,
   ) {
@@ -80,12 +86,14 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
     const [playerShipLabel, setPlayerShipLabel] = useState<PlayerShipLabel | null>(null);
     const [planetSprites, setPlanetSprites] = useState<PlanetSprite[]>([]);
     const [fidelity, setFidelity] = useState<TacticalFidelity>("strategic");
+    const [scaleMode, setScaleMode] = useState<TacticalScaleMode>("tactical");
     const callbacksRef = useLatestRef({
       onSelect,
       onMovementVector,
       onMovementCommit,
       onMovementCancel,
       onCameraModeChange,
+      onScaleModeChange,
     });
 
     useEffect(() => {
@@ -99,6 +107,10 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
         onPlanetSprites: setPlanetSprites,
         onFidelityChange: setFidelity,
         onCameraModeChange: (mode) => callbacksRef.current.onCameraModeChange(mode),
+        onScaleModeChange: (mode) => {
+          setScaleMode(mode);
+          callbacksRef.current.onScaleModeChange?.(mode);
+        },
         onMovementVector: (vector) => callbacksRef.current.onMovementVector(vector),
         onMovementCommit: () => callbacksRef.current.onMovementCommit(),
         onMovementCancel: () => callbacksRef.current.onMovementCancel(),
@@ -147,6 +159,8 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
       () => ({
         fitSystem: () => engineRef.current?.fitSystem(),
         sectorView: () => engineRef.current?.sectorView(),
+        setScaleMode: (mode) => engineRef.current?.setScaleMode(mode),
+        setViewDistances: (distances) => engineRef.current?.setViewDistances(distances),
         resetOrientation: () => engineRef.current?.resetOrientation(),
         setCameraMode: (mode, targetId) => engineRef.current?.setCameraMode(mode, targetId),
         focusPoint: (targetId) => engineRef.current?.focusPoint(targetId),
@@ -192,7 +206,13 @@ export const TacticalCanvas = forwardRef<TacticalCanvasHandle, TacticalCanvasPro
             {observerLabel} <span>// {snapshot.observer?.name || "PLAYER SHIP"}</span>
           </div>
         )}
-        {fidelity === "strategic" && <div className={styles.fidelity}>STRATEGIC CONTACTS</div>}
+        <div className={styles.fidelity}>
+          {scaleMode === "strategic"
+            ? "STRATEGIC // SECTOR"
+            : fidelity === "model"
+              ? "TACTICAL // COMBAT"
+              : "TACTICAL // TRANSITION"}
+        </div>
         {clusterLabels.map((label) => (
           <button
             key={label.id}

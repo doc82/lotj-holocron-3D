@@ -251,6 +251,8 @@ test("colocated contact clusters expose counts and an expandable member grid", a
   assert.match(canvas, /styles\.orbitedPlanetSprite/);
   assert.match(canvas, /styles\.orbitCount/);
   assert.match(canvasStyles, /\.orbitCount[\s\S]*font-size: 18px/);
+  assert.match(canvasStyles, /\.orbitedPlanetSprite[\s\S]*rgba\(255, 137, 30, 0\.8\)/);
+  assert.match(canvasStyles, /\.clusterCount[\s\S]*0 1px 2px #02060c/);
   assert.match(app, /COLOCATED CONTACTS/);
   assert.match(app, /styles\.memberGrid/);
   assert.match(app, /onMouseEnter=\{\(\) => onHover\(member\.id\)\}/);
@@ -320,9 +322,10 @@ test("selected ships receive a gold planar ring while formation colors use purpl
   assert.match(scene, /combatTarget === true\) return \[1, 0\.13, 0\.18\]/);
 });
 
-test("strategic zoom cross-fades glowing contacts into procedural class hulls", async () => {
-  const [app, engine, canvas, models] = await Promise.all([
+test("strategic and tactical scale modes retain adjustable sector and combat distances", async () => {
+  const [app, chrome, engine, canvas, models] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
+    readFile("renderer/src/app/TacticalChrome.tsx", "utf8"),
     readFile("renderer/src/features/tactical/TacticalEngine.ts", "utf8"),
     readFile("renderer/src/features/tactical/TacticalCanvas.tsx", "utf8"),
     readFile("renderer/src/domain/shipModels.ts", "utf8"),
@@ -344,14 +347,21 @@ test("strategic zoom cross-fades glowing contacts into procedural class hulls", 
   }
   assert.match(engine, /STRATEGIC_DOT_PPU/);
   assert.match(engine, /MODEL_DETAIL_PPU/);
+  assert.match(engine, /tacticalDistance: 1_000/);
+  assert.match(engine, /strategicDistance: 50_000/);
+  assert.match(engine, /setScaleMode\(mode: TacticalScaleMode\): void/);
+  assert.match(engine, /this\.viewDistances\[this\.scaleMode\] = this\.camera\.targetDistance/);
+  assert.match(engine, /this\.scaleMode === "tactical" \? 1 : zoomModelBlend/);
+  assert.match(engine, /tacticalMinimumShipPixels: 24/);
   assert.match(engine, /rebuildShipMeshBuffer/);
   assert.match(engine, /gl\.TRIANGLES, false, modelBlend/);
   assert.match(engine, /gl\.POINTS,\s*true,\s*Math\.max\(0\.12, 1 - modelBlend\)/);
   assert.match(engine, /sectorView\(\): void/);
-  assert.match(app, /aria-label="Open strategic sector view"/);
-  assert.match(canvas, /STRATEGIC CONTACTS/);
-  assert.doesNotMatch(canvas, /MODEL DETAIL/);
-  assert.match(canvas, /fidelity === "strategic".*STRATEGIC CONTACTS/);
+  assert.match(chrome, /aria-label="Open strategic sector view"/);
+  assert.match(chrome, /aria-label="Open tactical combat view"/);
+  assert.match(app, /onScaleMode=\{\(mode\) => tacticalRef\.current\?\.setScaleMode\(mode\)\}/);
+  assert.match(canvas, /STRATEGIC \/\/ SECTOR/);
+  assert.match(canvas, /TACTICAL \/\/ COMBAT/);
 });
 
 test("Homeworld-style shell separates issuer, target, actions, and the temporary formation drawer", async () => {
@@ -492,7 +502,8 @@ test("Homeworld-style shell separates issuer, target, actions, and the temporary
   );
   assert.match(app, /<ViewIcon type="radar"/);
   assert.match(app, /<ViewIcon type="grid"/);
-  assert.match(app, /<ViewIcon type="sector"/);
+  assert.match(app, /scaleMode=\{scaleMode\}/);
+  assert.match(app, /onScaleMode=\{\(mode\) => tacticalRef\.current\?\.setScaleMode\(mode\)\}/);
   assert.match(css, /\.commandDeck \{[^}]*height: 274px/s);
   assert.match(css, /\.issuerBank \{[^}]*grid-column: 1/s);
   assert.match(css, /\.selectedVessel \{\s*grid-column: 2/);

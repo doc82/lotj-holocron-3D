@@ -31,7 +31,7 @@ import { ManagementMenu } from "../features/management/ManagementMenu";
 import { usePollingController } from "../features/polling/usePollingController";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
-import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
+import type { TacticalCameraMode, TacticalScaleMode } from "../features/tactical/TacticalEngine";
 import { TargetShortcutRail } from "../features/tactical/TargetShortcutRail";
 import { useTacticalInteractionController } from "../features/tactical/useTacticalInteractionController";
 import type { RangeReading } from "../features/telemetry/RangeMeter";
@@ -62,6 +62,7 @@ export function App() {
   const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
+  const [scaleMode, setScaleMode] = useState<TacticalScaleMode>("tactical");
   const [cinematicMode, setCinematicMode] = useState(false);
   const [commandLocked, setCommandLocked] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
@@ -567,6 +568,7 @@ export function App() {
           onMovementCommit={stageNavigation}
           onMovementCancel={cancelNavigation}
           onCameraModeChange={setCameraMode}
+          onScaleModeChange={setScaleMode}
         />
         <div className={styles.scanlines} aria-hidden="true" />
 
@@ -592,6 +594,7 @@ export function App() {
             originGridEnabled={originGridEnabled}
             navigationActive={navigationMode !== "idle"}
             cameraMode={cameraMode}
+            scaleMode={scaleMode}
             cameraFocusName={cameraFocusPoint?.name}
             pollingPaused={pollingPaused}
             pollingPausePending={pollingPausePending}
@@ -599,7 +602,7 @@ export function App() {
             onToggleRadar={() => setRadarBubbleEnabled((enabled) => !enabled)}
             onToggleGrid={() => setOriginGridEnabled((enabled) => !enabled)}
             onCameraMode={chooseCameraMode}
-            onSectorView={() => tacticalRef.current?.sectorView()}
+            onScaleMode={(mode) => tacticalRef.current?.setScaleMode(mode)}
             onCinematicMode={() => setCinematicMode(true)}
             onPollingPaused={(paused) => void changePollingPause(paused)}
           />

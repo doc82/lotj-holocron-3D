@@ -273,6 +273,12 @@ Your Coordinates: 0 0 0
     equal(grouped.entities[2].position, "Mid")
   end)
 
+  it("recognizes fleet radar being unavailable outside the co-pilot seat", function()
+    local result = assert(parsers.parseFleetRadar("You must be in the co-pilots seat!"))
+    equal(result.unavailableReason, "copilot_seat_required")
+    equal(#result.entities, 0)
+  end)
+
   it("parses battlegroup and squadron formations", function()
     local battlegroup = assert(parsers.parse(
       "battlegroup",
@@ -301,6 +307,15 @@ Squadron Fire Assist: Active Systems Target: Laser
     equal(squadron.fleet.members[1].role, "lead")
     equal(squadron.fleet.members[2].role, "wing")
     equal(squadron.fleet.assist, true)
+  end)
+
+  it("treats a non-fighter cockpit as an inactive squadron", function()
+    local squadron = assert(
+      parsers.parse("squadron status", "You must be in a fighter cockpit to manage squadrons.")
+    )
+    equal(squadron.fleet.kind, "squadron")
+    equal(squadron.fleet.active, false)
+    equal(squadron.fleet.unavailableReason, "fighter_cockpit_required")
   end)
 
   it("parses navigation status and destinations", function()

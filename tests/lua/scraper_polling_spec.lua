@@ -67,6 +67,71 @@ local function expectImmediateInitializationSweep()
 end
 
 describe("scraper polling scheduler", function()
+  it("owns a co-pilot-only fleet radar response and backs off repeat probes", function()
+    assert(fixture.scraper.startCapture("fleetradar", "fleetradar", { polled = true }))
+    local deleted = fixture.deletedLines
+    assert(fixture.scraper.captureLine("You must be in the co-pilots seat!"))
+    assert(fixture.deletedLines > deleted)
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.scraper.state.metadata.fleetRadarUnavailableReason, "copilot_seat_required")
+
+    emitShipGmcp(0)
+    local timer = beginPolling({
+      fleetRadarIntervalSeconds = 5,
+      inactiveFormationProbeIntervalSeconds = 60,
+    })
+    local now = os.time()
+    fixture.scraper.polling.lastFleetRadarAt = now - 10
+    fixture.scraper.polling.lastBattlegroupAt = now
+    fixture.scraper.polling.lastSquadronAt = now
+    fixture.scraper.combat.lastRadarAt = now
+    local commandCount = #fixture.commands
+
+    fixture:tick(timer)
+
+    equal(#fixture.commands, commandCount)
+  end)
+
+  it("backs off squadron probes after a non-fighter response", function()
+    assert(
+      fixture.scraper.applyResult(
+        assert(
+          fixture.parsers.parse(
+            "squadron status",
+            "You must be in a fighter cockpit to manage squadrons."
+          )
+        ),
+        "squadron status"
+      )
+    )
+    emitShipGmcp(0)
+    local timer = beginPolling({
+      fleetStatusIntervalSeconds = 5,
+      inactiveFormationProbeIntervalSeconds = 60,
+    })
+    local now = os.time()
+    fixture.scraper.polling.lastBattlegroupAt = now
+    fixture.scraper.polling.lastSquadronAt = now - 10
+    fixture.scraper.polling.lastFleetRadarAt = now
+    fixture.scraper.combat.lastRadarAt = now
+    local commandCount = #fixture.commands
+
+    fixture:tick(timer)
+
+    equal(#fixture.commands, commandCount)
+    equal(fixture.scraper.state.metadata.formations.squadron.active, false)
+  end)
+
+  it("owns and suppresses the non-fighter squadron response", function()
+    fixture.scraper.setInSpace(true, "fixture")
+    assert(fixture.scraper.startCapture("squadron status", "squadron status", { polled = true }))
+    local deleted = fixture.deletedLines
+    assert(fixture.scraper.captureLine("You must be in a fighter cockpit to manage squadrons."))
+    assert(fixture.deletedLines > deleted)
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.scraper.state.metadata.formations.squadron.active, false)
+  end)
+
   it("logs current local-jump timing without storing calibration history", function()
     fixture.scraper.state.observer.name = "TeeHee1"
     fixture.scraper.state.observer.x = 0
