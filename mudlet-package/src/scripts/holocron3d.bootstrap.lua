@@ -218,6 +218,42 @@ local function resolveDevRelay(executable)
   return nil
 end
 
+local function resolveRuntime(requireLauncher)
+  local relay, launcher, token, squirrel = installedPaths()
+  local devExecutable = readDevExecutable()
+  if devExecutable and not fileExists(devExecutable) then
+    say("red", "development mode points to a missing executable: " .. devExecutable)
+    say("yellow", "rebuild it, choose a new path, or enter: h3d dev off")
+    return nil, "development executable unavailable"
+  end
+  if devExecutable then
+    local devRelay = resolveDevRelay(devExecutable)
+    if not devRelay then
+      say("red", "development mode could not find the relay packaged beside: " .. devExecutable)
+      say("yellow", "rebuild it with pnpm package")
+      return nil, "development relay unavailable"
+    end
+    relay = devRelay
+    launcher = devExecutable
+    squirrel = false
+  elseif not fileExists(relay) then
+    say("red", "the telemetry relay is unavailable")
+    say("yellow", "install Holocron3D and open it once, then try again")
+    return nil, "desktop relay unavailable"
+  end
+  if requireLauncher and not fileExists(launcher) then
+    say("red", "the desktop app launcher is unavailable")
+    return nil, "desktop app unavailable"
+  end
+  return {
+    relay = relay,
+    launcher = launcher,
+    token = token,
+    squirrel = squirrel,
+    devExecutable = devExecutable,
+  }
+end
+
 local function writeDevExecutable(path)
   local file, openError = io.open(Package.devConfigPath, "wb")
   if not file then
@@ -258,50 +294,83 @@ function Package.setDevelopmentMode(argument)
     return nil, saveError
   end
   confirmation("green", "development mode enabled: " .. executable)
-  confirmation("yellow", "close any installed Holocron3D window, then enter: h3d start")
+  confirmation("yellow", "close any installed Holocron3D window, then enter: h3d launch")
+  return true
+end
+
+function Package.launch()
+  local runtime, runtimeError = resolveRuntime(true)
+  if not runtime then
+    return nil, runtimeError
+  end
+  if type(spawn) ~= "function" then
+    say("red", "Mudlet spawn() is unavailable; version 4.11 or newer is required")
+    return nil, "Mudlet spawn is unavailable"
+  end
+
+  local arguments = { "--launch-only", "--app", runtime.launcher }
+  if runtime.squirrel then
+    table.insert(arguments, "--squirrel-exe")
+    table.insert(arguments, "Holocron3D.exe")
+  end
+  local ok, processOrError = pcall(spawn, function(chunk)
+    local output = trim(chunk)
+    if output ~= "" then
+      say("red", "desktop launch failed: " .. output)
+    end
+  end, runtime.relay, unpack(arguments))
+  if not ok or type(processOrError) ~= "table" then
+    local launchError = ok and "spawn() did not return a process handle" or tostring(processOrError)
+    say("red", "could not launch the desktop app: " .. launchError)
+    return nil, launchError
+  end
+  Package.launchProcess = processOrError
+  confirmation("green", "desktop launch requested; telemetry lifecycle unchanged")
   return true
 end
 
 function Package.stop(quiet)
   if lotjHolocron3D and type(lotjHolocron3D.stop) == "function" then
-    pcall(lotjHolocron3D.stop)
+    if lotjHolocron3D.DESKTOP_LIFECYCLE_DECOUPLED then
+      pcall(lotjHolocron3D.stop)
+    else
+      -- Packages loaded before lifecycle decoupling sent a desktop shutdown
+      -- from stop(). Close their relay directly during an in-place upgrade.
+      if lotjHolocron3D.scraper and type(lotjHolocron3D.scraper.teardown) == "function" then
+        pcall(lotjHolocron3D.scraper.teardown)
+      end
+      if lotjHolocron3D.process and type(lotjHolocron3D.process.close) == "function" then
+        pcall(lotjHolocron3D.process.close)
+      end
+      lotjHolocron3D.process = nil
+      lotjHolocron3D.ready = false
+    end
   end
   if not quiet then
-    confirmation("yellow", "telemetry stopped")
+    confirmation("yellow", "telemetry stopped; desktop app left running")
   end
   return true
 end
 
 function Package.start()
-  Package.stop(true)
+  if lotjHolocron3D and type(lotjHolocron3D.isRunning) == "function" then
+    if lotjHolocron3D.isRunning() then
+      confirmation(
+        lotjHolocron3D.isReady and lotjHolocron3D.isReady() and "green" or "yellow",
+        lotjHolocron3D.isReady and lotjHolocron3D.isReady() and "telemetry is already connected"
+          or "telemetry is already started; waiting for the desktop app"
+      )
+      return true
+    end
+  end
   package.path = package.path .. ";" .. Package.root .. "/?.lua"
   package.loaded["lotj_holocron_proxy"] = nil
   package.loaded["lotj_holocron_parsers"] = nil
   package.loaded["lotj_holocron_scraper"] = nil
 
-  local relay, launcher, token, squirrel = installedPaths()
-  local devExecutable = readDevExecutable()
-  if devExecutable and not fileExists(devExecutable) then
-    say("red", "development mode points to a missing executable: " .. devExecutable)
-    say("yellow", "rebuild it, choose a new path, or enter: h3d dev off")
-    return nil, "development executable unavailable"
-  end
-  if devExecutable then
-    local devRelay = resolveDevRelay(devExecutable)
-    if not devRelay then
-      say("red", "development mode could not find the relay packaged beside: " .. devExecutable)
-      say("yellow", "rebuild it with pnpm package, then enter: h3d start")
-      return nil, "development relay unavailable"
-    end
-    relay = devRelay
-  elseif not fileExists(relay) then
-    say("red", "the desktop app is not installed or has not been opened yet")
-    say("yellow", "install Holocron3D, open it once, then enter: h3d start")
-    return nil, "desktop app unavailable"
-  end
-  if not devExecutable and not fileExists(launcher) then
-    say("red", "the installed desktop app launcher is unavailable")
-    return nil, "desktop app unavailable"
+  local runtime, runtimeError = resolveRuntime(false)
+  if not runtime then
+    return nil, runtimeError
   end
 
   local loaded, proxyOrError = pcall(require, "lotj_holocron_proxy")
@@ -354,16 +423,8 @@ function Package.start()
     return nil, scraperError
   end
 
-  local relayArguments
-  if devExecutable then
-    relayArguments = { "--app", devExecutable, "--token-file", token }
-  elseif squirrel then
-    relayArguments =
-      { "--app", launcher, "--squirrel-exe", "Holocron3D.exe", "--token-file", token }
-  else
-    relayArguments = { "--app", launcher, "--token-file", token }
-  end
-  local started, startError = lotjHolocron3D.start(relay, relayArguments)
+  local relayArguments = { "--token-file", runtime.token }
+  local started, startError = lotjHolocron3D.start(runtime.relay, relayArguments)
   if not started then
     scraperOrError.teardown()
     say("red", "could not start the desktop bridge: " .. tostring(startError))
@@ -371,9 +432,31 @@ function Package.start()
   end
   confirmation(
     "yellow",
-    (devExecutable and "development" or "installed")
-      .. " desktop bridge started; waiting for connection"
+    (runtime.devExecutable and "development" or "installed")
+      .. " telemetry started; waiting for the desktop app (h3d launch)"
   )
+  return true
+end
+
+function Package.reconnect()
+  if not lotjHolocron3D or type(lotjHolocron3D.isRunning) ~= "function" then
+    say("yellow", "telemetry is stopped; enter h3d start first")
+    return nil, "telemetry is not running"
+  end
+  if not lotjHolocron3D.isRunning() then
+    say("yellow", "telemetry is stopped; enter h3d start first")
+    return nil, "telemetry is not running"
+  end
+  if not lotjHolocron3D.isReady or not lotjHolocron3D.isReady() then
+    confirmation("yellow", "desktop is unavailable; telemetry is already waiting to reconnect")
+    return true
+  end
+  local requested, reconnectError = lotjHolocron3D.reconnect()
+  if not requested then
+    say("red", "could not reconnect telemetry: " .. tostring(reconnectError))
+    return nil, reconnectError
+  end
+  confirmation("yellow", "desktop reconnect requested")
   return true
 end
 
@@ -589,11 +672,17 @@ end
 
 function Package.command(action, argument)
   action = (action or "status"):lower()
+  if action == "launch" then
+    return Package.launch()
+  end
   if action == "start" then
     return Package.start()
   end
   if action == "stop" then
     return Package.stop()
+  end
+  if action == "reconnect" then
+    return Package.reconnect()
   end
   if action == "pause" then
     return Package.setPollingPaused(true)
@@ -626,8 +715,10 @@ function Package.command(action, argument)
   end
   say(
     "cyan",
-    "commands: h3d start | stop | pause | resume | status | snapshot | profile | dev | confirmations | debug | help"
+    "commands: h3d launch | start | stop | reconnect | pause | resume | status | snapshot | profile | dev | confirmations | debug | help"
   )
+  say("cyan", "desktop: h3d launch")
+  say("cyan", "telemetry: h3d start | stop | reconnect | status")
   say("cyan", "polling: h3d pause | resume")
   say("cyan", "profiling: h3d profile start | report | stop")
   say("cyan", "development: h3d dev on <repository path> | h3d dev off")

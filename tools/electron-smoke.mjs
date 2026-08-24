@@ -16,17 +16,20 @@ const executable =
     "dist",
     process.platform === "win32" ? "electron.exe" : "electron",
   );
-const arguments_ = [`--user-data-dir=${profile}`];
+const arguments_ = [];
 if (!packagedExecutable) arguments_.push(root);
+arguments_.push(`--user-data-dir=${profile}`);
+const childEnvironment = {
+  ...process.env,
+  HOLOCRON_DEBUG_STDERR: "1",
+  HOLOCRON_DATA_DIR: profile,
+  HOLOCRON_RELAY_TOKEN_FILE: tokenFile,
+};
+delete childEnvironment.ELECTRON_RUN_AS_NODE;
 const child = spawn(executable, arguments_, {
   cwd: root,
   stdio: ["ignore", "inherit", "inherit"],
-  env: {
-    ...process.env,
-    HOLOCRON_DEBUG_STDERR: "1",
-    HOLOCRON_DATA_DIR: profile,
-    HOLOCRON_RELAY_TOKEN_FILE: tokenFile,
-  },
+  env: childEnvironment,
 });
 
 let relay = null;

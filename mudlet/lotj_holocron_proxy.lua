@@ -3,6 +3,7 @@
 
 local Proxy = {
   VERSION = "0.1.11",
+  DESKTOP_LIFECYCLE_DECOUPLED = true,
   PROTOCOL_VERSION = 1,
   MAX_BUFFER_BYTES = 1024 * 1024,
   MAX_LINE_BYTES = 256 * 1024,
@@ -382,9 +383,6 @@ function Proxy.stop()
     return true
   end
 
-  if Proxy.isRunning() then
-    Proxy.sendMessage({ type = "shutdown" })
-  end
   if type(Proxy.process.close) == "function" then
     pcall(Proxy.process.close)
   end
@@ -393,6 +391,16 @@ function Proxy.stop()
   Proxy.ready = false
   Proxy.readBuffer = ""
   return true
+end
+
+function Proxy.reconnect()
+  if not Proxy.isRunning() then
+    return nil, "bridge process is not running"
+  end
+  if not Proxy.isReady() then
+    return true
+  end
+  return Proxy.sendMessage({ type = "bridge_reconnect" })
 end
 
 function Proxy.registerIntentHandler(action, handler)

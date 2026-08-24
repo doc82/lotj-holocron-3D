@@ -1,0 +1,412 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "x-wing",
+      "displayName": "T-65 X-wing Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 10000,
+      "source": { "kind": "archive", "filename": "star_wars_x-wing.zip" },
+      "attribution": {
+        "title": "Star Wars: X-Wing",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-x-wing-a93f607a94d747568371b8910a81fb12",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "T-65 X-wing Starfighter",
+        "T-65B X-wing Starfighter",
+        "X-wing Starfighter",
+        "X-wing"
+      ]
+    },
+    {
+      "id": "b-wing",
+      "displayName": "A/SF-01 B-wing Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 10000,
+      "source": { "kind": "archive", "filename": "asf-01_b-wing_starfighter.zip" },
+      "attribution": {
+        "title": "A/SF-01 B-wing starfighter",
+        "author": "DrEgguin",
+        "authorUrl": "https://sketchfab.com/DrEgguin",
+        "source": "https://sketchfab.com/3d-models/asf-01-b-wing-starfighter-af8de96df4424197aad06e6e0d25e22e",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["A/SF-01 B-wing Starfighter", "B-wing Starfighter", "B-wing"]
+    },
+    {
+      "id": "republic-v-wing",
+      "displayName": "Nimbus-class V-wing Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "archive", "filename": "republic_v-wing_starfighter.zip" },
+      "attribution": {
+        "title": "Republic V-wing Starfighter",
+        "author": "DrEgguin",
+        "authorUrl": "https://sketchfab.com/DrEgguin",
+        "source": "https://sketchfab.com/3d-models/republic-v-wing-starfighter-0289dfef03054f099643150678ec830e",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Nimbus-class V-Wing Starfighter",
+        "Alpha-3 Nimbus-class V-wing Starfighter",
+        "Republic V-wing Starfighter",
+        "V-wing Starfighter",
+        "V-wing"
+      ]
+    },
+    {
+      "id": "tie-defender",
+      "displayName": "TIE/d Defender",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "archive", "filename": "star_wars_tied_defender.zip" },
+      "attribution": {
+        "title": "Star Wars: TIE/d Defender",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-tied-defender-22bc65f9eb4640b6ae58b1b5e184e80e",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["TIE/d Defender", "TIE Defender"]
+    },
+    {
+      "id": "tie-bomber",
+      "displayName": "TIE/sa Bomber",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "archive", "filename": "star_wars_tiesa_bomber.zip" },
+      "attribution": {
+        "title": "Star Wars: TIE/sa Bomber",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-tiesa-bomber-03c30934651e4f5798b67e74049ec6bc",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["TIE/sa Tactical Bomber", "TIE/sa Bomber", "TIE Bomber"]
+    },
+    {
+      "id": "z-95-headhunter",
+      "displayName": "Z-95 Headhunter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "archive", "filename": "star_wars_z-95_headhunter.zip" },
+      "attribution": {
+        "title": "Star Wars: Z-95 Headhunter",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-z-95-headhunter-d2a5c2dfccbd445e8ec9bbee3e216b33",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["Z-95 Headhunter", "Z95 Headhunter", "Z-95"]
+    },
+    {
+      "id": "y-wing",
+      "displayName": "BTL Y-wing Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "archive", "filename": "y-wing_starfighter.zip" },
+      "attribution": {
+        "title": "Y-wing starfighter",
+        "author": "KimMurzin",
+        "authorUrl": "https://sketchfab.com/KimMurzin",
+        "source": "https://sketchfab.com/3d-models/y-wing-starfighter-62134c970d3c4abea173339b802ce666",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "BTL Y-wing Starfighter",
+        "BTL-S3 Y-wing Starfighter",
+        "BTL-B Y-wing Starfighter/Bomber",
+        "Y-wing Starfighter",
+        "Y-wing"
+      ]
+    },
+    {
+      "id": "yt-2400-light-freighter",
+      "displayName": "YT-2400 Light Freighter",
+      "category": "freighter",
+      "scale": 1.45,
+      "targetTriangles": 12000,
+      "source": { "kind": "archive", "filename": "star_wars_yt-2400_light_freighter.zip" },
+      "attribution": {
+        "title": "Star Wars: YT-2400 Light Freighter",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-yt-2400-light-freighter-ccd2749df33641fba7a5326500abdbfb",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["YT-2400 Light Freighter", "YT-2400 Freighter", "YT-2400"]
+    },
+    {
+      "id": "firespray-patrol-craft",
+      "displayName": "Firespray-class Patrol Craft",
+      "category": "gunboat",
+      "scale": 1.65,
+      "targetTriangles": 12000,
+      "source": { "kind": "archive", "filename": "slave1.zip" },
+      "attribution": {
+        "title": "Slave1",
+        "author": "StarWars-Universe",
+        "authorUrl": "https://sketchfab.com/SWU",
+        "source": "https://sketchfab.com/3d-models/slave1-709235d3ffa54e90b378740d474e4a7b",
+        "license": "CC BY-NC-SA 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+      },
+      "aliases": [
+        "Firespray-class Patrol Craft",
+        "Firespray-31-class Patrol and Attack Craft",
+        "Firespray Patrol Craft",
+        "Rojan-class Invincible Firespray Patrol Craft",
+        "Slave I",
+        "Slave1"
+      ]
+    },
+    {
+      "id": "cr90-corellian-corvette",
+      "displayName": "CR90 Corellian Corvette",
+      "category": "corvette",
+      "scale": 2.1,
+      "targetTriangles": 12000,
+      "source": { "kind": "archive", "filename": "cr90_corellian_corvette.zip" },
+      "attribution": {
+        "title": "CR90 Corellian Corvette",
+        "author": "Khvostik",
+        "authorUrl": "https://sketchfab.com/Khvostik",
+        "source": "https://sketchfab.com/3d-models/cr90-corellian-corvette-d2e672c136484ab68f20db4926090553",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["CR-90 Corellian Corvette", "CR90 Corellian Corvette", "CR90 Corvette", "CR-90"]
+    },
+    {
+      "id": "mark-i-assault-frigate",
+      "displayName": "Mark-I Assault Frigate",
+      "category": "frigate",
+      "scale": 2.55,
+      "targetTriangles": 18000,
+      "source": { "kind": "archive", "filename": "assault_frigate_model.zip" },
+      "attribution": {
+        "title": "Assault Frigate Model",
+        "author": "flannelandfilm",
+        "authorUrl": "https://sketchfab.com/flannelandfilm",
+        "source": "https://sketchfab.com/3d-models/assault-frigate-model-3602f36759714da29d3a21d760aeaabc",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Mark-I Assault Frigate",
+        "Mark I Assault Frigate",
+        "Assault Frigate Mark I",
+        "Assault Frigate"
+      ]
+    },
+    {
+      "id": "munificent-star-frigate",
+      "displayName": "Munificent-class Star Frigate",
+      "category": "frigate",
+      "scale": 2.55,
+      "targetTriangles": 18000,
+      "source": { "kind": "archive", "filename": "munificent_class_star_frigate.zip" },
+      "attribution": {
+        "title": "Munificent Class Star Frigate",
+        "author": "SomeGuyUsingBlender",
+        "authorUrl": "https://sketchfab.com/SomeGuyUsingBlender",
+        "source": "https://sketchfab.com/3d-models/munificent-class-star-frigate-966265e37e61433b919ba640a12a33f5",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Munificent-class Star Frigate",
+        "Munificent Class Star Frigate",
+        "Munificent-class Frigate",
+        "Munificent Frigate"
+      ]
+    },
+    {
+      "id": "nebulon-b-frigate",
+      "displayName": "Nebulon-B Frigate",
+      "category": "frigate",
+      "scale": 2.55,
+      "targetTriangles": 18000,
+      "source": { "kind": "archive", "filename": "star_wars_nebulon_b_frigate.zip" },
+      "attribution": {
+        "title": "Star Wars: Nebulon B Frigate",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-nebulon-b-frigate-1986f7b0dee647b3b2374eb80dbd1faf",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "EF76 Nebulon-B Escort Frigate",
+        "Nebulon-B Escort Frigate",
+        "Nebulon B Frigate",
+        "Nebulon-B Frigate"
+      ]
+    },
+    {
+      "id": "praetorian-frigate",
+      "displayName": "Praetorian-class Frigate",
+      "category": "frigate",
+      "scale": 2.55,
+      "targetTriangles": 18000,
+      "source": { "kind": "file", "filename": "Praetorian-class_Frigate.stl" },
+      "releaseEligible": false,
+      "attribution": {
+        "title": "Praetorian-class Frigate",
+        "author": "Unknown creator",
+        "authorUrl": "",
+        "source": "https://cults3d.com/en/3d-model/tool/praetorian-class-frigate",
+        "license": "Unverified; local evaluation only",
+        "licenseUrl": ""
+      },
+      "aliases": ["Praetorian-class Frigate", "Praetorian Frigate", "Praetorian-class"]
+    },
+    {
+      "id": "quasar-fire",
+      "displayName": "Quasar Fire-class Cruiser-Carrier",
+      "category": "cruiser",
+      "scale": 3.1,
+      "targetTriangles": 18000,
+      "source": { "kind": "archive", "filename": "quasar_fire_class_imperial_light_carrier.zip" },
+      "attribution": {
+        "title": "Quasar Fire Class Imperial Light Carrier",
+        "author": "YeaBoiiiiiiiii",
+        "authorUrl": "https://sketchfab.com/YeaBoiiiiiiiii",
+        "source": "https://sketchfab.com/3d-models/quasar-fire-class-imperial-light-carrier-88b4304c517b4b1ea94dcfc48dd398f9",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Quasar Fire-Class Cruiser-Carrier",
+        "Quasar Fire Class Imperial Light Carrier",
+        "Quasar Fire-class Cruiser Carrier",
+        "Quasar Fire"
+      ]
+    },
+    {
+      "id": "mc80-liberty",
+      "displayName": "MC80 Liberty-type Star Cruiser",
+      "category": "battleship",
+      "scale": 3.8,
+      "targetTriangles": 24000,
+      "source": { "kind": "archive", "filename": "star_wars_mc80_liberty.zip" },
+      "attribution": {
+        "title": "Star Wars: MC80 Liberty",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-mc80-liberty-7cfe7d5cd8f44db9a0e6095b0f007472",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "MC80 Liberty-type Star Cruiser",
+        "MC80 Liberty Star Cruiser",
+        "MC80 Liberty",
+        "Liberty-type Star Cruiser"
+      ]
+    },
+    {
+      "id": "mc90-star-cruiser",
+      "displayName": "MC90 Star Cruiser",
+      "category": "battleship",
+      "scale": 3.8,
+      "targetTriangles": 24000,
+      "source": { "kind": "archive", "filename": "mc90.zip" },
+      "attribution": {
+        "title": "MC90",
+        "author": "dmitrtihom",
+        "authorUrl": "https://sketchfab.com/dmitrtihom",
+        "source": "https://sketchfab.com/3d-models/mc90-ab8fafade1a24c109989bf9e6be33811",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": ["MC90 Star Cruiser", "MC-90 Star Cruiser", "MC90 Cruiser", "MC90"]
+    },
+    {
+      "id": "venator-star-destroyer",
+      "displayName": "Venator-class Star Destroyer",
+      "category": "battleship",
+      "scale": 3.8,
+      "targetTriangles": 24000,
+      "source": { "kind": "archive", "filename": "venator-class_star_destroyer.zip" },
+      "attribution": {
+        "title": "Venator-Class Star Destroyer",
+        "author": "A308 Digital",
+        "authorUrl": "https://sketchfab.com/A308",
+        "source": "https://sketchfab.com/3d-models/venator-class-star-destroyer-5c2d88be90384395a2b4c23c7203e7d6",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Venator-class Star Destroyer",
+        "Venator Class Star Destroyer",
+        "Venator-class Cruiser",
+        "Venator"
+      ]
+    },
+    {
+      "id": "victory-star-destroyer",
+      "displayName": "Victory I-class Star Destroyer",
+      "category": "battleship",
+      "scale": 3.8,
+      "targetTriangles": 24000,
+      "source": { "kind": "archive", "filename": "victory_i-class_star_destroyer_legends.zip" },
+      "attribution": {
+        "title": "Victory I-class Star Destroyer (Legends)",
+        "author": "gavinpgamer1",
+        "authorUrl": "https://sketchfab.com/gavinpgamer1",
+        "source": "https://sketchfab.com/3d-models/victory-i-class-star-destroyer-legends-d51b66b4ff6442349d70334f7137f929",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Victory I-class Star Destroyer",
+        "Victory-I Class Star Destroyer",
+        "Victory II-class Star Destroyer",
+        "Victory-II Class Star Destroyer",
+        "Victory-class Star Destroyer",
+        "Victory Star Destroyer"
+      ]
+    },
+    {
+      "id": "imperial-ii-star-destroyer",
+      "displayName": "Imperial-II Class Star Destroyer",
+      "category": "battleship",
+      "scale": 3.8,
+      "targetTriangles": 24000,
+      "source": { "kind": "archive", "filename": "star_wars_imperial_ii_star_destroyer.zip" },
+      "attribution": {
+        "title": "Star Wars: Imperial II Star Destroyer",
+        "author": "Daniel",
+        "authorUrl": "https://sketchfab.com/DanielAndersson",
+        "source": "https://sketchfab.com/3d-models/star-wars-imperial-ii-star-destroyer-b8bd2d35f7604670ab85242c06c6d280",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Imperial-II Class Star Destroyer",
+        "Imperial II-class Star Destroyer",
+        "Imperial II Star Destroyer",
+        "Imperial-II"
+      ]
+    }
+  ]
+}

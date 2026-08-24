@@ -82,6 +82,7 @@ jobs:
     runs-on: windows-latest
     env:
       HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"
+      HOLOCRON_SHIP_MODELS_PREBUILT: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -123,10 +124,18 @@ jobs:
           HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
           HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
           HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
+      - name: Fetch and verify ship runtime assets
+        run: node tools/fetch-ship-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_SHIP_ASSET_FILE_ID: ${{ vars.HOLOCRON_SHIP_ASSET_FILE_ID }}
+          HOLOCRON_SHIP_ASSET_SHA256: ${{ vars.HOLOCRON_SHIP_ASSET_SHA256 }}
       - name: Build Windows installer
         run: pnpm make:win
       - name: Verify bundled Windows planet textures
         run: node tools/verify-packaged-planet-assets.mjs win32 x64
+      - name: Verify bundled Windows ship models
+        run: node tools/verify-packaged-ship-assets.mjs win32 x64
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64-installer
@@ -145,6 +154,7 @@ jobs:
     runs-on: macos-latest
     env:
       HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"
+      HOLOCRON_SHIP_MODELS_PREBUILT: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -189,10 +199,18 @@ jobs:
           HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
           HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
           HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
+      - name: Fetch and verify ship runtime assets
+        run: node tools/fetch-ship-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_SHIP_ASSET_FILE_ID: ${{ vars.HOLOCRON_SHIP_ASSET_FILE_ID }}
+          HOLOCRON_SHIP_ASSET_SHA256: ${{ vars.HOLOCRON_SHIP_ASSET_SHA256 }}
       - name: Build macOS installer
         run: pnpm make:mac:${{ matrix.arch }}
       - name: Verify bundled macOS planet textures
         run: node tools/verify-packaged-planet-assets.mjs darwin ${{ matrix.arch }}
+      - name: Verify bundled macOS ship models
+        run: node tools/verify-packaged-ship-assets.mjs darwin ${{ matrix.arch }}
       - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}-installer
@@ -206,6 +224,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"
+      HOLOCRON_SHIP_MODELS_PREBUILT: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -246,10 +265,18 @@ jobs:
           HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
           HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
           HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
+      - name: Fetch and verify ship runtime assets
+        run: node tools/fetch-ship-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_SHIP_ASSET_FILE_ID: ${{ vars.HOLOCRON_SHIP_ASSET_FILE_ID }}
+          HOLOCRON_SHIP_ASSET_SHA256: ${{ vars.HOLOCRON_SHIP_ASSET_SHA256 }}
       - name: Build Linux application archive
         run: pnpm make:linux
       - name: Verify bundled Linux planet textures
         run: node tools/verify-packaged-planet-assets.mjs linux x64
+      - name: Verify bundled Linux ship models
+        run: node tools/verify-packaged-ship-assets.mjs linux x64
       - name: Verify Linux application archive
         run: node tools/verify-linux-archive.mjs x64
       - uses: actions/upload-artifact@v7

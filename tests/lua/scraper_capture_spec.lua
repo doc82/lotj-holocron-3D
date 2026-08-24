@@ -141,6 +141,34 @@ YT-1300 'Wayfarer' |  | (Out) 200 30 40
     equal(fixture:entity("Forrestal"), nil)
   end)
 
+  it("does not merge a synchronized fleet-radar observer after a newer GMCP fix", function()
+    fixture.scraper.state.observer.name = "VSD14"
+    fixture.scraper.state.observer.x = 3084
+    fixture.scraper.state.observer.y = -2800
+    fixture.scraper.state.observer.z = 3025
+    fixture.scraper.shipGmcp.sequence = 1285
+
+    assert(fixture.scraper.applyResult({
+      source = "fleetradar",
+      entities = {
+        {
+          id = "vsd14",
+          name = "VSD14",
+          class = "Victory-II Class Star Destroyer",
+          kind = "ship",
+          x = 3071,
+          y = -2788,
+          z = 3012,
+        },
+      },
+    }, "fleetradar", { sensorTickSequence = 1284 }))
+
+    equal(fixture.scraper.state.observer.x, 3084)
+    equal(fixture.scraper.state.observer.y, -2800)
+    equal(fixture.scraper.state.observer.z, 3025)
+    equal(fixture:entity("VSD14"), nil)
+  end)
+
   it("keeps externally issued telemetry visible", function()
     fixture.scraper.setInSpace(true, "fixture")
     local before = fixture.deletedLines

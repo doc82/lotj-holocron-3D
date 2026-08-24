@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "exactNames": {
+    "Pollution": "imperial-ii-star-destroyer"
+  },
+  "categoryFallbacks": {
+    "starfighter": "x-wing",
+    "freighter": "yt-2400-light-freighter",
+    "gunboat": "firespray-patrol-craft",
+    "corvette": "cr90-corellian-corvette",
+    "frigate": "praetorian-frigate",
+    "cruiser": "quasar-fire",
+    "battleship": "imperial-ii-star-destroyer"
+  }
+}

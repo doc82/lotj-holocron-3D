@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -74,7 +75,7 @@ func TestBridgeSessionReturnsWhenDesktopSocketClosesWhileInputStaysOpen(t *testi
 	inputReader, inputWriter := io.Pipe()
 	defer inputReader.Close()
 	defer inputWriter.Close()
-	events := scanInput(inputReader)
+	events, _ := scanInput(inputReader)
 	helloLine := ""
 	done := make(chan error, 1)
 	go func() {
@@ -95,6 +96,93 @@ func TestBridgeSessionReturnsWhenDesktopSocketClosesWhileInputStaysOpen(t *testi
 		}
 	case <-time.After(time.Second):
 		t.Fatal("bridge session remained blocked on open stdin after the desktop socket closed")
+	}
+}
+
+func TestBridgeSessionReconnectControlIsNotForwardedToDesktop(t *testing.T) {
+	tokenPath := filepath.Join(t.TempDir(), "bridge-token")
+	if err := os.WriteFile(tokenPath, []byte("test-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client, server := net.Pipe()
+	events := make(chan inputEvent, 1)
+	events <- inputEvent{line: `{"v":1,"type":"bridge_reconnect"}`}
+	helloLine := ""
+	done := make(chan error, 1)
+	go func() {
+		_, err := bridgeSession(client, tokenPath, events, io.Discard, &helloLine)
+		done <- err
+	}()
+
+	var authentication map[string]any
+	if err := json.NewDecoder(bufio.NewReader(server)).Decode(&authentication); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, errReconnectRequested) {
+			t.Fatalf("expected reconnect request, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge session did not process reconnect control")
+	}
+	server.Close()
+	close(events)
+}
+
+func TestRelayWaitsForDesktopUntilInputCloses(t *testing.T) {
+	tokenPath := filepath.Join(t.TempDir(), "bridge-token")
+	if err := os.WriteFile(tokenPath, []byte("test-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := reserved.Addr().String()
+	reserved.Close()
+
+	inputReader, inputWriter := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- relay(address, 50*time.Millisecond, "", "", "", tokenPath, inputReader, io.Discard)
+	}()
+
+	select {
+	case relayError := <-done:
+		t.Fatalf("relay exited while waiting for the desktop: %v", relayError)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if tcpListener, ok := listener.(*net.TCPListener); ok {
+		tcpListener.SetDeadline(time.Now().Add(2 * time.Second))
+	}
+	connection, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var authentication map[string]any
+	if err := json.NewDecoder(bufio.NewReader(connection)).Decode(&authentication); err != nil {
+		t.Fatal(err)
+	}
+	if authentication["type"] != "relay_auth" {
+		t.Fatalf("unexpected first relay message: %#v", authentication)
+	}
+
+	inputWriter.Close()
+	connection.Close()
+	select {
+	case relayError := <-done:
+		if relayError != nil {
+			t.Fatal(relayError)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("relay did not stop after Mudlet input closed")
 	}
 }
 

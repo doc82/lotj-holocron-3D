@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     getInitialState: () => ipcRenderer.invoke("holocron:get-initial-state"),
     getAppVersion: () => ipcRenderer.invoke("holocron:get-app-version"),
+    openExternal: (url) => ipcRenderer.invoke("holocron:open-external", url),
     sendIntent: (action, payload = {}) =>
       ipcRenderer.invoke("holocron:send-intent", { action, payload }),
     onSnapshot: (callback) => subscribe("holocron:snapshot", callback),

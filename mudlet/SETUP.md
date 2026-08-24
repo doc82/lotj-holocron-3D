@@ -17,10 +17,12 @@ the desktop renderer without competing with existing LotJ aliases.
 
 The package loads in the off state and prints `waiting for h3d start to begin
 Holocron3D`, so it cannot interrupt username or password entry. After logging
-in, enter `h3d start`. Use `h3d status`, `h3d stop`, `h3d snapshot`, `h3d
-profile`, and `h3d help` as needed. Mudlet stores its own copy after import, so
-the source `.mpackage` does not need to remain selected or open. This follows
-Mudlet's standard Package Manager flow.
+in, enter `h3d start`. Use `h3d launch` whenever the desktop app needs to be
+launched or focused. `h3d stop` stops only telemetry and leaves the desktop app
+running. Use `h3d reconnect`, `h3d status`, `h3d snapshot`, `h3d profile`, and
+`h3d help` as needed. Mudlet stores its own copy after import, so the source
+`.mpackage` does not need to remain selected or open. This follows Mudlet's
+standard Package Manager flow.
 
 ## Installed Linux setup
 
@@ -30,10 +32,12 @@ Mudlet's standard Package Manager flow.
 3. Open the Package Manager and install
    `~/.local/share/Holocron3D/mudlet/Holocron3D.mpackage`. If you set
    `XDG_DATA_HOME`, use that directory in place of `~/.local/share`.
-4. Log in normally, then enter `h3d start` from a ship cockpit.
+4. Log in normally, then enter `h3d start` from a ship cockpit. If the desktop
+   app is closed, enter `h3d launch`; the waiting telemetry relay connects
+   automatically.
 
-The desktop app records its current portable path when it opens, allowing the
-Mudlet package to launch it again without requiring a system-wide install.
+The desktop app records its current portable path when it opens, allowing
+`h3d launch` to open it again without requiring a system-wide install.
 
 To profile Mudlet performance, enter `h3d profile start`, use the client
 normally for at least 30 seconds, and enter `h3d profile stop`. Use
@@ -157,19 +161,20 @@ The following messages should appear in Mudlet, usually within a second:
 
 The exact order of the last few lines can vary. That is normal.
 
-On profile startup, Holocron3D remains completely off until `h3d start` is
-entered. It does not launch the desktop bridge or arm telemetry polling during
-the login cycle.
+On profile startup, Holocron3D telemetry remains completely off until `h3d
+start` is entered. It does not arm telemetry polling during the login cycle and
+does not control whether the independently launched desktop app is running.
 
 Developers can opt into the unpacked Electron build instead of the installed
 application:
 
 ```text
 h3d dev on "C:\path\to\lotj-holocron-3D"
+h3d launch
 h3d start
 ```
 
-Close any installed Holocron3D window before starting development mode. Check
+Close any installed Holocron3D window before launching development mode. Check
 the selected executable with `h3d dev status` and return to production behavior
 with `h3d dev off`. The selection persists in the Mudlet profile, but installed
 application mode remains the default until explicitly changed.

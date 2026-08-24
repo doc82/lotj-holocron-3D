@@ -50,6 +50,101 @@ import {
   sanitizedStatusSections,
   validatedInfoSections,
 } from "../renderer/src/domain/shipDossier.ts";
+import {
+  configuredShipModelIdFor,
+  normalizeShipIdentity,
+  resolveConfiguredShipModel,
+} from "../renderer/src/domain/shipModels.ts";
+import shipModelCatalog from "../renderer/src/domain/shipModelCatalog.json" with { type: "json" };
+
+test("every downloaded ship model has a category and resolvable canonical name", () => {
+  assert.equal(shipModelCatalog.models.length, 20);
+  assert.equal(new Set(shipModelCatalog.models.map((model) => model.id)).size, 20);
+  for (const model of shipModelCatalog.models) {
+    assert.ok(model.category, `${model.id} needs a ship category`);
+    assert.ok(model.aliases.length > 0, `${model.id} needs at least one name alias`);
+    assert.ok(model.attribution?.title, `${model.id} needs an attribution title`);
+    assert.ok(model.attribution?.author, `${model.id} needs an attribution author`);
+    assert.match(model.attribution?.source ?? "", /^https:\/\//);
+    assert.ok(model.attribution?.license, `${model.id} needs a license notice`);
+    assert.equal(
+      resolveConfiguredShipModel(model.category, model.displayName, "")?.modelId,
+      model.id,
+    );
+  }
+  assert.equal(
+    shipModelCatalog.models.filter((model) => model.releaseEligible !== false).length,
+    19,
+  );
+  assert.equal(
+    shipModelCatalog.models.find((model) => model.id === "praetorian-frigate")?.releaseEligible,
+    false,
+  );
+});
+
+test("ship model assignments prefer explicit names, then exact and partial aliases", () => {
+  assert.equal(
+    normalizeShipIdentity("Imperial-II Class Star Destroyer"),
+    "imperial ii class star destroyer",
+  );
+  assert.equal(
+    configuredShipModelIdFor("Imperial-II Class Star Destroyer", "Unmapped ship"),
+    "imperial-ii-star-destroyer",
+  );
+  assert.equal(configuredShipModelIdFor("TIE/d Defender"), "tie-defender");
+  assert.equal(
+    configuredShipModelIdFor("TIE/d Defender", "Pollution", "starfighter"),
+    "imperial-ii-star-destroyer",
+    "an exact ship-name assignment must override its reported class",
+  );
+  assert.deepEqual(
+    resolveConfiguredShipModel(
+      "starfighter",
+      "Modified T-65B X-wing Starfighter Mk II",
+      "Unmapped ship",
+    ),
+    {
+      modelId: "x-wing",
+      match: "partial-class",
+      matchedValue: "t 65b x wing starfighter",
+    },
+  );
+  assert.equal(
+    resolveConfiguredShipModel("starfighter", "Experimental fighter", "Prototype B-wing Red")
+      ?.modelId,
+    "b-wing",
+  );
+  assert.equal(configuredShipModelIdFor("Praetorian-class Frigate"), "praetorian-frigate");
+  assert.equal(
+    configuredShipModelIdFor("Victory-II Class Star Destroyer"),
+    "victory-star-destroyer",
+  );
+  assert.equal(
+    configuredShipModelIdFor("Rojan-class Invincible Firespray Patrol Craft"),
+    "firespray-patrol-craft",
+  );
+  assert.equal(configuredShipModelIdFor("Unknown Class", "Unknown Ship"), null);
+});
+
+test("ship model assignments use category defaults only after name matching fails", () => {
+  assert.deepEqual(resolveConfiguredShipModel("starfighter", "Unknown Class", "Unknown Ship"), {
+    modelId: "x-wing",
+    match: "category-fallback",
+    matchedValue: "starfighter",
+  });
+  assert.equal(
+    resolveConfiguredShipModel("transport", "Unknown Class", "Swing Wing")?.modelId,
+    undefined,
+  );
+  assert.equal(
+    resolveConfiguredShipModel("freighter", "Unknown Class", "Unknown Ship")?.modelId,
+    "yt-2400-light-freighter",
+  );
+  assert.equal(
+    resolveConfiguredShipModel("gunboat", "Unknown Class", "Unknown Ship")?.modelId,
+    "firespray-patrol-craft",
+  );
+});
 
 test("squadron leadership is inferred from the local roster member", () => {
   const fleet = {
@@ -903,6 +998,30 @@ test("the observer participates in a colocated contact cluster without losing it
   );
   assert.equal(findScenePoint(scene, "teehee3").name, "TeeHee3");
   assert.equal(findScenePoint(scene, "korriban").kind, "planet");
+});
+
+test("scene construction rejects observer copies with stale contact identities", () => {
+  const scene = buildScene({
+    observer: { id: "player-ship", name: "VSD14", x: 3084, y: -2800, z: 3025 },
+    entities: [
+      {
+        id: "vsd14",
+        name: "VSD14",
+        kind: "ship",
+        formationMember: true,
+        x: 3071,
+        y: -2788,
+        z: 3012,
+      },
+      { id: "teehee1", name: "TeeHee1", kind: "ship", x: 0, y: 0, z: 0 },
+    ],
+  });
+
+  assert.equal(scene.contactCount, 1);
+  assert.deepEqual(
+    scene.points.map((point) => point.id),
+    ["player-ship", "teehee1"],
+  );
 });
 
 test("camera reports motion only while it is converging", () => {

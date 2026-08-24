@@ -24,7 +24,12 @@ import type {
   Vector3,
   WeaponType,
 } from "../../types/telemetry";
-import { shipModelFor, tacticalShipPixelsForScale } from "../../domain/shipModels";
+import {
+  loadImportedShipModels,
+  shipModelFor,
+  tacticalShipPixelsForScale,
+  type ShipModel,
+} from "../../domain/shipModels";
 import {
   combatVisualStyle,
   planCombatEvent,
@@ -46,6 +51,9 @@ const VERTEX_SOURCE = `
   attribute float a_shape;
   attribute vec3 a_heading;
   uniform mat4 u_viewProjection;
+  uniform mat4 u_shipTransform;
+  uniform vec3 u_shipColor;
+  uniform bool u_shipModel;
   uniform float u_pixelRatio;
   uniform float u_markerScale;
   varying vec3 v_color;
@@ -53,12 +61,23 @@ const VERTEX_SOURCE = `
   varying vec2 v_forward;
   varying float v_hasHeading;
   void main() {
-    gl_Position = u_viewProjection * vec4(a_position, 1.0);
-    vec4 headingPosition = u_viewProjection * vec4(a_position + a_heading, 1.0);
+    vec3 worldPosition = a_position;
+    vec3 vertexColor = a_color;
+    if (u_shipModel) {
+      worldPosition = (u_shipTransform * vec4(a_position, 1.0)).xyz;
+      vec3 worldNormal = (u_shipTransform * vec4(a_heading, 0.0)).xyz;
+      float normalLength = max(0.0001, length(worldNormal));
+      float diffuse = abs(dot(worldNormal, vec3(0.35, 0.72, 0.6)) / normalLength);
+      float brightness = 0.36 + diffuse * 0.64;
+      vertexColor = min(vec3(1.0), u_shipColor * 0.35 + vec3(brightness * 0.62));
+    }
+    gl_Position = u_viewProjection * vec4(worldPosition, 1.0);
+    vec3 heading = u_shipModel ? vec3(0.0) : a_heading;
+    vec4 headingPosition = u_viewProjection * vec4(worldPosition + heading, 1.0);
     vec2 headingDelta = headingPosition.xy / headingPosition.w - gl_Position.xy / gl_Position.w;
     float markerPixels = a_size < 0.0 ? -a_size : a_size * u_markerScale;
     gl_PointSize = max(2.0 * u_pixelRatio, markerPixels * u_pixelRatio);
-    v_color = a_color;
+    v_color = vertexColor;
     v_shape = a_shape;
     v_hasHeading = length(headingDelta) > 0.00001 ? 1.0 : 0.0;
     v_forward = v_hasHeading > 0.5 ? normalize(headingDelta) : vec2(0.0, 1.0);
@@ -221,6 +240,11 @@ interface JumpEffect {
   direction: Vector3;
 }
 
+interface CachedShipMesh {
+  buffer: WebGLBuffer;
+  vertexCount: number;
+}
+
 function requireBuffer(gl: WebGLRenderingContext): WebGLBuffer {
   const buffer = gl.createBuffer();
   if (!buffer) throw new Error("Unable to allocate a WebGL buffer.");
@@ -235,7 +259,8 @@ export class TacticalEngine {
   private readonly interpolator = new SceneInterpolator();
   private readonly pointBuffer: WebGLBuffer;
   private readonly landmarkBuffer: WebGLBuffer;
-  private readonly shipMeshBuffer: WebGLBuffer;
+  private readonly shipMeshBuffers = new Map<ShipModel, CachedShipMesh>();
+  private readonly shipTransform = new Float32Array(16);
   private readonly courseBuffer: WebGLBuffer;
   private readonly heightGuideBuffer: WebGLBuffer;
   private readonly radarSurfaceBuffer: WebGLBuffer;
@@ -253,6 +278,9 @@ export class TacticalEngine {
     shape: number;
     heading: number;
     matrix: WebGLUniformLocation | null;
+    shipTransform: WebGLUniformLocation | null;
+    shipColor: WebGLUniformLocation | null;
+    shipModel: WebGLUniformLocation | null;
     pixelRatio: WebGLUniformLocation | null;
     markerScale: WebGLUniformLocation | null;
     points: WebGLUniformLocation | null;
@@ -262,7 +290,6 @@ export class TacticalEngine {
   private viewProjection = new Float32Array(16);
   private pointCount = 0;
   private landmarkCount = 0;
-  private shipMeshCount = 0;
   private courseCount = 0;
   private heightGuideCount = 0;
   private radarSurfaceCount = 0;
@@ -333,6 +360,9 @@ export class TacticalEngine {
       shape: gl.getAttribLocation(this.program, "a_shape"),
       heading: gl.getAttribLocation(this.program, "a_heading"),
       matrix: gl.getUniformLocation(this.program, "u_viewProjection"),
+      shipTransform: gl.getUniformLocation(this.program, "u_shipTransform"),
+      shipColor: gl.getUniformLocation(this.program, "u_shipColor"),
+      shipModel: gl.getUniformLocation(this.program, "u_shipModel"),
       pixelRatio: gl.getUniformLocation(this.program, "u_pixelRatio"),
       markerScale: gl.getUniformLocation(this.program, "u_markerScale"),
       points: gl.getUniformLocation(this.program, "u_points"),
@@ -340,7 +370,6 @@ export class TacticalEngine {
     };
     this.pointBuffer = requireBuffer(gl);
     this.landmarkBuffer = requireBuffer(gl);
-    this.shipMeshBuffer = requireBuffer(gl);
     this.courseBuffer = requireBuffer(gl);
     this.heightGuideBuffer = requireBuffer(gl);
     this.radarSurfaceBuffer = requireBuffer(gl);
@@ -353,6 +382,10 @@ export class TacticalEngine {
     this.bindEvents();
     this.resizeObserver = new ResizeObserver(() => this.requestRender());
     this.resizeObserver.observe(canvas);
+    void loadImportedShipModels().then((loaded) => {
+      if (this.disposed || loaded === 0) return;
+      this.requestRender();
+    });
     this.requestRender();
   }
 
@@ -634,7 +667,8 @@ export class TacticalEngine {
     this.unbindEvents();
     this.gl.deleteBuffer(this.pointBuffer);
     this.gl.deleteBuffer(this.landmarkBuffer);
-    this.gl.deleteBuffer(this.shipMeshBuffer);
+    for (const mesh of this.shipMeshBuffers.values()) this.gl.deleteBuffer(mesh.buffer);
+    this.shipMeshBuffers.clear();
     this.gl.deleteBuffer(this.courseBuffer);
     this.gl.deleteBuffer(this.heightGuideBuffer);
     this.gl.deleteBuffer(this.radarSurfaceBuffer);
@@ -741,68 +775,36 @@ export class TacticalEngine {
     return Math.min(64, point.pointSize * zoomScale);
   }
 
-  private rebuildShipMeshBuffer(): void {
-    const vertices: number[] = [];
-    const light: Vector3 = [0.35, 0.72, 0.6];
-    for (const point of this.scene.points) {
-      if (!["ship", "observer"].includes(point.kind)) continue;
-      const model = shipModelFor(point.shipCategory);
-      const renderedScale = this.renderedShipScale(model.scale);
-      const heading = this.headingFor(point);
-      const magnitude = Math.hypot(...heading);
-      const forward: Vector3 =
-        magnitude > 0.0001 ? (heading.map((value) => value / magnitude) as Vector3) : [0, 0, 1];
-      const referenceUp: Vector3 = Math.abs(forward[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-      const right: Vector3 = [
-        referenceUp[1] * forward[2] - referenceUp[2] * forward[1],
-        referenceUp[2] * forward[0] - referenceUp[0] * forward[2],
-        referenceUp[0] * forward[1] - referenceUp[1] * forward[0],
+  private cachedShipMesh(model: ShipModel): CachedShipMesh {
+    const cached = this.shipMeshBuffers.get(model);
+    if (cached) return cached;
+
+    const vertices = new Float32Array(model.triangles.length * 6);
+    let offset = 0;
+    for (let index = 0; index < model.triangles.length; index += 3) {
+      const a = model.triangles[index];
+      const b = model.triangles[index + 1];
+      const c = model.triangles[index + 2];
+      const ab: Vector3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const ac: Vector3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const normal: Vector3 = [
+        ab[1] * ac[2] - ab[2] * ac[1],
+        ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0],
       ];
-      const rightLength = Math.max(0.0001, Math.hypot(...right));
-      right.forEach((value, index) => {
-        right[index] = value / rightLength;
-      });
-      const up: Vector3 = [
-        forward[1] * right[2] - forward[2] * right[1],
-        forward[2] * right[0] - forward[0] * right[2],
-        forward[0] * right[1] - forward[1] * right[0],
-      ];
-      const world = (local: Vector3): Vector3 => [
-        point.position3d[0] +
-          renderedScale * (right[0] * local[0] + up[0] * local[1] + forward[0] * local[2]),
-        point.position3d[1] +
-          renderedScale * (right[1] * local[0] + up[1] * local[1] + forward[1] * local[2]),
-        point.position3d[2] +
-          renderedScale * (right[2] * local[0] + up[2] * local[1] + forward[2] * local[2]),
-      ];
-      for (let index = 0; index < model.triangles.length; index += 3) {
-        const a = world(model.triangles[index]);
-        const b = world(model.triangles[index + 1]);
-        const c = world(model.triangles[index + 2]);
-        const ab: Vector3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        const ac: Vector3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        const normal: Vector3 = [
-          ab[1] * ac[2] - ab[2] * ac[1],
-          ab[2] * ac[0] - ab[0] * ac[2],
-          ab[0] * ac[1] - ab[1] * ac[0],
-        ];
-        const normalLength = Math.max(0.0001, Math.hypot(...normal));
-        const diffuse = Math.abs(
-          (normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2]) / normalLength,
-        );
-        const brightness = 0.36 + diffuse * 0.64;
-        const color = point.color.map((channel) =>
-          Math.min(1, channel * 0.35 + brightness * 0.62),
-        ) as Color3;
-        vertices.push(
-          ...this.interleavedVertex(a, color),
-          ...this.interleavedVertex(b, color),
-          ...this.interleavedVertex(c, color),
-        );
+      for (const position of [a, b, c]) {
+        vertices.set(position, offset);
+        vertices.set(normal, offset + 3);
+        offset += 6;
       }
     }
-    this.shipMeshCount = vertices.length / 11;
-    this.upload(this.shipMeshBuffer, vertices, this.gl.DYNAMIC_DRAW);
+
+    const buffer = requireBuffer(this.gl);
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+    const mesh = { buffer, vertexCount: model.triangles.length };
+    this.shipMeshBuffers.set(model, mesh);
+    return mesh;
   }
 
   private rebuildCourseBuffer(): void {
@@ -1152,7 +1154,7 @@ export class TacticalEngine {
     };
 
     for (const ship of disabledShips) {
-      const modelScale = shipModelFor(ship.shipCategory).scale;
+      const modelScale = shipModelFor(ship.shipCategory, ship.class, ship.name).scale;
       const shipSeed = hash(ship.id || ship.name);
       const fireSites = modelScale >= 3 ? 3 : modelScale >= 1.5 ? 2 : 1;
       for (let site = 0; site < fireSites; site += 1) {
@@ -1244,7 +1246,9 @@ export class TacticalEngine {
     const selected = this.findPointById(this.selectedId || undefined);
     if (selected && ["ship", "observer"].includes(selected.kind)) {
       const center = selected.position3d;
-      const modelScale = this.renderedShipScale(shipModelFor(selected.shipCategory).scale);
+      const modelScale = this.renderedShipScale(
+        shipModelFor(selected.shipCategory, selected.class, selected.name).scale,
+      );
       const radius = Math.max(modelScale * 1.85, this.camera.distance * 0.018);
       const segments = 72;
       const appendRing = (
@@ -1614,7 +1618,6 @@ export class TacticalEngine {
 
   private rebuildBuffers(): void {
     this.rebuildPointBuffers();
-    this.rebuildShipMeshBuffer();
     this.rebuildCourseBuffer();
     this.rebuildRadarBuffers();
     this.rebuildOriginGridBuffer();
@@ -1693,6 +1696,79 @@ export class TacticalEngine {
     gl.vertexAttribPointer(this.locations.heading, 3, gl.FLOAT, false, stride, 8 * 4);
   }
 
+  private bindShipAttributes(buffer: WebGLBuffer): void {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    const stride = 6 * Float32Array.BYTES_PER_ELEMENT;
+    gl.enableVertexAttribArray(this.locations.position);
+    gl.vertexAttribPointer(this.locations.position, 3, gl.FLOAT, false, stride, 0);
+    gl.disableVertexAttribArray(this.locations.color);
+    gl.vertexAttrib3f(this.locations.color, 0, 0, 0);
+    gl.disableVertexAttribArray(this.locations.size);
+    gl.vertexAttrib1f(this.locations.size, 1);
+    gl.disableVertexAttribArray(this.locations.shape);
+    gl.vertexAttrib1f(this.locations.shape, 0);
+    gl.enableVertexAttribArray(this.locations.heading);
+    gl.vertexAttribPointer(this.locations.heading, 3, gl.FLOAT, false, stride, 3 * 4);
+  }
+
+  private updateShipTransform(point: ScenePoint, scale: number): void {
+    const heading = this.headingFor(point);
+    const magnitude = Math.hypot(...heading);
+    const forward: Vector3 =
+      magnitude > 0.0001 ? (heading.map((value) => value / magnitude) as Vector3) : [0, 0, 1];
+    const referenceUp: Vector3 = Math.abs(forward[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const right: Vector3 = [
+      referenceUp[1] * forward[2] - referenceUp[2] * forward[1],
+      referenceUp[2] * forward[0] - referenceUp[0] * forward[2],
+      referenceUp[0] * forward[1] - referenceUp[1] * forward[0],
+    ];
+    const rightLength = Math.max(0.0001, Math.hypot(...right));
+    right.forEach((value, index) => {
+      right[index] = value / rightLength;
+    });
+    const up: Vector3 = [
+      forward[1] * right[2] - forward[2] * right[1],
+      forward[2] * right[0] - forward[0] * right[2],
+      forward[0] * right[1] - forward[1] * right[0],
+    ];
+    const transform = this.shipTransform;
+    transform[0] = right[0] * scale;
+    transform[1] = right[1] * scale;
+    transform[2] = right[2] * scale;
+    transform[3] = 0;
+    transform[4] = up[0] * scale;
+    transform[5] = up[1] * scale;
+    transform[6] = up[2] * scale;
+    transform[7] = 0;
+    transform[8] = forward[0] * scale;
+    transform[9] = forward[1] * scale;
+    transform[10] = forward[2] * scale;
+    transform[11] = 0;
+    transform[12] = point.position3d[0];
+    transform[13] = point.position3d[1];
+    transform[14] = point.position3d[2];
+    transform[15] = 1;
+  }
+
+  private drawShipModels(alpha: number): void {
+    const gl = this.gl;
+    gl.uniform1i(this.locations.shipModel, 1);
+    gl.uniform1i(this.locations.points, 0);
+    gl.uniform1f(this.locations.alpha, alpha);
+    for (const point of this.scene.points) {
+      if (!["ship", "observer"].includes(point.kind)) continue;
+      const model = shipModelFor(point.shipCategory, point.class, point.name);
+      const mesh = this.cachedShipMesh(model);
+      this.bindShipAttributes(mesh.buffer);
+      this.updateShipTransform(point, this.renderedShipScale(model.scale));
+      gl.uniformMatrix4fv(this.locations.shipTransform, false, this.shipTransform);
+      gl.uniform3f(this.locations.shipColor, point.color[0], point.color[1], point.color[2]);
+      gl.drawArrays(gl.TRIANGLES, 0, mesh.vertexCount);
+    }
+    gl.uniform1i(this.locations.shipModel, 0);
+  }
+
   private resize(): number {
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     const width = Math.max(1, Math.floor(this.canvas.clientWidth * ratio));
@@ -1712,6 +1788,7 @@ export class TacticalEngine {
     alpha: number,
   ): void {
     this.bindAttributes(buffer);
+    this.gl.uniform1i(this.locations.shipModel, 0);
     this.gl.uniform1i(this.locations.points, points ? 1 : 0);
     this.gl.uniform1f(this.locations.alpha, alpha);
     this.gl.drawArrays(mode, 0, count);
@@ -1756,7 +1833,6 @@ export class TacticalEngine {
       (value, index) => value + (cameraTarget[index] - value) * focusBlend,
     ) as Vector3;
     this.rebuildPointBuffers();
-    this.rebuildShipMeshBuffer();
     this.rebuildCombatBuffers(now);
     this.rebuildSelectionBuffer(now);
     let heightGuideAlpha = 0;
@@ -1832,7 +1908,7 @@ export class TacticalEngine {
     }
     if (modelBlend > 0) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      this.drawBuffer(this.shipMeshBuffer, this.shipMeshCount, gl.TRIANGLES, false, modelBlend);
+      this.drawShipModels(modelBlend);
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.uniform1f(this.locations.markerScale, 1);
@@ -2045,7 +2121,9 @@ export class TacticalEngine {
         : point.kind === "cluster"
           ? point.pointSize
           : this.scaleMode === "tactical" && ["ship", "observer"].includes(point.kind)
-            ? this.tacticalShipPixels(shipModelFor(point.shipCategory).scale)
+            ? this.tacticalShipPixels(
+                shipModelFor(point.shipCategory, point.class, point.name).scale,
+              )
             : point.pointSize * this.markerScale;
       const markerRadius = renderedSize / 2 + 5;
       const inside = distance < Math.max(threshold, markerRadius);

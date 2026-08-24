@@ -1790,23 +1790,28 @@ function Scraper.applyResult(result, sentCommand, captureContext)
       local isObserver = entity.name
         and Scraper.state.observer.name
         and entity.name:lower() == Scraper.state.observer.name:lower()
-      if source == "fleetradar" and isObserver and not preserveNewerGmcpObserver then
-        for key, value in pairs(entity) do
-          if
-            key ~= "id"
-            and key ~= "name"
-            and key ~= "class"
-            and key ~= "kind"
-            and value ~= nil
-          then
+      if source == "fleetradar" and isObserver then
+        -- A synchronized fleet-radar response can finish after a newer
+        -- gmcp.Ship.Info update. Preserve that newer observer fix, but always
+        -- consume the observer row here so it can never become a contact.
+        if not preserveNewerGmcpObserver then
+          for key, value in pairs(entity) do
             if
-              key == "speed"
-              and type(Scraper.state.observer.speed) == "table"
-              and type(value) == "number"
+              key ~= "id"
+              and key ~= "name"
+              and key ~= "class"
+              and key ~= "kind"
+              and value ~= nil
             then
-              Scraper.state.observer.speed.current = value
-            else
-              Scraper.state.observer[key] = type(value) == "table" and copyTable(value) or value
+              if
+                key == "speed"
+                and type(Scraper.state.observer.speed) == "table"
+                and type(value) == "number"
+              then
+                Scraper.state.observer.speed.current = value
+              else
+                Scraper.state.observer[key] = type(value) == "table" and copyTable(value) or value
+              end
             end
           end
         end

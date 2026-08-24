@@ -7,12 +7,16 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   const scripts = JSON.parse(await readFile("mudlet-package/src/scripts/scripts.json", "utf8"));
   const aliases = JSON.parse(await readFile("mudlet-package/src/aliases/aliases.json", "utf8"));
   const bootstrap = await readFile("mudlet-package/src/scripts/holocron3d.bootstrap.lua", "utf8");
+  const proxy = await readFile("mudlet/lotj_holocron_proxy.lua", "utf8");
+  const relay = await readFile("relay/main.go", "utf8");
   const build = await readFile("tools/build-mudlet-package.mjs", "utf8");
 
   assert.equal(mfile.package, "Holocron3D");
   assert.equal(scripts[0].name, "holocron3d.bootstrap");
   assert.equal(aliases[0].name, "holocron3d.command");
   assert.match(aliases[0].regex, /h3d/);
+  assert.match(aliases[0].regex, /launch/);
+  assert.match(aliases[0].regex, /reconnect/);
   assert.match(aliases[0].regex, /dev/);
   assert.match(aliases[0].regex, /profile/);
   assert.match(aliases[0].regex, /confirmations/);
@@ -46,6 +50,21 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   assert.match(bootstrap, /lotjHolocron3D\.isReady/);
   assert.match(bootstrap, /bridge started; waiting for desktop connection/);
   assert.match(bootstrap, /h3d pause \| resume/);
+  assert.match(bootstrap, /function Package\.launch\(\)/);
+  assert.match(bootstrap, /function Package\.reconnect\(\)/);
+  assert.match(bootstrap, /"--launch-only", "--app", runtime\.launcher/);
+  assert.match(bootstrap, /local relayArguments = \{ "--token-file", runtime\.token \}/);
+  const startImplementation = bootstrap.match(
+    /function Package\.start\(\)([\s\S]*?)\nend\n\nfunction Package\.reconnect/,
+  )?.[1];
+  assert.ok(startImplementation, "expected to locate Package.start implementation");
+  assert.doesNotMatch(startImplementation, /Package\.stop/);
+  assert.doesNotMatch(startImplementation, /"--app"/);
+  assert.match(startImplementation, /lotjHolocron3D\.isRunning\(\)/);
+  assert.doesNotMatch(proxy, /type = "shutdown"/);
+  assert.match(proxy, /DESKTOP_LIFECYCLE_DECOUPLED = true/);
+  assert.match(proxy, /type = "bridge_reconnect"/);
+  assert.match(relay, /launchOnly := flag\.Bool\("launch-only"/);
   assert.match(
     bootstrap,
     /if level ~= "error" and level ~= "warn" and not Package\.settings\.debug then\s+return\s+end/,

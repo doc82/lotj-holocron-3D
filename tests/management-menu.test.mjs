@@ -3,9 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Escape management documents log-based hyperspace diagnostics", async () => {
-  const [app, menu, controller, scraper] = await Promise.all([
+  const [app, menu, credits, controller, scraper] = await Promise.all([
     readFile("renderer/src/app/App.tsx", "utf8"),
     readFile("renderer/src/features/management/ManagementMenu.tsx", "utf8"),
+    readFile("renderer/src/features/management/AssetCredits.tsx", "utf8"),
     readFile("renderer/src/features/hyperspace/useHyperspaceController.ts", "utf8"),
     readFile("mudlet/lotj_holocron_scraper.lua", "utf8"),
   ]);
@@ -16,6 +17,10 @@ test("Escape management documents log-based hyperspace diagnostics", async () =>
   assert.match(menu, /HYPERSPACE DIAGNOSTICS/);
   assert.match(menu, /NO CALIBRATION DATABASE/);
   assert.match(menu, /\[Holocron3D\]\[HyperspaceSample\]/);
+  assert.match(menu, /ASSET CREDITS/);
+  assert.match(credits, /SHIP MODELS/);
+  assert.match(credits, /PLANET TEXTURES/);
+  assert.match(credits, /LOCAL EVALUATION ONLY/);
   assert.doesNotMatch(app, /useHyperspaceHistory/);
   assert.doesNotMatch(controller, /recordHyperspaceHistory/);
   assert.match(controller, /calculateHyperspaceTravelTime/);

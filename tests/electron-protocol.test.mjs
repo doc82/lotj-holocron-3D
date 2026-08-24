@@ -10,6 +10,10 @@ import {
   packagedPlanetAssetPaths,
   validatePackagedPlanetEntries,
 } from "../tools/verify-packaged-planet-assets.mjs";
+import {
+  packagedShipAssetPaths,
+  validatePackagedShipEntries,
+} from "../tools/verify-packaged-ship-assets.mjs";
 import { linuxArchiveName } from "../tools/build-linux-archive.mjs";
 
 import { createTelemetryHost } from "../electron/shared/protocol.mjs";
@@ -96,6 +100,23 @@ test("Electron window and preload keep privileged APIs isolated", async () => {
   assert.doesNotMatch(preload, /ipcRenderer:\s*ipcRenderer/);
   assert.doesNotMatch(preload, /send:\s*ipcRenderer\.send/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\(\s*"holocron"/);
+  assert.match(main, /url\.protocol !== "https:"/);
+  assert.match(preload, /holocron:open-external/);
+});
+
+test("packaged releases require every attributed ship mesh and exclude evaluation assets", () => {
+  const expected = packagedShipAssetPaths();
+  assert.equal(expected.length, 21);
+  assert.doesNotThrow(() => validatePackagedShipEntries(expected));
+  assert.throws(() => validatePackagedShipEntries(expected.slice(1)), /missing:/);
+  assert.throws(
+    () =>
+      validatePackagedShipEntries([
+        ...expected,
+        "/renderer/dist/ship-models/praetorian-frigate.mesh",
+      ]),
+    /evaluation-only:/,
+  );
 });
 
 test("unpacked out builds enable local debugging without exposing installed releases", () => {

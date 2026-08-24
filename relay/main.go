@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 )
 
 const maxLineBytes = 256 * 1024
+
+var errReconnectRequested = errors.New("desktop reconnect requested")
 
 type inputEvent struct {
 	line string
@@ -87,10 +90,12 @@ func connect(address string, timeout time.Duration) (net.Conn, error) {
 	return nil, lastError
 }
 
-func scanInput(input io.Reader) <-chan inputEvent {
+func scanInput(input io.Reader) (<-chan inputEvent, <-chan error) {
 	events := make(chan inputEvent, 64)
+	done := make(chan error, 1)
 	go func() {
 		defer close(events)
+		defer close(done)
 		scanner := bufio.NewScanner(input)
 		scanner.Buffer(make([]byte, 4096), maxLineBytes)
 		for scanner.Scan() {
@@ -98,9 +103,12 @@ func scanInput(input io.Reader) <-chan inputEvent {
 		}
 		if err := scanner.Err(); err != nil {
 			events <- inputEvent{err: err}
+			done <- err
+			return
 		}
+		done <- nil
 	}()
-	return events
+	return events, done
 }
 
 func messageType(line string) string {
@@ -155,6 +163,9 @@ func bridgeSession(
 			if messageType(event.line) == "hello" {
 				*helloLine = event.line
 			}
+			if messageType(event.line) == "bridge_reconnect" {
+				return false, errReconnectRequested
+			}
 			if _, err := writer.WriteString(event.line + "\n"); err != nil {
 				return false, err
 			}
@@ -186,19 +197,30 @@ func relay(
 	input io.Reader,
 	output io.Writer,
 ) error {
-	events := scanInput(input)
+	events, inputDone := scanInput(input)
 	helloLine := ""
 	reconnecting := false
+	launchAttempted := false
 	for {
-		connection, firstError := net.DialTimeout("tcp", address, 300*time.Millisecond)
-		if firstError != nil {
-			if err := launch(appPath, appDirectory, squirrelExecutable); err != nil {
-				return fmt.Errorf("start Holocron 3D: %w", err)
+		dialTimeout := timeout
+		if dialTimeout <= 0 || dialTimeout > 500*time.Millisecond {
+			dialTimeout = 500 * time.Millisecond
+		}
+		connection, connectError := net.DialTimeout("tcp", address, dialTimeout)
+		if connectError != nil {
+			// --app is retained for compatibility with older Mudlet packages. New
+			// packages launch the desktop explicitly with --launch-only.
+			if appPath != "" && !launchAttempted {
+				if err := launch(appPath, appDirectory, squirrelExecutable); err != nil {
+					return fmt.Errorf("start Holocron 3D: %w", err)
+				}
+				launchAttempted = true
 			}
-			var err error
-			connection, err = connect(address, timeout)
-			if err != nil {
-				return fmt.Errorf("connect to Holocron 3D: %w", err)
+			select {
+			case inputError := <-inputDone:
+				return inputError
+			case <-time.After(250 * time.Millisecond):
+				continue
 			}
 		}
 		if reconnecting {
@@ -229,9 +251,16 @@ func run() error {
 	appPath := flag.String("app", "", "Electron executable to start when unavailable")
 	appDirectory := flag.String("app-dir", "", "development Electron application directory")
 	squirrelExecutable := flag.String("squirrel-exe", "", "installed executable name for a Squirrel Update.exe launcher")
-	timeout := flag.Duration("timeout", 10*time.Second, "connection timeout")
+	launchOnly := flag.Bool("launch-only", false, "start or focus Electron without running the telemetry relay")
+	timeout := flag.Duration("timeout", 500*time.Millisecond, "individual connection-attempt timeout")
 	tokenPath := flag.String("token-file", defaultTokenPath(), "per-user relay credential")
 	flag.Parse()
+	if *launchOnly {
+		if *appPath == "" {
+			return errors.New("--launch-only requires --app")
+		}
+		return launch(*appPath, *appDirectory, *squirrelExecutable)
+	}
 
 	return relay(
 		*address,

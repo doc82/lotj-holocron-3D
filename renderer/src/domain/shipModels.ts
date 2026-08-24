@@ -1,8 +1,52 @@
 import type { Vector3 } from "../types/telemetry";
+import assignmentData from "./shipModelAssignments.json" with { type: "json" };
+import catalogData from "./shipModelCatalog.json" with { type: "json" };
 
 export interface ShipModel {
+  id?: string;
   triangles: Vector3[];
   scale: number;
+}
+
+interface ShipModelAssignments {
+  version: number;
+  exactNames: Record<string, string>;
+  categoryFallbacks: Record<string, string>;
+}
+
+interface ShipModelCatalog {
+  version: number;
+  models: Array<{
+    id: string;
+    displayName: string;
+    category: string;
+    aliases: string[];
+  }>;
+}
+
+export type ShipModelMatch =
+  | "explicit-name"
+  | "exact-class"
+  | "exact-name"
+  | "partial-class"
+  | "partial-name"
+  | "category-fallback";
+
+export interface ShipModelResolution {
+  modelId: string;
+  match: ShipModelMatch;
+  matchedValue: string;
+}
+
+interface ImportedShipManifest {
+  version: number;
+  models: Array<{
+    id: string;
+    file: string;
+    category: string;
+    scale: number;
+    triangleCount: number;
+  }>;
 }
 
 const triangle = (a: Vector3, b: Vector3, c: Vector3): Vector3[] => [a, b, c];
@@ -166,7 +210,181 @@ const MODELS: Record<string, ShipModel> = {
 
 const FALLBACK = { scale: 1.2, triangles: diamond(0.5, 1.8) };
 
-export function shipModelFor(category: unknown): ShipModel {
+const assignments = assignmentData as ShipModelAssignments;
+const catalog = catalogData as ShipModelCatalog;
+const importedModels = new Map<string, ShipModel>();
+const modelIdByAlias = new Map<string, string>();
+const modelIdByExactName = new Map<string, string>();
+const partialAliases: Array<{ alias: string; modelId: string }> = [];
+let importedModelLoad: Promise<number> | null = null;
+
+export function normalizeShipIdentity(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+for (const model of catalog.models) {
+  for (const value of [model.displayName, ...model.aliases]) {
+    const alias = normalizeShipIdentity(value);
+    const existing = modelIdByAlias.get(alias);
+    if (existing && existing !== model.id) {
+      throw new Error(
+        `Ship-model alias "${value}" is assigned to both ${existing} and ${model.id}.`,
+      );
+    }
+    modelIdByAlias.set(alias, model.id);
+    if (
+      !partialAliases.some(
+        (candidate) => candidate.alias === alias && candidate.modelId === model.id,
+      )
+    ) {
+      partialAliases.push({ alias, modelId: model.id });
+    }
+  }
+}
+const catalogModelIds = new Set(catalog.models.map((model) => model.id));
+for (const [shipName, modelId] of Object.entries(assignments.exactNames)) {
+  if (!catalogModelIds.has(modelId)) {
+    throw new Error(`Named ship "${shipName}" references unknown model ${modelId}.`);
+  }
+  modelIdByExactName.set(normalizeShipIdentity(shipName), modelId);
+}
+for (const [category, modelId] of Object.entries(assignments.categoryFallbacks)) {
+  if (!catalogModelIds.has(modelId)) {
+    throw new Error(`Ship category "${category}" references unknown model ${modelId}.`);
+  }
+}
+
+function containsNormalizedPhrase(value: string, phrase: string): boolean {
+  return value === phrase || ` ${value} `.includes(` ${phrase} `);
+}
+
+function partialModelFor(value: string): { modelId: string; alias: string } | null {
+  if (!value) return null;
+  const matches = partialAliases
+    .filter((candidate) => containsNormalizedPhrase(value, candidate.alias))
+    .sort((left, right) => right.alias.length - left.alias.length);
+  const best = matches[0];
+  if (!best) return null;
+  const ambiguous = matches.some(
+    (candidate) =>
+      candidate.alias.length === best.alias.length && candidate.modelId !== best.modelId,
+  );
+  return ambiguous ? null : best;
+}
+
+export function resolveConfiguredShipModel(
+  category?: unknown,
+  shipClass?: unknown,
+  shipName?: unknown,
+): ShipModelResolution | null {
+  const normalizedName = normalizeShipIdentity(shipName);
+  const normalizedClass = normalizeShipIdentity(shipClass);
+  const normalizedCategory = normalizeShipIdentity(category);
+
+  const explicitNameModel = modelIdByExactName.get(normalizedName);
+  if (explicitNameModel) {
+    return { modelId: explicitNameModel, match: "explicit-name", matchedValue: normalizedName };
+  }
+
+  const exactClassModel = modelIdByAlias.get(normalizedClass);
+  if (exactClassModel) {
+    return { modelId: exactClassModel, match: "exact-class", matchedValue: normalizedClass };
+  }
+  const exactNameModel = modelIdByAlias.get(normalizedName);
+  if (exactNameModel) {
+    return { modelId: exactNameModel, match: "exact-name", matchedValue: normalizedName };
+  }
+
+  const partialClassModel = partialModelFor(normalizedClass);
+  if (partialClassModel) {
+    return {
+      modelId: partialClassModel.modelId,
+      match: "partial-class",
+      matchedValue: partialClassModel.alias,
+    };
+  }
+  const partialNameModel = partialModelFor(normalizedName);
+  if (partialNameModel) {
+    return {
+      modelId: partialNameModel.modelId,
+      match: "partial-name",
+      matchedValue: partialNameModel.alias,
+    };
+  }
+
+  const categoryModel = assignments.categoryFallbacks[normalizedCategory];
+  return categoryModel
+    ? { modelId: categoryModel, match: "category-fallback", matchedValue: normalizedCategory }
+    : null;
+}
+
+function runtimeAssetUrl(file: string): URL {
+  return new URL(`ship-models/${file}`, document.baseURI);
+}
+
+export function loadImportedShipModels(): Promise<number> {
+  if (importedModelLoad) return importedModelLoad;
+  importedModelLoad = (async () => {
+    try {
+      const manifestResponse = await fetch(runtimeAssetUrl("manifest.json"));
+      if (!manifestResponse.ok) return 0;
+      const manifest = (await manifestResponse.json()) as ImportedShipManifest;
+      if (manifest.version !== 1 || !Array.isArray(manifest.models)) return 0;
+      let loaded = 0;
+      for (const entry of manifest.models) {
+        const response = await fetch(runtimeAssetUrl(entry.file));
+        if (!response.ok) continue;
+        const positions = new Float32Array(await response.arrayBuffer());
+        if (positions.length % 9 !== 0) continue;
+        const triangles: Vector3[] = [];
+        for (let index = 0; index < positions.length; index += 3) {
+          triangles.push([positions[index], positions[index + 1], positions[index + 2]]);
+        }
+        importedModels.set(entry.id, { id: entry.id, scale: entry.scale, triangles });
+        loaded += 1;
+      }
+      return loaded;
+    } catch {
+      // Generated preview assets are optional. Procedural class models remain
+      // available when the local import step has not been run.
+      return 0;
+    }
+  })();
+  return importedModelLoad;
+}
+
+export function importedShipModelIdFor(
+  category?: unknown,
+  shipClass?: unknown,
+  shipName?: unknown,
+): string | null {
+  const resolution = resolveConfiguredShipModel(category, shipClass, shipName);
+  if (resolution && importedModels.has(resolution.modelId)) return resolution.modelId;
+  const fallbackId = assignments.categoryFallbacks[normalizeShipIdentity(category)];
+  if (fallbackId && importedModels.has(fallbackId)) return fallbackId;
+  return null;
+}
+
+export function configuredShipModelIdFor(
+  shipClass?: unknown,
+  shipName?: unknown,
+  category?: unknown,
+): string | null {
+  return resolveConfiguredShipModel(category, shipClass, shipName)?.modelId ?? null;
+}
+
+export function shipModelFor(
+  category: unknown,
+  shipClass?: unknown,
+  shipName?: unknown,
+): ShipModel {
+  const importedId = importedShipModelIdFor(category, shipClass, shipName);
+  if (importedId) return importedModels.get(importedId) as ShipModel;
   return MODELS[String(category || "").toLowerCase()] ?? FALLBACK;
 }
 
