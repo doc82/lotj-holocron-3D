@@ -169,3 +169,15 @@ const FALLBACK = { scale: 1.2, triangles: diamond(0.5, 1.8) };
 export function shipModelFor(category: unknown): ShipModel {
   return MODELS[String(category || "").toLowerCase()] ?? FALLBACK;
 }
+
+export function tacticalShipPixelsForScale(
+  modelScale: number,
+  minimumPixels = 24,
+  maximumPixels = 72,
+): number {
+  return Math.min(maximumPixels, Math.max(minimumPixels, minimumPixels + (modelScale - 1) * 8));
+}
+
+export function tacticalShipPixelsForCategory(category: unknown): number {
+  return tacticalShipPixelsForScale(shipModelFor(category).scale);
+}

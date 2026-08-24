@@ -17,7 +17,7 @@
   position: absolute;
   left: 50%;
   bottom: calc(100% + 7px);
-  z-index: 1000;
+  z-index: var(--layer-ui-tooltip);
   width: max-content;
   max-width: 220px;
   padding: 6px 8px;

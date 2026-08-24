@@ -10,6 +10,7 @@ import {
   packagedPlanetAssetPaths,
   validatePackagedPlanetEntries,
 } from "../tools/verify-packaged-planet-assets.mjs";
+import { linuxArchiveName } from "../tools/build-linux-archive.mjs";
 
 import { createTelemetryHost } from "../electron/shared/protocol.mjs";
 import { ensureRelayToken, validateRelayAuth } from "../electron/shared/relay-auth.mjs";
@@ -221,6 +222,17 @@ test("macOS paths use Application Support and an extensionless relay", () => {
   assert.equal(paths.mudletPackage, path.posix.join(paths.base, "mudlet", "Holocron3D.mpackage"));
 });
 
+test("Linux paths honor XDG_DATA_HOME and use extensionless resources", () => {
+  const paths = appDataPaths({ XDG_DATA_HOME: "/home/test/.data" }, "linux", "/home/test");
+  assert.equal(paths.base, path.posix.join("/home/test/.data", "Holocron3D"));
+  assert.equal(paths.relay, path.posix.join(paths.base, "bin", "holocron-relay"));
+  assert.equal(paths.launcher, path.posix.join(paths.base, "desktop-launcher"));
+  assert.equal(paths.mudletPackage, path.posix.join(paths.base, "mudlet", "Holocron3D.mpackage"));
+
+  const defaults = appDataPaths({}, "linux", "/home/test");
+  assert.equal(defaults.base, "/home/test/.local/share/Holocron3D");
+});
+
 test("release tooling builds native macOS relays and DMG artifacts without extra package policy", async () => {
   const [forge, release, dmg, manifest] = await Promise.all([
     readFile(path.resolve(here, "../forge.config.cjs"), "utf8"),
@@ -237,4 +249,27 @@ test("release tooling builds native macOS relays and DMG artifacts without extra
   assert.doesNotMatch(dmg, /LotJ-Holocron-3D-\d+\.\d+\.\d+/);
   assert.match(manifest, /make:mac:arm64/);
   assert.match(manifest, /make:mac:x64/);
+});
+
+test("release tooling creates a versioned portable Linux x64 archive", async () => {
+  const [bootstrap, forge, release, archive, verification, manifest] = await Promise.all([
+    readFile(path.resolve(here, "../electron/main/bootstrap.mjs"), "utf8"),
+    readFile(path.resolve(here, "../forge.config.cjs"), "utf8"),
+    readFile(path.resolve(here, "../tools/release-build.mjs"), "utf8"),
+    readFile(path.resolve(here, "../tools/build-linux-archive.mjs"), "utf8"),
+    readFile(path.resolve(here, "../tools/verify-linux-archive.mjs"), "utf8"),
+    readFile(path.resolve(here, "../package.json"), "utf8"),
+  ]);
+
+  assert.equal(linuxArchiveName("1.2.3", "x64"), "LotJ-Holocron-3D-1.2.3-linux-x64.tar.gz");
+  assert.match(bootstrap, /process\.platform === "linux"/);
+  assert.match(bootstrap, /process\.execPath/);
+  assert.match(forge, /holocron3d-icon\.png/);
+  assert.match(release, /build-linux-archive\.mjs/);
+  assert.match(archive, /fs\.cpSync/);
+  assert.match(archive, /Holocron3D/);
+  assert.match(verification, /resources.*holocron-relay/s);
+  assert.match(verification, /resources.*Holocron3D\.mpackage/s);
+  assert.match(manifest, /make:linux/);
+  assert.match(manifest, /relay:build:linux/);
 });

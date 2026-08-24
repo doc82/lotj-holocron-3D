@@ -40,13 +40,17 @@ test("main version bumps gate release publication on tests and all installers", 
   const workflow = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(workflow, /branches: \[main\]/);
   assert.match(workflow, /tools\/release-version\.mjs/);
-  assert.match(workflow, /needs: \[prepare, verify, windows, macos\]/);
+  assert.match(workflow, /needs: \[prepare, verify, windows, macos, linux\]/);
   assert.match(workflow, /Holocron3D-Setup\.exe/);
   assert.match(workflow, /arm64\.dmg/);
   assert.match(workflow, /x64\.dmg/);
   assert.match(workflow, /Holocron3D\.mpackage/);
+  assert.match(workflow, /LotJ-Holocron-3D-\$\{RELEASE_VERSION\}-linux-x64\.tar\.gz/);
   assert.match(workflow, /verify-packaged-planet-assets\.mjs win32 x64/);
   assert.match(workflow, /verify-packaged-planet-assets\.mjs darwin \$\{\{ matrix\.arch \}\}/);
+  assert.match(workflow, /verify-packaged-planet-assets\.mjs linux x64/);
+  assert.match(workflow, /verify-linux-archive\.mjs x64/);
+  assert.match(workflow, /pnpm make:linux/);
   assert.match(workflow, /HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"/);
   assert.match(workflow, /tools\/fetch-planet-assets\.mjs/);
   assert.match(workflow, /SHA256SUMS\.txt/);

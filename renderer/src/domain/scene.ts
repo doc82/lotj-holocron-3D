@@ -1,9 +1,11 @@
 import type { Color3, SystemSnapshot, TelemetryEntity, Vector3 } from "../types/telemetry";
+import { tacticalShipPixelsForCategory } from "./shipModels.ts";
 
 const TAU = Math.PI * 2;
 export const BASE_SENSOR_RANGE = 500;
 export const SENSOR_RANGE_PER_ARRAY = 10;
 export const DEFAULT_PIXELS_PER_DISTANCE_UNIT = 10;
+export const MINIMUM_INSPECTION_DISTANCE = 0.25;
 
 export interface ScenePoint extends TelemetryEntity {
   name: string;
@@ -40,10 +42,17 @@ function finite(value: unknown, fallback = 0): number {
 }
 
 export function planetSpritePixels(pointSize: number, pixelsPerUnit: number): number {
-  const strategicFloor = 8;
-  const closeRangeCeiling = 160;
+  const strategicFloor = 12;
+  const closeRangeCeiling = 400;
+  const planetVisualScale = 8;
   const cameraScale = Math.sqrt(Math.max(0, finite(pixelsPerUnit)));
-  return clamp(Math.max(1, finite(pointSize, 1)) * cameraScale, strategicFloor, closeRangeCeiling);
+  return Math.round(
+    clamp(
+      Math.max(1, finite(pointSize, 1)) * cameraScale * planetVisualScale,
+      strategicFloor,
+      closeRangeCeiling,
+    ),
+  );
 }
 
 export interface PlanetCameraView {
@@ -120,6 +129,17 @@ export function summarizeContacts(members: Array<Pick<ScenePoint, "kind">>): str
   ]
     .filter(Boolean)
     .join(", ");
+}
+
+export function clusterPointSize(
+  members: Array<Pick<ScenePoint, "kind" | "shipCategory">>,
+): number {
+  const ships = members.filter((member) => ["ship", "observer"].includes(member.kind));
+  const largestShipPixels = ships.reduce(
+    (largest, member) => Math.max(largest, tacticalShipPixelsForCategory(member.shipCategory)),
+    24,
+  );
+  return Math.round(largestShipPixels);
 }
 
 const SHIP_CLASSES: Record<string, { hangarSize: number; markerPixels: number; shape: number }> = {
@@ -222,8 +242,8 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       z: representative.z,
       position3d: [...representative.position3d],
       worldPosition: [...representative.worldPosition],
-      color: [0.18, 0.72, 1],
-      pointSize: Math.min(34, 13 + Math.sqrt(members.length) * 4.5),
+      color: [1, 0.34, 0.05],
+      pointSize: clusterPointSize(members),
       members,
       memberCount: members.length,
       memberSummary: summarizeContacts(members),
@@ -408,7 +428,10 @@ export class OrbitCamera {
 
   fit(radius: number, immediate = false): void {
     const safeRadius = Math.max(10, finite(radius, 10));
-    this.minimumDistance = Math.max(1, safeRadius * 0.0025);
+    // Strategic fit can span an enormous sensor volume, but it must not also
+    // dictate close inspection. Keep a stable near limit so high-resolution
+    // planets and ship models remain approachable in large local systems.
+    this.minimumDistance = MINIMUM_INSPECTION_DISTANCE;
     this.maximumDistance = Math.max(2_000, safeRadius * 50);
     this.targetDistance = clamp(safeRadius * 1.12, this.minimumDistance, this.maximumDistance);
     if (immediate) this.distance = this.targetDistance;

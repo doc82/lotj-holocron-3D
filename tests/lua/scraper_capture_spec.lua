@@ -55,6 +55,48 @@ Shields: 100/150 Energy(fuel): 3916/5000
     equal(fixture.scraper.state.observer.name, "TeeHee1")
   end)
 
+  it(
+    "resets observer-scoped telemetry when an unqualified info response reveals a ship change",
+    function()
+      fixture.scraper.setInSpace(true, "fixture")
+      assert(fixture.scraper.applyResult({
+        source = "status",
+        name = "JM17",
+        coordinates = { x = 10, y = 20, z = -5 },
+        hull = { current = 90, maximum = 100 },
+      }, "status"))
+      assert(fixture.scraper.applyResult({
+        source = "radar",
+        system = "Corellian System",
+        entities = {
+          { id = "wayfarer", name = "Wayfarer", kind = "ship", x = 30, y = 20, z = -5 },
+        },
+      }, "radar"))
+      fixture.scraper.state.metadata.formations.squadron = {
+        kind = "squadron",
+        active = false,
+        members = {},
+      }
+
+      local applied, failure = fixture.scraper.applyResult({
+        source = "info",
+        name = "Wizard",
+        shipCategory = "starfighter",
+        sensorArray = 8,
+      }, "info")
+
+      assert(applied, failure)
+      equal(fixture.scraper.state.observer.name, "Wizard")
+      equal(fixture.scraper.state.observer.shipCategory, "starfighter")
+      equal(fixture.scraper.state.observer.x, nil)
+      equal(fixture.scraper.state.observer.hull, nil)
+      equal(next(fixture.scraper.state.entities), nil)
+      equal(next(fixture.scraper.state.metadata.formations), nil)
+      equal(fixture.scraper.state.metadata.initializationPending, true)
+      equal(fixture.scraper.state.metadata.observerGeneration, 1)
+    end
+  )
+
   it("merges info telemetry and excludes access codes", function()
     assert(fixture:capture(
       "info",

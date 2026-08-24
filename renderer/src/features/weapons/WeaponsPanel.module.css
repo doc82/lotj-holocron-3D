@@ -103,7 +103,7 @@
   position: absolute;
   bottom: calc(100% + 7px);
   left: 0;
-  z-index: 1000;
+  z-index: var(--layer-ui-tooltip);
   width: max-content;
   max-width: 260px;
   padding: 6px 8px;

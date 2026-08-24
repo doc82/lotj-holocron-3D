@@ -80,4 +80,6 @@ bundled Muddler distribution for local development.
 - Add a packaged-app integration test on a clean Windows VM.
 - Select and configure Windows code signing.
 
-macOS and Linux launch adapters and packaging remain post-MVP work.
+macOS DMG and Linux portable-archive launch adapters are now implemented in the
+release workflow. Code signing, notarization, and native Linux package-manager
+formats remain future distribution work.

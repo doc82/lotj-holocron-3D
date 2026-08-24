@@ -1,6 +1,6 @@
 .backdrop {
   position: fixed;
-  z-index: 90;
+  z-index: var(--layer-modal);
   inset: 0;
   display: grid;
   place-items: center;

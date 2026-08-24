@@ -199,9 +199,68 @@ jobs:
           path: out/make/dmg/darwin/${{ matrix.arch }}/*.dmg
           if-no-files-found: error
 
+  linux:
+    name: Linux x64 archive
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      HOLOCRON_PLANET_TEXTURES_PREBUILT: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: relay/go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Muddler
+        run: |
+          mkdir -p "$RUNNER_TEMP/muddler"
+          curl --fail --location --silent --show-error \
+            "https://github.com/demonnic/muddler/releases/download/${MUDDLER_VERSION}/muddle-shadow-${MUDDLER_VERSION}.tar" \
+            --output "$RUNNER_TEMP/muddler.tar"
+          tar -xf "$RUNNER_TEMP/muddler.tar" -C "$RUNNER_TEMP/muddler" --strip-components=1
+          echo "MUDDLER_HOME=$RUNNER_TEMP/muddler" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - id: planet-drive-auth
+        name: Authenticate to private planet asset storage
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/drive.readonly
+      - name: Fetch and verify planet texture sources
+        run: node tools/fetch-planet-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
+          HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
+      - name: Build Linux application archive
+        run: pnpm make:linux
+      - name: Verify bundled Linux planet textures
+        run: node tools/verify-packaged-planet-assets.mjs linux x64
+      - name: Verify Linux application archive
+        run: node tools/verify-linux-archive.mjs x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-x64-archive
+          path: out/make/tar.gz/linux/x64/*.tar.gz
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
-    needs: [prepare, verify, windows, macos]
+    needs: [prepare, verify, windows, macos, linux]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     env:
@@ -221,6 +280,7 @@ jobs:
             "Holocron3D.mpackage"
             "LotJ-Holocron-3D-${RELEASE_VERSION}-arm64.dmg"
             "LotJ-Holocron-3D-${RELEASE_VERSION}-x64.dmg"
+            "LotJ-Holocron-3D-${RELEASE_VERSION}-linux-x64.tar.gz"
           )
           for asset in "${expected[@]}"; do
             test -s "release-assets/$asset" || {
@@ -249,6 +309,7 @@ jobs:
             "Holocron3D.mpackage"
             "LotJ-Holocron-3D-${RELEASE_VERSION}-arm64.dmg"
             "LotJ-Holocron-3D-${RELEASE_VERSION}-x64.dmg"
+            "LotJ-Holocron-3D-${RELEASE_VERSION}-linux-x64.tar.gz"
             "SHA256SUMS.txt"
           )
           uploaded="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.size > 0) | .name')"

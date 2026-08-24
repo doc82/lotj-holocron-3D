@@ -31,7 +31,7 @@ import { ManagementMenu } from "../features/management/ManagementMenu";
 import { usePollingController } from "../features/polling/usePollingController";
 import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
-import type { TacticalCameraMode } from "../features/tactical/TacticalEngine";
+import type { TacticalCameraMode, TacticalScaleMode } from "../features/tactical/TacticalEngine";
 import { TargetShortcutRail } from "../features/tactical/TargetShortcutRail";
 import { useTacticalInteractionController } from "../features/tactical/useTacticalInteractionController";
 import type { RangeReading } from "../features/telemetry/RangeMeter";
@@ -62,6 +62,7 @@ export function App() {
   const [radarBubbleEnabled, setRadarBubbleEnabled] = useState(true);
   const [originGridEnabled, setOriginGridEnabled] = useState(false);
   const [cameraMode, setCameraMode] = useState<TacticalCameraMode>("player");
+  const [scaleMode, setScaleMode] = useState<TacticalScaleMode>("tactical");
   const [cinematicMode, setCinematicMode] = useState(false);
   const [commandLocked, setCommandLocked] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
@@ -567,283 +568,287 @@ export function App() {
           onMovementCommit={stageNavigation}
           onMovementCancel={cancelNavigation}
           onCameraModeChange={setCameraMode}
+          onScaleModeChange={setScaleMode}
         />
         <div className={styles.scanlines} aria-hidden="true" />
 
-        {!cinematicMode && managementMenu}
+        <div className={styles.uiLayer}>
+          {!cinematicMode && managementMenu}
 
-        {pollingPaused && (
-          <PollingPausedOverlay
-            pending={pollingPausePending}
-            onResume={() => void changePollingPause(false)}
-          />
-        )}
+          {pollingPaused && (
+            <PollingPausedOverlay
+              pending={pollingPausePending}
+              onResume={() => void changePollingPause(false)}
+            />
+          )}
 
-        {!cinematicMode && (
-          <TacticalHeader
-            connected={telemetry.connected}
-            identity={
-              viewpointMemberKey
-                ? `REMOTE UPLINK // ${activeTacticalView ? "LIVE" : "AWAITING RADAR"} // ${viewpointMember?.name || viewpointMemberKey}`
-                : "HOLOCRON 3D // LIVE TACTICAL"
-            }
-            systemName={telemetry.snapshot ? scene.system : "Awaiting telemetry"}
-            radarBubbleEnabled={radarBubbleEnabled}
-            originGridEnabled={originGridEnabled}
-            navigationActive={navigationMode !== "idle"}
-            cameraMode={cameraMode}
-            cameraFocusName={cameraFocusPoint?.name}
-            pollingPaused={pollingPaused}
-            pollingPausePending={pollingPausePending}
-            connectionLabel={telemetry.connectionLabel}
-            onToggleRadar={() => setRadarBubbleEnabled((enabled) => !enabled)}
-            onToggleGrid={() => setOriginGridEnabled((enabled) => !enabled)}
-            onCameraMode={chooseCameraMode}
-            onSectorView={() => tacticalRef.current?.sectorView()}
-            onCinematicMode={() => setCinematicMode(true)}
-            onPollingPaused={(paused) => void changePollingPause(paused)}
-          />
-        )}
+          {!cinematicMode && (
+            <TacticalHeader
+              connected={telemetry.connected}
+              identity={
+                viewpointMemberKey
+                  ? `REMOTE UPLINK // ${activeTacticalView ? "LIVE" : "AWAITING RADAR"} // ${viewpointMember?.name || viewpointMemberKey}`
+                  : "HOLOCRON 3D // LIVE TACTICAL"
+              }
+              systemName={telemetry.snapshot ? scene.system : "Awaiting telemetry"}
+              radarBubbleEnabled={radarBubbleEnabled}
+              originGridEnabled={originGridEnabled}
+              navigationActive={navigationMode !== "idle"}
+              cameraMode={cameraMode}
+              scaleMode={scaleMode}
+              cameraFocusName={cameraFocusPoint?.name}
+              pollingPaused={pollingPaused}
+              pollingPausePending={pollingPausePending}
+              connectionLabel={telemetry.connectionLabel}
+              onToggleRadar={() => setRadarBubbleEnabled((enabled) => !enabled)}
+              onToggleGrid={() => setOriginGridEnabled((enabled) => !enabled)}
+              onCameraMode={chooseCameraMode}
+              onScaleMode={(mode) => tacticalRef.current?.setScaleMode(mode)}
+              onCinematicMode={() => setCinematicMode(true)}
+              onPollingPaused={(paused) => void changePollingPause(paused)}
+            />
+          )}
 
-        {cinematicMode && (
-          <button
-            type="button"
-            className={styles.cinematicExit}
-            aria-label="Exit cinematic mode"
-            onClick={() => setCinematicMode(false)}
-          >
-            <ViewIcon type="cinematic" />
-            <span>EXIT CINEMATIC</span>
-            <kbd>ESC</kbd>
-          </button>
-        )}
+          {cinematicMode && (
+            <button
+              type="button"
+              className={styles.cinematicExit}
+              aria-label="Exit cinematic mode"
+              onClick={() => setCinematicMode(false)}
+            >
+              <ViewIcon type="cinematic" />
+              <span>EXIT CINEMATIC</span>
+              <kbd>ESC</kbd>
+            </button>
+          )}
 
-        {telemetry.connected && !cinematicMode && (
-          <CommandScopeRail
-            fleet={fleet}
-            localName={localName}
-            scope={fleetScope}
-            drawerOpen={scopeDrawerOpen}
-            onSelect={selectCommandScope}
-          />
-        )}
+          {telemetry.connected && !cinematicMode && (
+            <CommandScopeRail
+              fleet={fleet}
+              localName={localName}
+              scope={fleetScope}
+              drawerOpen={scopeDrawerOpen}
+              onSelect={selectCommandScope}
+            />
+          )}
 
-        {telemetry.connected && !cinematicMode && (
-          <TargetShortcutRail
-            targets={targetShortcuts}
-            drawerOpen={targetDrawerOpen}
-            onToggle={toggleTargetDrawer}
-            onFocus={focusTargetShortcut}
-            onClear={clearTargetShortcut}
-            onOpenDossier={openShipDossier}
-          />
-        )}
+          {telemetry.connected && !cinematicMode && (
+            <TargetShortcutRail
+              targets={targetShortcuts}
+              drawerOpen={targetDrawerOpen}
+              onToggle={toggleTargetDrawer}
+              onFocus={focusTargetShortcut}
+              onClear={clearTargetShortcut}
+              onOpenDossier={openShipDossier}
+            />
+          )}
 
-        {telemetry.connected && !cinematicMode && scopeDrawerOpen && (
-          <FleetScopeDrawer
-            label={commandIssuerLabel}
-            fleet={fleet}
-            fleetOrder={telemetry.snapshot?.metadata?.fleetOrder}
-            localName={localName}
-            scope={fleetScope}
-            selectedMemberKeys={selectedFleetMemberKeys}
-            viewpointMemberKey={viewpointMemberKey}
-            allMembersSelected={allFleetMembersSelected}
-            onSelectAll={selectAllFleetMembers}
-            onClose={fleetSelection.closeDrawer}
-            onToggleMember={toggleFleetMember}
-            onViewMember={viewFleetMember}
-            onOpenDossier={openShipDossier}
-          />
-        )}
+          {telemetry.connected && !cinematicMode && scopeDrawerOpen && (
+            <FleetScopeDrawer
+              label={commandIssuerLabel}
+              fleet={fleet}
+              fleetOrder={telemetry.snapshot?.metadata?.fleetOrder}
+              localName={localName}
+              scope={fleetScope}
+              selectedMemberKeys={selectedFleetMemberKeys}
+              viewpointMemberKey={viewpointMemberKey}
+              allMembersSelected={allFleetMembersSelected}
+              onSelectAll={selectAllFleetMembers}
+              onClose={fleetSelection.closeDrawer}
+              onToggleMember={toggleFleetMember}
+              onViewMember={viewFleetMember}
+              onOpenDossier={openShipDossier}
+            />
+          )}
 
-        {!cinematicMode && shipDossier && dossierShip && (
-          <ShipDossierPanel
-            ship={dossierShip}
-            mode={shipDossier.mode}
-            loading={dossier.loading}
-            message={manualScanStatus}
-            onModeChange={changeDossierMode}
-            onRefresh={dossier.refresh}
-            onClose={dossier.close}
-          />
-        )}
+          {!cinematicMode && shipDossier && dossierShip && (
+            <ShipDossierPanel
+              ship={dossierShip}
+              mode={shipDossier.mode}
+              loading={dossier.loading}
+              message={manualScanStatus}
+              onModeChange={changeDossierMode}
+              onRefresh={dossier.refresh}
+              onClose={dossier.close}
+            />
+          )}
 
-        {!cinematicMode && hyperspacePlanner && (
-          <HyperspacePlanner
-            mode={hyperspacePlanner.mode}
-            recipientLabel={hyperspacePlanner.routeScope.recipientLabel || "YOUR SHIP"}
-            escapeAllowed={
-              hyperspacePlanner.routeScope.formationKind !== "battlegroup" ||
-              !["wings", "selected"].includes(hyperspacePlanner.routeScope.scope || "local")
-            }
-            catalog={telemetry.galaxyCatalog}
-            currentSystem={scene.system}
-            currentGalaxy={currentGalaxyPosition}
-            observer={hyperspacePlanner.origin}
-            snapshot={classifiedSnapshot}
-            hyperspeed={hyperspacePlanner.hyperspeed}
-            motionTracks={hyperspace.motionTracks}
-            destinations={navigationDestinations}
-            onCancel={hyperspace.closePlanner}
-            onPlot={(route, escape) => {
-              const scopedRoute = { ...route, ...hyperspacePlanner.routeScope };
-              const scopedEscape = escape
-                ? {
-                    ...escape,
-                    route: { ...escape.route, ...hyperspacePlanner.routeScope },
-                  }
-                : undefined;
-              void plotHyperspace(scopedRoute, scopedEscape);
-            }}
-          />
-        )}
+          {!cinematicMode && hyperspacePlanner && (
+            <HyperspacePlanner
+              mode={hyperspacePlanner.mode}
+              recipientLabel={hyperspacePlanner.routeScope.recipientLabel || "YOUR SHIP"}
+              escapeAllowed={
+                hyperspacePlanner.routeScope.formationKind !== "battlegroup" ||
+                !["wings", "selected"].includes(hyperspacePlanner.routeScope.scope || "local")
+              }
+              catalog={telemetry.galaxyCatalog}
+              currentSystem={scene.system}
+              currentGalaxy={currentGalaxyPosition}
+              observer={hyperspacePlanner.origin}
+              snapshot={classifiedSnapshot}
+              hyperspeed={hyperspacePlanner.hyperspeed}
+              motionTracks={hyperspace.motionTracks}
+              destinations={navigationDestinations}
+              onCancel={hyperspace.closePlanner}
+              onPlot={(route, escape) => {
+                const scopedRoute = { ...route, ...hyperspacePlanner.routeScope };
+                const scopedEscape = escape
+                  ? {
+                      ...escape,
+                      route: { ...escape.route, ...hyperspacePlanner.routeScope },
+                    }
+                  : undefined;
+                void plotHyperspace(scopedRoute, scopedEscape);
+              }}
+            />
+          )}
 
-        {!cinematicMode && activeRoute && !hyperspacePlanner && (
-          <NavigationComputer
-            route={activeRoute}
-            state={hyperspaceState}
-            escape={escapePlan}
-            clearance={routeClearance}
-            trackingRecalculationPending={hyperspace.trackingRecalculationPending}
-            onStop={() => void stopHyperspace()}
-            onDismiss={dismissHyperspace}
-            onEngage={() => void engageHyperspace()}
-            onCalculateAnyway={calculateAnyway}
-          />
-        )}
+          {!cinematicMode && activeRoute && !hyperspacePlanner && (
+            <NavigationComputer
+              route={activeRoute}
+              state={hyperspaceState}
+              escape={escapePlan}
+              clearance={routeClearance}
+              trackingRecalculationPending={hyperspace.trackingRecalculationPending}
+              onStop={() => void stopHyperspace()}
+              onDismiss={dismissHyperspace}
+              onEngage={() => void engageHyperspace()}
+              onCalculateAnyway={calculateAnyway}
+            />
+          )}
 
-        {telemetry.connected && !cinematicMode && navigationMode !== "idle" && (
-          <NavigationDrawer
-            mode={navigationMode}
-            kind={pendingNavigationMode}
-            targetName={navigationTarget?.name}
-            targetDistance={
-              navigationTarget ? Math.hypot(...navigationTarget.position3d) : undefined
-            }
-            vector={courseVector}
-            status={navigationStatus}
-            departureSpeedRequired={Boolean(navigation.fleetScope) || observerSpeed === 0}
-            speed={requestedSpeed}
-            maximumSpeed={maximumSpeed}
-            commandLocked={commandLocked}
-            onSpeedChange={setRequestedSpeed}
-            onSpeedCommit={chooseSpeed}
-            onStageVector={stageNavigation}
-            onConfirm={() => void submitNavigation()}
-            onCancel={cancelNavigation}
-          />
-        )}
+          {telemetry.connected && !cinematicMode && navigationMode !== "idle" && (
+            <NavigationDrawer
+              mode={navigationMode}
+              kind={pendingNavigationMode}
+              targetName={navigationTarget?.name}
+              targetDistance={
+                navigationTarget ? Math.hypot(...navigationTarget.position3d) : undefined
+              }
+              vector={courseVector}
+              status={navigationStatus}
+              departureSpeedRequired={Boolean(navigation.fleetScope) || observerSpeed === 0}
+              speed={requestedSpeed}
+              maximumSpeed={maximumSpeed}
+              commandLocked={commandLocked}
+              onSpeedChange={setRequestedSpeed}
+              onSpeedCommit={chooseSpeed}
+              onStageVector={stageNavigation}
+              onConfirm={() => void submitNavigation()}
+              onCancel={cancelNavigation}
+            />
+          )}
 
-        {telemetry.connected && (
-          <div className={styles.commandDeckFrame}>
-            {commandAlert && (
-              <div
-                className={styles.commandAlert}
-                data-tone={commandToastTone(commandAlert)}
-                role="status"
-                aria-live="polite"
-              >
-                {commandAlert}
-              </div>
-            )}
-            {commandToasts.length > 0 && (
-              <div className={styles.commandToasts} role="log" aria-live="polite">
-                {commandToasts.map((toast) => (
-                  <div key={toast.id} className={styles.commandToast} data-tone={toast.tone}>
-                    {toast.message}
-                  </div>
-                ))}
-              </div>
-            )}
-            <footer className={`${styles.commandDeck} ${styles.panel}`}>
-              <CommandActionPanel
-                navigationMode={navigationMode}
-                navigationCommandMode={pendingNavigationMode}
-                navigationTarget={navigationTarget}
-                commandIssuerLabel={commandIssuerLabel}
-                fleetCommandMode={fleetCommandMode}
-                fleet={fleet}
-                fleetOrder={fleetOrder}
-                fleetScope={fleetScope}
-                selectedFleetMembers={selectedFleetMembers}
-                selectedFleetScopeEmpty={selectedFleetScopeEmpty}
-                formationCommandsEnabled={formationCommandsEnabled}
-                observer={telemetry.snapshot?.observer || observer}
-                combatTargetName={combatTargetName}
-                combatEvents={combatEvents}
-                selectedShip={selectedShip}
-                navigableTarget={navigableTarget}
-                landed={landed}
-                commandLocked={commandLocked}
-                observerHasNoWeapons={observerHasNoWeapons}
-                autotrackObserved={autotrackObserved}
-                autotrackDesired={autotrackDesired}
-                autotrackPending={autotrackPending}
-                shieldRecharging={shieldRecharging}
-                shieldStatusPending={shieldStatusPending}
-                shieldsFull={shieldsFull}
-                autoRechargeEnabled={autoRechargeEnabled}
-                requestedSpeed={requestedSpeed}
-                maximumSpeed={maximumSpeed}
-                localName={localName}
-                manualScanStatus={manualScanStatus}
-                onCancelNavigation={cancelNavigation}
-                onBeginMove={beginVectorCourse}
-                onCourseTarget={armTargetCourse}
-                onTarget={() => void targetSelectedShip()}
-                onFire={fireWeapon}
-                onFleetOrder={(order, payload) => void sendFleetOrder(order, payload)}
-                onOpenDossier={openShipDossier}
-                onToggleAutotrack={() => void toggleAutotrack()}
-                onRechargeShields={() => void rechargeShields()}
-                onToggleAutoRecharge={() => void toggleAutoRecharge()}
-                onSpeedChange={setRequestedSpeed}
-                onSpeedCommit={chooseSpeed}
-                onDisposition={setShipDisposition}
-              />
+          {telemetry.connected && (
+            <div className={styles.commandDeckFrame}>
+              {commandAlert && (
+                <div
+                  className={styles.commandAlert}
+                  data-tone={commandToastTone(commandAlert)}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {commandAlert}
+                </div>
+              )}
+              {commandToasts.length > 0 && (
+                <div className={styles.commandToasts} role="log" aria-live="polite">
+                  {commandToasts.map((toast) => (
+                    <div key={toast.id} className={styles.commandToast} data-tone={toast.tone}>
+                      {toast.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <footer className={`${styles.commandDeck} ${styles.panel}`}>
+                <CommandActionPanel
+                  navigationMode={navigationMode}
+                  navigationCommandMode={pendingNavigationMode}
+                  navigationTarget={navigationTarget}
+                  commandIssuerLabel={commandIssuerLabel}
+                  fleetCommandMode={fleetCommandMode}
+                  fleet={fleet}
+                  fleetOrder={fleetOrder}
+                  fleetScope={fleetScope}
+                  selectedFleetMembers={selectedFleetMembers}
+                  selectedFleetScopeEmpty={selectedFleetScopeEmpty}
+                  formationCommandsEnabled={formationCommandsEnabled}
+                  observer={telemetry.snapshot?.observer || observer}
+                  combatTargetName={combatTargetName}
+                  combatEvents={combatEvents}
+                  selectedShip={selectedShip}
+                  navigableTarget={navigableTarget}
+                  landed={landed}
+                  commandLocked={commandLocked}
+                  observerHasNoWeapons={observerHasNoWeapons}
+                  autotrackObserved={autotrackObserved}
+                  autotrackDesired={autotrackDesired}
+                  autotrackPending={autotrackPending}
+                  shieldRecharging={shieldRecharging}
+                  shieldStatusPending={shieldStatusPending}
+                  shieldsFull={shieldsFull}
+                  autoRechargeEnabled={autoRechargeEnabled}
+                  requestedSpeed={requestedSpeed}
+                  maximumSpeed={maximumSpeed}
+                  localName={localName}
+                  manualScanStatus={manualScanStatus}
+                  onCancelNavigation={cancelNavigation}
+                  onBeginMove={beginVectorCourse}
+                  onCourseTarget={armTargetCourse}
+                  onTarget={() => void targetSelectedShip()}
+                  onFire={fireWeapon}
+                  onFleetOrder={(order, payload) => void sendFleetOrder(order, payload)}
+                  onOpenDossier={openShipDossier}
+                  onToggleAutotrack={() => void toggleAutotrack()}
+                  onRechargeShields={() => void rechargeShields()}
+                  onToggleAutoRecharge={() => void toggleAutoRecharge()}
+                  onSpeedChange={setRequestedSpeed}
+                  onSpeedCommit={chooseSpeed}
+                  onDisposition={setShipDisposition}
+                />
 
-              <SelectedTargetPanel
-                selection={hasSelectedContact ? displayedSelection : null}
-                selectedShip={selectedShip}
-                onOpenDossier={openShipDossier}
-              />
-              <CommandIssuerPanel
-                label={commandIssuerLabel}
-                type={commandIssuerType}
-                fleetScope={fleetScope}
-                fleet={fleet}
-                members={issuerMembers}
-                hull={issuerHull}
-                shields={issuerShields}
-                energy={issuerEnergy}
-                localAutopilot={telemetry.snapshot?.observer?.autopilot}
-                landed={landed}
-                routeActive={activeRoute !== null}
-                selectedScopeEmpty={selectedFleetScopeEmpty}
-                onOpenHyperspace={openHyperspacePlanner}
-              />
-            </footer>
-          </div>
-        )}
+                <SelectedTargetPanel
+                  selection={hasSelectedContact ? displayedSelection : null}
+                  selectedShip={selectedShip}
+                  onOpenDossier={openShipDossier}
+                />
+                <CommandIssuerPanel
+                  label={commandIssuerLabel}
+                  type={commandIssuerType}
+                  fleetScope={fleetScope}
+                  fleet={fleet}
+                  members={issuerMembers}
+                  hull={issuerHull}
+                  shields={issuerShields}
+                  energy={issuerEnergy}
+                  localAutopilot={telemetry.snapshot?.observer?.autopilot}
+                  landed={landed}
+                  routeActive={activeRoute !== null}
+                  selectedScopeEmpty={selectedFleetScopeEmpty}
+                  onOpenHyperspace={openHyperspacePlanner}
+                />
+              </footer>
+            </div>
+          )}
 
-        {!cinematicMode && expandedCluster?.members && (
-          <ContactClusterPanel
-            cluster={expandedCluster}
-            selectedId={selectedId}
-            onHover={setHoveredMemberId}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setHoveredMemberId(null);
-              setExpandedClusterId(null);
-            }}
-            onClose={() => {
-              setExpandedClusterId(null);
-              setHoveredMemberId(null);
-              setSelectedId(null);
-            }}
-          />
-        )}
+          {!cinematicMode && expandedCluster?.members && (
+            <ContactClusterPanel
+              cluster={expandedCluster}
+              selectedId={selectedId}
+              onHover={setHoveredMemberId}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setHoveredMemberId(null);
+                setExpandedClusterId(null);
+              }}
+              onClose={() => {
+                setExpandedClusterId(null);
+                setHoveredMemberId(null);
+                setSelectedId(null);
+              }}
+            />
+          )}
+        </div>
       </main>
     </>
   );

@@ -17,6 +17,7 @@ local specs = {
   "scraper_commands_spec",
   "scraper_telemetry_spec",
   "scraper_fleet_spec",
+  "proxy_spec",
 }
 local knownSpecs = {}
 for _, name in ipairs(specs) do

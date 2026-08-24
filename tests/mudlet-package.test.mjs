@@ -30,16 +30,31 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   assert.match(bootstrap, /path \.\. "\/LotJ Holocron 3D-win32-x64\/Holocron3D\.exe"/);
   assert.match(bootstrap, /out\/LotJ Holocron 3D-win32-x64\/Holocron3D\.exe/);
   assert.match(bootstrap, /LotJ Holocron 3D\.app\/Contents\/MacOS\/Holocron3D/);
+  assert.match(bootstrap, /LotJ Holocron 3D-linux-x64\/Holocron3D/);
+  assert.match(bootstrap, /function resolveDevRelay\(executable\)/);
+  assert.match(bootstrap, /directory \.\. "\/resources\/holocron-relay\.exe"/);
+  assert.match(bootstrap, /relay = devRelay/);
+  assert.match(bootstrap, /XDG_DATA_HOME/);
+  assert.match(bootstrap, /desktop-launcher/);
   assert.match(bootstrap, /Package\.settingsPath/);
   assert.match(bootstrap, /h3d confirmations on \| off/);
   assert.match(bootstrap, /h3d debug on \| off/);
   assert.match(bootstrap, /Package\.setPollingPaused/);
+  assert.match(bootstrap, /scraper\.setup\(lotjHolocron3D, \{ polling = false \}\)/);
+  assert.match(bootstrap, /scraper\.startStartupPolling\(\)/);
+  assert.match(bootstrap, /lotjHolocron3D\.onDisconnect/);
+  assert.match(bootstrap, /lotjHolocron3D\.isReady/);
+  assert.match(bootstrap, /bridge started; waiting for desktop connection/);
   assert.match(bootstrap, /h3d pause \| resume/);
   assert.match(
     bootstrap,
     /if level ~= "error" and level ~= "warn" and not Package\.settings\.debug then\s+return\s+end/,
   );
-  assert.match(bootstrap, /tempTimer\(0, function\(\)\s+Package\.start\(\)\s+end\)/);
+  assert.doesNotMatch(bootstrap, /tempTimer\(0, function\(\)\s+Package\.start\(\)/);
+  assert.match(
+    bootstrap,
+    /tempTimer\(0, function\(\)\s+Package\.stop\(true\)\s+say\("yellow", "waiting for h3d start to begin Holocron3D"\)\s+end\)/,
+  );
   for (const source of ["parsers", "proxy", "scraper"]) {
     assert.match(build, new RegExp(`lotj_holocron_${source}\\.lua`));
   }

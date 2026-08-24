@@ -117,7 +117,7 @@ Jedi output. Its current capabilities include:
 
 ## Known limitations
 
-- Windows x64 and macOS Intel/Apple Silicon are supported release targets.
+- Windows x64, macOS Intel/Apple Silicon, and Linux x64 are supported release targets.
 - Windows and macOS release artifacts are currently unsigned.
 - Contact visuals are intentionally simple points rather than detailed ship
   models at strategic zoom levels.

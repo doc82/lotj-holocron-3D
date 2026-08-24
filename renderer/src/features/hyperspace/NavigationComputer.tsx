@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 
 import { MIN_HYPERSPACE_CLEARANCE, type HyperspaceClearance } from "../../domain/hyperspace";
 import type { HyperspaceRoutePayload, HyperspaceState } from "../../types/telemetry";
@@ -153,85 +154,89 @@ export function NavigationComputer({
           )}
         </footer>
       </aside>
-      {warning && (
-        <div className={styles.modalBackdrop} role="presentation">
-          <section
-            className={styles.modal}
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="fuel-title"
-          >
-            <p>HYPERSPACE SAFETY INTERLOCK</p>
-            <h2 id="fuel-title">INSUFFICIENT FUEL</h2>
-            <div className={styles.fuelComparison}>
-              <span>
-                <small>REQUIRED</small>
-                {fmt(state.fuelRequired)}
-              </span>
-              <i>›</i>
-              <span>
-                <small>AVAILABLE</small>
-                {fmt(state.fuelAvailable)}
-              </span>
-            </div>
-            <p>
-              This calculation was safely aborted. Continuing may leave the ship stranded or unable
-              to complete the jump.
-            </p>
-            <footer>
-              <button type="button" onClick={onDismiss}>
-                CANCEL ROUTE
-              </button>
-              <button type="button" className={styles.danger} onClick={onCalculateAnyway}>
-                CALCULATE ANYWAY
-              </button>
-            </footer>
-          </section>
-        </div>
-      )}
-      {confirmDangerousEngage && (
-        <div className={styles.modalBackdrop} role="presentation">
-          <section
-            className={styles.modal}
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="engage-fuel-title"
-          >
-            <p>FINAL COMMAND CONFIRMATION</p>
-            <h2 id="engage-fuel-title">ENGAGE WITHOUT SUFFICIENT FUEL?</h2>
-            <div className={styles.fuelComparison}>
-              <span>
-                <small>REQUIRED</small>
-                {fmt(state.fuelRequired)}
-              </span>
-              <i>›</i>
-              <span>
-                <small>AVAILABLE NOW</small>
-                {fmt(state.fuelAvailable)}
-              </span>
-            </div>
-            <p>
-              The server accepted this calculation after your override. Holocron3D cannot guarantee
-              that the ship will complete the jump.
-            </p>
-            <footer>
-              <button type="button" onClick={() => setConfirmDangerousEngage(false)}>
-                GO BACK
-              </button>
-              <button
-                type="button"
-                className={styles.danger}
-                onClick={() => {
-                  setConfirmDangerousEngage(false);
-                  onEngage();
-                }}
-              >
-                ENGAGE ANYWAY
-              </button>
-            </footer>
-          </section>
-        </div>
-      )}
+      {warning &&
+        createPortal(
+          <div className={styles.modalBackdrop} role="presentation">
+            <section
+              className={styles.modal}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="fuel-title"
+            >
+              <p>HYPERSPACE SAFETY INTERLOCK</p>
+              <h2 id="fuel-title">INSUFFICIENT FUEL</h2>
+              <div className={styles.fuelComparison}>
+                <span>
+                  <small>REQUIRED</small>
+                  {fmt(state.fuelRequired)}
+                </span>
+                <i>›</i>
+                <span>
+                  <small>AVAILABLE</small>
+                  {fmt(state.fuelAvailable)}
+                </span>
+              </div>
+              <p>
+                This calculation was safely aborted. Continuing may leave the ship stranded or
+                unable to complete the jump.
+              </p>
+              <footer>
+                <button type="button" onClick={onDismiss}>
+                  CANCEL ROUTE
+                </button>
+                <button type="button" className={styles.danger} onClick={onCalculateAnyway}>
+                  CALCULATE ANYWAY
+                </button>
+              </footer>
+            </section>
+          </div>,
+          document.body,
+        )}
+      {confirmDangerousEngage &&
+        createPortal(
+          <div className={styles.modalBackdrop} role="presentation">
+            <section
+              className={styles.modal}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="engage-fuel-title"
+            >
+              <p>FINAL COMMAND CONFIRMATION</p>
+              <h2 id="engage-fuel-title">ENGAGE WITHOUT SUFFICIENT FUEL?</h2>
+              <div className={styles.fuelComparison}>
+                <span>
+                  <small>REQUIRED</small>
+                  {fmt(state.fuelRequired)}
+                </span>
+                <i>›</i>
+                <span>
+                  <small>AVAILABLE NOW</small>
+                  {fmt(state.fuelAvailable)}
+                </span>
+              </div>
+              <p>
+                The server accepted this calculation after your override. Holocron3D cannot
+                guarantee that the ship will complete the jump.
+              </p>
+              <footer>
+                <button type="button" onClick={() => setConfirmDangerousEngage(false)}>
+                  GO BACK
+                </button>
+                <button
+                  type="button"
+                  className={styles.danger}
+                  onClick={() => {
+                    setConfirmDangerousEngage(false);
+                    onEngage();
+                  }}
+                >
+                  ENGAGE ANYWAY
+                </button>
+              </footer>
+            </section>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

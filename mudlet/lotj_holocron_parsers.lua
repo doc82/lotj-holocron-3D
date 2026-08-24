@@ -921,6 +921,12 @@ local function splitColumns(line)
   return columns
 end
 
+local function requiresCopilotSeat(line)
+  local lower = tostring(line or ""):lower()
+  return lower:find("seat", 1, true) ~= nil
+    and (lower:find("co-pilot", 1, true) ~= nil or lower:find("copilot", 1, true) ~= nil)
+end
+
 function Parsers.parseFleetRadar(input)
   local lines, err = linesFrom(input)
   if not lines then
@@ -937,7 +943,10 @@ function Parsers.parseFleetRadar(input)
     if not isDecoration(line) then
       local system = radarSystemName(line)
       local header = splitColumns(line)
-      if system then
+      if requiresCopilotSeat(line) then
+        result.unavailableReason = "copilot_seat_required"
+        recognized = recognized + 1
+      elseif system then
         result.system = system
         recognized = recognized + 1
       elseif lower:match("battlegroup:%s*$") then
@@ -1065,10 +1074,19 @@ local function inactiveFormation(kind, line)
     or lower:find("no ", 1, true)
     or lower:find("aren't", 1, true)
     or lower:find("isn't", 1, true)
+    or lower:find("fighter cockpit to manage squadrons", 1, true)
   then
+    local unavailableReason = lower:find("fighter cockpit to manage squadrons", 1, true)
+        and "fighter_cockpit_required"
+      or nil
     return {
       source = kind,
-      fleet = { kind = kind, active = false, members = {} },
+      fleet = {
+        kind = kind,
+        active = false,
+        members = {},
+        unavailableReason = unavailableReason,
+      },
       recognizedLines = 1,
     }
   end

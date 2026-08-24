@@ -23,6 +23,9 @@ function installStableResources() {
   installResource(path.join(process.resourcesPath, relayName), paths.relay);
   if (process.platform !== "win32" && fs.existsSync(paths.relay)) fs.chmodSync(paths.relay, 0o755);
   installResource(path.join(process.resourcesPath, "Holocron3D.mpackage"), paths.mudletPackage);
+  if (process.platform === "linux") {
+    fs.writeFileSync(paths.launcher, `${process.execPath}\n`, { mode: 0o600 });
+  }
 }
 
 installStableResources();
