@@ -132,10 +132,11 @@ Mudlet package's opt-in development mode once, using your checkout path:
 h3d dev on "C:\path\to\lotj-holocron-3D"
 ```
 
-Close any installed Holocron3D window before entering `h3d start`; an existing
-desktop listener would otherwise receive the relay connection. The setting is
-stored in the Mudlet profile and survives package reinstalls. Use `h3d dev off`
-to restore the installed application.
+Close any installed Holocron3D window before entering `h3d launch`; an existing
+desktop listener would otherwise remain the active single instance. Then enter
+`h3d start` to start telemetry, in either order. The setting is stored in the
+Mudlet profile and survives package reinstalls. Use `h3d dev off` to restore the
+installed application.
 
 ## Next steps
 

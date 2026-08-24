@@ -29,12 +29,17 @@ run(process.execPath, [
   "tools/build-planet-textures.mjs",
   process.env.HOLOCRON_PLANET_TEXTURES_PREBUILT === "1" ? "--verify-output" : "--required",
 ]);
+if (process.env.HOLOCRON_SHIP_MODELS_PREBUILT !== "1") {
+  run(process.execPath, ["tools/build-ship-models.mjs", "--release"]);
+}
 run(process.execPath, [
   "node_modules/vite/bin/vite.js",
   "build",
   "--config",
   "vite.renderer.config.ts",
 ]);
+run(process.execPath, ["tools/verify-renderer-planet-assets.mjs"]);
+run(process.execPath, ["tools/verify-renderer-ship-assets.mjs"]);
 run(process.execPath, ["tools/build-relay.mjs", platform, arch]);
 run(process.execPath, ["tools/build-mudlet-package.mjs"]);
 if (platform === "darwin") run(process.execPath, ["tools/build-macos-icon.mjs"]);

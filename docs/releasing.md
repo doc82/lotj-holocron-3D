@@ -43,24 +43,26 @@ workflow** with the version currently in `package.json`. The workflow can resume
 an existing draft release, replaces its artifacts, re-verifies the complete set,
 and publishes it. It refuses to overwrite an already-published release.
 
-### Private planet asset configuration
+### Private runtime asset configuration
 
-The Windows, macOS, and Linux jobs fetch the separately licensed optimized runtime
-bundle from a private Google Drive file. Configure this once before running a
-release:
+The Windows, macOS, and Linux jobs fetch separately licensed optimized planet
+and ship runtime bundles from private Google Drive files. Configure this once
+before running a release:
 
 1. Enable the Google Drive API in a Google Cloud project and create a dedicated
    service account with no project roles.
 2. Create a JSON key for that service account and add the complete JSON document
    as the GitHub Actions repository secret `GOOGLE_DRIVE_CREDENTIALS`.
-3. Generate the optimized runtime ZIP using the command in
-   `vendor-assets/README.md`. In Google Drive, keep it restricted and share only
-   that file with the service account email as a Viewer. Do not upload the raw
+3. Generate both optimized runtime ZIPs using the commands in
+   `vendor-assets/README.md`. In Google Drive, keep them restricted and share only
+   those files with the service account email as a Viewer. Do not upload the raw
    marketplace archives.
 4. Add the Drive file ID as the repository variable
    `HOLOCRON_PLANET_ASSET_FILE_ID`.
 5. Add the lowercase SHA-256 printed beside the prepared ZIP as the repository
    variable `HOLOCRON_PLANET_ASSET_SHA256`.
+6. Add the ship ZIP's Drive file ID and lowercase SHA-256 as repository variables
+   `HOLOCRON_SHIP_ASSET_FILE_ID` and `HOLOCRON_SHIP_ASSET_SHA256`.
 
 Changing the Drive file requires updating both repository variables. A release
 fails before packaging if authentication, download, checksum validation,
@@ -69,15 +71,18 @@ After packaging, each Windows, macOS, and Linux job also opens the generated `ap
 and requires all 40 optimized maps under `renderer/dist/planet-textures`. The
 release is blocked if a map is missing or empty, or if raw `vendor-assets`,
 temporary `.codex-tmp` files, or duplicate `renderer/public` assets are present.
+Each job also requires the 19 release-eligible ship meshes, `manifest.json`, and
+`ATTRIBUTION.md` under `renderer/dist/ship-models`. It rejects missing or empty
+geometry, attribution drift, and the evaluation-only Praetorian mesh.
 
 ### Test the private asset pipeline in a PR
 
 Open a pull request from a branch in this repository. The
-**CI / Private planet asset pipeline** job authenticates with the same secret,
-downloads the same Drive ZIP, verifies its SHA-256 and all 40 1024×512 WebPs,
-builds the renderer, and confirms that every map reached
-`renderer/dist/planet-textures`. It does not package an installer, upload the
-textures as an Actions artifact, or publish a release.
+**Private runtime asset validation** workflow authenticates with the same secret,
+downloads both Drive ZIPs, verifies their SHA-256 digests, validates all 40
+1024×512 WebPs and 19 ship meshes, builds the renderer, and confirms both asset
+families reached `renderer/dist`. It does not package an installer, upload the
+assets as an Actions artifact, or publish a release.
 
 GitHub withholds repository secrets from fork and Dependabot pull requests, so
 the private asset job intentionally skips those PRs. The regular
@@ -189,6 +194,7 @@ Build the Linux x64 artifact on Linux:
 ```bash
 pnpm make:linux
 node tools/verify-packaged-planet-assets.mjs linux x64
+node tools/verify-packaged-ship-assets.mjs linux x64
 node tools/verify-linux-archive.mjs x64
 ```
 

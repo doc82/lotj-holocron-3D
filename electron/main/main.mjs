@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -248,6 +248,19 @@ ipcMain.handle("holocron:get-initial-state", (event) => {
 ipcMain.handle("holocron:get-app-version", (event) => {
   if (!validRenderer(event.senderFrame)) return null;
   return app.getVersion();
+});
+
+ipcMain.handle("holocron:open-external", async (event, value) => {
+  if (!validRenderer(event.senderFrame) || typeof value !== "string") return false;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  await shell.openExternal(url.href);
+  return true;
 });
 
 ipcMain.handle("holocron:send-intent", (event, request) => {

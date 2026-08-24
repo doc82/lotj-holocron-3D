@@ -1,4 +1,4 @@
-name: Private planet asset validation
+name: Private runtime asset validation
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: planet-assets-${{ github.ref }}
+  group: runtime-assets-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -16,7 +16,7 @@ env:
 
 jobs:
   validate:
-    name: Validate private planet bundle
+    name: Validate private runtime bundles
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -42,9 +42,17 @@ jobs:
           HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
           HOLOCRON_PLANET_ASSET_FILE_ID: ${{ vars.HOLOCRON_PLANET_ASSET_FILE_ID }}
           HOLOCRON_PLANET_ASSET_SHA256: ${{ vars.HOLOCRON_PLANET_ASSET_SHA256 }}
+      - name: Fetch and checksum ship-model bundle
+        run: node tools/fetch-ship-assets.mjs
+        env:
+          HOLOCRON_GOOGLE_DRIVE_TOKEN: ${{ steps.planet-drive-auth.outputs.access_token }}
+          HOLOCRON_SHIP_ASSET_FILE_ID: ${{ vars.HOLOCRON_SHIP_ASSET_FILE_ID }}
+          HOLOCRON_SHIP_ASSET_SHA256: ${{ vars.HOLOCRON_SHIP_ASSET_SHA256 }}
       - name: Validate all runtime texture maps
         run: node tools/build-planet-textures.mjs --verify-output
       - name: Build renderer with private textures
         run: pnpm renderer:build
       - name: Verify textures reached the renderer build
         run: node tools/verify-renderer-planet-assets.mjs
+      - name: Verify ship models reached the renderer build
+        run: node tools/verify-renderer-ship-assets.mjs

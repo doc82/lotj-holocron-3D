@@ -34,6 +34,25 @@ oceanic, and volcanic planet packages from the same
 [Shiny_Man collection](https://www.cgtrader.com/free-3d-models?author=ShinyMan)
 for worlds without a dedicated texture.
 
+## Ship-model assets
+
+Packaged releases may include optimized geometry-only derivatives generated
+from the source archives. The original downloads, source textures, and extracted
+packages are excluded from both version control and application packages.
+
+Eighteen currently verified Sketchfab source archives are licensed under CC BY
+4.0. The Firespray/Slave I archive is CC BY-NC-SA 4.0 and must remain
+noncommercial with attribution and ShareAlike. The standalone Praetorian STL has
+no embedded license and is restricted to local evaluation; release validation
+explicitly rejects it until its terms and creator are confirmed. Full creator,
+source, status, and candidate details are maintained in
+[`ship-model-sources.md`](ship-model-sources.md). A generated preview must retain
+the attribution supplied in each archive's `license.txt`.
+
+The in-app Credits page, available from the Escape menu, lists every cataloged
+ship model and every included planet texture set with creator, source, and
+license links.
+
 ### Confirmed in-game assignments
 
 Each of these worlds has its own runtime diffuse and bump/normal pair: Alderaan,

@@ -65,6 +65,9 @@ Linux archive, and the Mudlet package before the GitHub release is published.
 | `pnpm renderer:dev`          | Run the Vite renderer alone with hot module replacement.                         |
 | `pnpm renderer:build`        | Build the production renderer in `renderer/dist`.                                |
 | `pnpm renderer:typecheck`    | Type-check the React renderer without emitting files.                            |
+| `pnpm assets:ships`          | Build changed local-preview ship meshes; unchanged outputs use the cache.        |
+| `pnpm assets:ships:rebuild`  | Force local-preview mesh extraction and triangle optimization.                   |
+| `pnpm assets:ships:release`  | Build changed release-eligible ship meshes and prime the packaging cache.        |
 | `pnpm relay:test`            | Run Go relay tests.                                                              |
 | `pnpm relay:build`           | Build the native relay for the current platform and architecture.                |
 | `pnpm relay:build:win`       | Build the Windows x64 relay.                                                     |
@@ -79,6 +82,13 @@ Linux archive, and the Mudlet package before the GitHub release is published.
 | `pnpm make:mac:x64`          | Build the Intel application and DMG on macOS.                                    |
 | `pnpm package:linux`         | Build the unpacked Linux x64 application on Linux.                               |
 | `pnpm make:linux`            | Build the portable Linux x64 application archive on Linux.                       |
+
+Ship model optimization is incremental. `pnpm package` and `pnpm make` reuse
+the existing release meshes when the builder, catalog, downloaded source file
+metadata, build mode, and generated outputs are unchanged. To deliberately
+re-run triangle optimization, use `pnpm assets:ships:release:rebuild` before
+packaging. `HOLOCRON_SHIP_MODELS_PREBUILT=1` continues to bypass local source
+processing for CI or externally supplied runtime bundles.
 
 The parser and scraper use isolated Lua 5.1 tests with fresh Mudlet globals,
 timers, captures, and snapshots for every test:

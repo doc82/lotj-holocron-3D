@@ -81,7 +81,9 @@ connect it to your normal LotJ Mudlet profile.
 
 The Mudlet package loads in the off state so it cannot interfere with the LotJ
 login cycle. After logging in and entering a ship cockpit, enter `h3d start` to
-launch the renderer and begin telemetry polling.
+begin telemetry polling. Desktop process control is separate: use `h3d launch`
+to launch or focus the renderer. Either command can be entered first; the relay
+waits and reconnects automatically until both sides are available.
 
 ## Documentation
 

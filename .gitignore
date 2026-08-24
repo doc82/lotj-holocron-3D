@@ -16,3 +16,5 @@ renderer/dist/
 .codex-tmp/
 vendor-assets/shinyman/
 renderer/public/planet-textures/
+vendor-assets/ships/
+renderer/public/ship-models/

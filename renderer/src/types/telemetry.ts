@@ -381,6 +381,7 @@ export interface InitialState {
 export interface HolocronApi {
   getInitialState(): Promise<InitialState | null>;
   getAppVersion(): Promise<string | null>;
+  openExternal(url: string): Promise<boolean>;
   sendIntent(
     action: string,
     payload?: Record<string, unknown>,

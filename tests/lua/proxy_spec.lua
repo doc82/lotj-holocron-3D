@@ -66,4 +66,65 @@ describe("Mudlet process proxy", function()
     package.loaded.lotj_holocron_proxy = nil
     _G.lotjHolocron3D = originalProxy
   end)
+
+  it("stops the relay without shutting down the desktop app", function()
+    local originalProxy = _G.lotjHolocron3D
+    package.loaded.lotj_holocron_proxy = nil
+    local proxy = require("lotj_holocron_proxy")
+    local sends = 0
+    local closed = false
+    proxy.process = {
+      isRunning = function()
+        return true
+      end,
+      send = function()
+        sends = sends + 1
+        return true
+      end,
+      close = function()
+        closed = true
+      end,
+    }
+
+    proxy.stop()
+
+    equal(sends, 0, "stop must not send a desktop shutdown message")
+    equal(closed, true)
+    equal(proxy.process, nil)
+    package.loaded.lotj_holocron_proxy = nil
+    _G.lotjHolocron3D = originalProxy
+  end)
+
+  it("requests a transport reconnect without restarting the relay", function()
+    local originalYajl = _G.yajl
+    local originalProxy = _G.lotjHolocron3D
+    _G.yajl = {
+      to_string = function(message)
+        return string.format('{"v":%d,"type":"%s"}', message.v, message.type)
+      end,
+    }
+    package.loaded.lotj_holocron_proxy = nil
+    local proxy = require("lotj_holocron_proxy")
+    local sent
+    proxy.process = {
+      isRunning = function()
+        return true
+      end,
+      send = function(raw)
+        sent = raw
+        return true
+      end,
+    }
+    proxy.ready = true
+
+    local requested, reconnectError = proxy.reconnect()
+
+    equal(requested, true, reconnectError)
+    assert(sent:find('"type":"bridge_reconnect"', 1, true))
+    equal(proxy.process ~= nil, true, "reconnect must preserve the relay process")
+    proxy.process = nil
+    package.loaded.lotj_holocron_proxy = nil
+    _G.yajl = originalYajl
+    _G.lotjHolocron3D = originalProxy
+  end)
 end)

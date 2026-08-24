@@ -57,6 +57,7 @@
 .menuChoices {
   display: grid;
   align-content: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-items: center;
   gap: 24px;
   padding: 30px;
@@ -64,7 +65,8 @@
 
 .menuChoices > button {
   display: grid;
-  width: min(520px, 100%);
+  width: 100%;
+  min-height: 132px;
   gap: 7px;
   padding: 24px;
   border: 1px solid rgba(81, 205, 244, 0.36);
@@ -159,8 +161,152 @@
   color: #d8bd7f;
 }
 
+.creditsContent {
+  display: grid;
+  gap: 20px;
+  overflow: auto;
+  padding: 22px;
+}
+
+.creditIntro,
+.creditSection,
+.creditLegal {
+  padding: 18px;
+  border: 1px solid rgba(80, 200, 239, 0.2);
+  background: rgba(6, 29, 41, 0.62);
+}
+
+.creditIntro h3,
+.creditSection h3,
+.creditCard h4 {
+  margin: 4px 0 0;
+  color: #f0fcff;
+  letter-spacing: 0.06em;
+}
+
+.creditIntro p,
+.creditNotice,
+.creditCard p,
+.creditCard dd,
+.creditLegal {
+  color: #91b8c2;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.creditIntro p,
+.creditNotice {
+  margin: 10px 0 0;
+}
+
+.creditSection {
+  display: grid;
+  gap: 14px;
+}
+
+.creditSectionHeading,
+.creditHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.creditSectionHeading > span,
+.creditHeading > span {
+  color: #7fa9b5;
+  font-size: 0.58rem;
+  letter-spacing: 0.09em;
+  text-align: right;
+}
+
+.creditHeading > span {
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 201, 83, 0.35);
+  color: #e0c47d;
+}
+
+.creditGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.creditCard {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(80, 200, 239, 0.16);
+  background: rgba(2, 16, 25, 0.72);
+}
+
+.creditCard h4 {
+  font-size: 0.78rem;
+}
+
+.creditCard p {
+  margin: 5px 0 0;
+}
+
+.creditCard dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.creditCard dl > div {
+  min-width: 0;
+}
+
+.creditCard dt {
+  color: #59d6f5;
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+}
+
+.creditCard dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.creditLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.creditLink {
+  border: 0;
+  padding: 0;
+  color: #77ddf7;
+  background: transparent;
+  font:
+    700 0.58rem ui-monospace,
+    monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.creditLink:hover {
+  color: #dffaff;
+  text-decoration: underline;
+}
+
+.creditLegal {
+  border-color: rgba(255, 201, 83, 0.28);
+  color: #d8bd7f;
+}
+
 @media (max-width: 700px) {
   .backdrop {
     padding: 12px;
+  }
+
+  .menuChoices,
+  .creditGrid {
+    grid-template-columns: 1fr;
   }
 }

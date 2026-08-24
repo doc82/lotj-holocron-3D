@@ -165,6 +165,9 @@ function shipVisual(category: unknown): { size?: number; shape: number; pixels: 
 
 export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
   const observer = snapshot?.observer ?? { id: "player-ship" };
+  const observerName = String(observer.name || "")
+    .trim()
+    .toLocaleLowerCase();
   const origin: Vector3 = [finite(observer.x), finite(observer.y), finite(observer.z)];
   const observerVisual = shipVisual(observer.shipCategory);
   const observerPoint: ScenePoint = {
@@ -182,6 +185,10 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
 
   const contacts: ScenePoint[] = [];
   for (const entity of snapshot?.entities ?? []) {
+    const entityName = String(entity?.name || "")
+      .trim()
+      .toLocaleLowerCase();
+    if (entity?.id === "player-ship" || (observerName && entityName === observerName)) continue;
     if (![entity?.x, entity?.y, entity?.z].every((value) => Number.isFinite(Number(value))))
       continue;
     const position3d: Vector3 = [

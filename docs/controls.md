@@ -50,8 +50,10 @@ framed.
 
 | Command                     | Purpose                                                                                                                                  |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `h3d start`                 | Start or reconnect telemetry and launch the desktop app if needed.                                                                       |
-| `h3d stop`                  | Stop polling and close the relay connection.                                                                                             |
+| `h3d launch`                | Launch or focus the selected desktop app without changing telemetry state.                                                               |
+| `h3d start`                 | Start telemetry and wait persistently for the desktop app; repeated starts are harmless.                                                 |
+| `h3d stop`                  | Stop polling and close the relay connection without closing the desktop app.                                                             |
+| `h3d reconnect`             | Replace the current desktop connection and handshake without restarting the relay or desktop app.                                        |
 | `h3d pause`                 | Suspend automatic command output without disconnecting the bridge, leaving a clear window for manual Mudlet commands.                    |
 | `h3d resume`                | Resume automatic telemetry polling after a manual command window.                                                                        |
 | `h3d status`                | Show bridge and polling state.                                                                                                           |

@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { AssetCredits } from "./AssetCredits";
 import styles from "./ManagementMenu.module.css";
 
 interface Props {
@@ -7,7 +8,13 @@ interface Props {
 }
 
 export function ManagementMenu({ onClose }: Props) {
-  const [section, setSection] = useState<"hyperspace-logging" | null>(null);
+  const [section, setSection] = useState<"hyperspace-logging" | "credits" | null>(null);
+  const title =
+    section === "hyperspace-logging"
+      ? "HYPERSPACE DIAGNOSTICS"
+      : section === "credits"
+        ? "CREDITS"
+        : "SYSTEM MENU";
 
   return (
     <div className={styles.backdrop} role="presentation">
@@ -15,7 +22,7 @@ export function ManagementMenu({ onClose }: Props) {
         <header>
           <div>
             <small>HOLOCRON MANAGEMENT</small>
-            <h2>{section ? "HYPERSPACE DIAGNOSTICS" : "SYSTEM MENU"}</h2>
+            <h2>{title}</h2>
           </div>
           <button type="button" className={styles.close} onClick={onClose} aria-label="Close menu">
             ×
@@ -29,9 +36,13 @@ export function ManagementMenu({ onClose }: Props) {
               <strong>HYPERSPACE DIAGNOSTICS</strong>
               <small>VIEW THE DATA CAPTURED FOR EACH LOCAL JUMP</small>
             </button>
-            <p>Additional management modules will appear here as they become available.</p>
+            <button type="button" onClick={() => setSection("credits")}>
+              <span>THIRD-PARTY NOTICES</span>
+              <strong>ASSET CREDITS</strong>
+              <small>VIEW CREATORS, SOURCE LINKS, AND LICENSES</small>
+            </button>
           </div>
-        ) : (
+        ) : section === "hyperspace-logging" ? (
           <div className={styles.diagnostics}>
             <div className={styles.toolbar}>
               <button type="button" onClick={() => setSection(null)}>
@@ -74,6 +85,16 @@ export function ManagementMenu({ onClose }: Props) {
                 wing ships do not expose authoritative departure and reentry events to your client.
               </aside>
             </div>
+          </div>
+        ) : (
+          <div className={styles.diagnostics}>
+            <div className={styles.toolbar}>
+              <button type="button" onClick={() => setSection(null)}>
+                ← MENU
+              </button>
+              <span>THIRD-PARTY ASSET ATTRIBUTION</span>
+            </div>
+            <AssetCredits />
           </div>
         )}
       </section>

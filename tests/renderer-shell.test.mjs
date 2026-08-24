@@ -356,8 +356,14 @@ test("strategic and tactical scale modes retain adjustable sector and combat dis
   assert.match(engine, /point\.kind === "cluster"\s*\? -point\.pointSize/);
   assert.match(engine, /float markerPixels = a_size < 0\.0 \? -a_size : a_size \* u_markerScale/);
   assert.match(models, /export function tacticalShipPixelsForCategory/);
-  assert.match(engine, /rebuildShipMeshBuffer/);
-  assert.match(engine, /gl\.TRIANGLES, false, modelBlend/);
+  assert.match(engine, /shipMeshBuffers = new Map<ShipModel, CachedShipMesh>/);
+  assert.match(
+    engine,
+    /this\.gl\.bufferData\(this\.gl\.ARRAY_BUFFER, vertices, this\.gl\.STATIC_DRAW\)/,
+  );
+  assert.match(engine, /this\.drawShipModels\(modelBlend\)/);
+  assert.match(engine, /gl\.drawArrays\(gl\.TRIANGLES, 0, mesh\.vertexCount\)/);
+  assert.doesNotMatch(engine, /rebuildShipMeshBuffer/);
   assert.match(engine, /gl\.POINTS,\s*true,\s*Math\.max\(0\.12, 1 - modelBlend\)/);
   assert.match(engine, /sectorView\(\): void/);
   assert.match(chrome, /aria-label="Open strategic sector view"/);
