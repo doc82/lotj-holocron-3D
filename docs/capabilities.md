@@ -111,6 +111,10 @@ Jedi output. Its current capabilities include:
 - Distinguishing the player ship from formation hyperspace departures and
   rendering observed wing-ship jumps as tactical-map streak, flare, and fade
   effects.
+- Optionally arming an absolute post-hyperspace exit course toward a known
+  object or custom sector coordinates. Exit speed defaults to 50% of the
+  slowest selected formation member's maximum, applies through the original
+  command scope, and is cancelled by an emergency hyperspace cutoff.
 - Detecting named ships that explode in a blinding flash, immediately removing
   the destroyed contact and rendering its last known position as a white-hot
   fireball with expanding shockwaves, secondary bursts, and glowing debris.

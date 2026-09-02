@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import type { GalaxyCatalog, HyperspaceRoutePayload } from "../../types/telemetry";
+import { GalacticTransitMap } from "./GalacticTransitMap";
 import { HyperspaceField } from "./HyperspaceField";
 import styles from "./HyperspaceTransit.module.css";
 
@@ -6,10 +8,21 @@ interface Props {
   reentry: boolean;
   arrived: boolean;
   escapePending: boolean;
+  route: HyperspaceRoutePayload | null;
+  catalog: GalaxyCatalog | null;
+  galaxyPosition?: { x: number; y: number };
   onEscape(): void;
 }
 
-export function HyperspaceTransit({ reentry, arrived, escapePending, onEscape }: Props) {
+export function HyperspaceTransit({
+  reentry,
+  arrived,
+  escapePending,
+  route,
+  catalog,
+  galaxyPosition,
+  onEscape,
+}: Props) {
   const [reentryFadeStarted, setReentryFadeStarted] = useState(false);
   const [hidden, setHidden] = useState(false);
 
@@ -46,6 +59,14 @@ export function HyperspaceTransit({ reentry, arrived, escapePending, onEscape }:
     >
       <HyperspaceField engaged className={styles.field} />
       <div className={styles.vignette} aria-hidden="true" />
+      {route?.mode === "galactic" && route.galaxy && (
+        <GalacticTransitMap
+          catalog={catalog}
+          current={galaxyPosition}
+          destination={route.galaxy}
+          destinationName={route.systemName}
+        />
+      )}
       <div className={styles.readout} aria-live="polite">
         <span>{reentry ? "DESTINATION REACHED" : "HYPERSPACE TRANSIT"}</span>
         <strong>{reentry ? "REALSPACE REENTRY" : "NAVIGATION LOCKED"}</strong>

@@ -322,6 +322,16 @@ export function App() {
   const routeClearance = hyperspace.routeClearance;
   const navigationDestinations = hyperspace.navigationDestinations;
   const currentGalaxyPosition = hyperspace.currentGalaxyPosition;
+  const liveShipGalaxyPosition = useMemo(() => {
+    const shipSystem = telemetry.galaxyCatalog?.shipSystem;
+    const x = Number(shipSystem?.x);
+    const y = Number(shipSystem?.y);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : currentGalaxyPosition;
+  }, [
+    currentGalaxyPosition,
+    telemetry.galaxyCatalog?.shipSystem?.x,
+    telemetry.galaxyCatalog?.shipSystem?.y,
+  ]);
 
   const navigation = useNavigationController({
     connected: telemetry.connected,
@@ -546,6 +556,9 @@ export function App() {
             reentry={["reentry", "arrived"].includes(hyperspaceState.phase || "")}
             arrived={hyperspaceState.phase === "arrived"}
             escapePending={hyperspaceEscapePending}
+            route={activeRoute}
+            catalog={telemetry.galaxyCatalog}
+            galaxyPosition={liveShipGalaxyPosition}
             onEscape={() => void escapeHyperspace()}
           />
         )}
@@ -687,6 +700,8 @@ export function App() {
               observer={hyperspacePlanner.origin}
               snapshot={classifiedSnapshot}
               hyperspeed={hyperspacePlanner.hyperspeed}
+              formationMaximumSpeed={hyperspacePlanner.formationMaximumSpeed}
+              missingMaximumSpeedNames={hyperspacePlanner.missingMaximumSpeedNames}
               motionTracks={hyperspace.motionTracks}
               destinations={navigationDestinations}
               onCancel={hyperspace.closePlanner}

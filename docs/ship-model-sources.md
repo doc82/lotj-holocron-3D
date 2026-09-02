@@ -109,9 +109,30 @@ explicit named-ship override.
 These were the best reusable candidates found so far. Recheck the license in
 the downloaded archive before adding any file to the application.
 
-| Requested ship        | Candidate                                                                                                                               | Notes                                |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| E-wing Escort Fighter | [E-wing Escort Starfighter by Lightwarrior](https://sketchfab.com/3d-models/e-wing-escort-starfighter-0f99e651031443569ca179b284af1fa4) | Downloadable; verify primary license |
+| Requested ship                  | Candidate                                                                                                                               | Notes                                                                                            |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| E-wing Escort Fighter           | [E-wing Escort Starfighter by Lightwarrior](https://sketchfab.com/3d-models/e-wing-escort-starfighter-0f99e651031443569ca179b284af1fa4) | Downloadable; verify primary license                                                             |
+| Naboo Fighter / N-1 Starfighter | [Naboo N1-StarFighter by JackJohn2942](https://sketchfab.com/3d-models/naboo-n1-starfighter-c3f7a8b0645941b5a7496fa6413eb380)           | Downloadable, CC BY, and about 2.3k triangles; preferred shared asset for both telemetry aliases |
+
+## Visually compatible substitutes
+
+These active Sketchfab downloads are suitable stand-ins when an exact model is
+unavailable. Keep the in-game label and telemetry aliases tied to the requested
+ship, not the substitute model's source name.
+
+| Requested ship            | Substitute                                                                                                                                                 | Notes                                                                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Aurek Light Fighter       | [A-IR Wing, Rebel Grey Skin by Pixel Make](https://sketchfab.com/3d-models/a-ir-wing-rebel-grey-skin-89178abdf4894b5b927c85613f1a9dc9)                     | CC BY, textured, modular, and about 9.2k triangles; strong lightweight swept-wing tactical-map silhouette                |
+| Sprint-Class Rescue Craft | [Rescue Spaceship by ARTEL_3D](https://sketchfab.com/3d-models/rescue-spaceship-futuristic-emergency-craft-3cd04b042ab34f25b5ed31981a416a60)               | CC BY and visually communicates a compact emergency craft, but the roughly 500k-triangle source needs heavy optimization |
+| YT-1000                   | [Star Wars Galaxies YT-1300 exterior by Zorg_Sinister](https://sketchfab.com/3d-models/star-wars-galaxies-yt1300-outside-26d0f09e4ae64c41ad0119caa30d8058) | CC BY and 15.5k triangles; closest active lightweight Sketchfab option from the same Corellian YT family                 |
+| YT-1000 alternative       | [SW Old Republic Ebon Hawk by Cpt.Kirk](https://sketchfab.com/3d-models/sw-old-republic-ebon-hawk-37112178fe464a6eaaebc4dbc3222459)                        | CC BY and 13.1k triangles; centered cockpit and broad freighter body, but less recognizably YT-series                    |
+
+Sketchfab's collection pages still index an exact
+[Aurek-class Tactical Strikefighter](https://sketchfab.com/3d-models/aurek-class-tactical-strikefighter-6d5ad2a278b24da1888cfaf75fee68ab)
+and the closely related
+[XS stock light freighter](https://sketchfab.com/3d-models/xs-stock-light-freighter-7aaebf4a2c444db2ba361711b626e06d),
+but both model pages are currently disabled and cannot be used as download
+sources.
 
 ## Exact models found, but not yet suitable for the game
 
@@ -121,11 +142,18 @@ the downloaded archive before adding any file to the application.
 | Thranta-Class Light Cruiser      | [Sketchfab preview](https://sketchfab.com/3d-models/star-wars-outrider-thranta-class-f0cded07ccc247dca419329afd0819a9), [CGTrader model](https://www.cgtrader.com/3d-models/space/spaceship/thranta-class-corvette-0c23d112-0c3d-42c7-9b30-4d736b7f6f61)                                                                         | Best free model is view-only; paid model's raw files cannot automatically be redistributed                                   |
 | Rogue-Class Porax-38 Starfighter | [Armada Legacy STL](https://www.thingiverse.com/thing:6826796), [Sketchfab preview](https://sketchfab.com/3d-models/porax-38-star-wars-799c028bebd94b8598ace2ca05d667ad), [paid Xanadu Blood variant](https://www.artstation.com/marketplace/p/Wj3o7/xanadu-blood-star-wars)                                                     | Free options are print-only or view-only; marketplace license does not allow raw redistribution                              |
 | Kom'rk Mandalorian Dropship      | [ArtStation production model](https://www.artstation.com/marketplace/p/DB7G2/kom-rk-class-gauntlet-fighter-star-wars-the-mandalorian), [free print model](https://imperialengineering.gumroad.com/l/cfjvie), [Sketchfab WIP](https://sketchfab.com/3d-models/gauntlet-komrk-class-starwars-wip-3430b550b214402c8b77a5bd1e53500d) | Paid model is strong but raw redistribution is restricted; free alternatives lack a suitable license or game-ready materials |
+| JumpMaster 5000                  | [Free Jumpmaster 5000 STL by PopFeverMiniatures](https://cults3d.com/en/3d-model/game/jumpmaster-5000)                                                                                                                                                                                                                           | CC BY-NC; usable only for noncommercial builds and requires conversion and optimization                                      |
+| YT-1000                          | [YT-1000 by Jeffrey T.](https://embed-3dwarehouse-classic.sketchup.com/model/uc6c00068-4b13-40c8-a86a-ab8b1fae3111/YT-1000)                                                                                                                                                                                                      | Exact 27,771-polygon SketchUp model, but redistribution terms must be verified before packaging                              |
+| Aurek Light Fighter              | [Old Republic faction pack by Pulsipher](https://cults3d.com/pt/modelo-3d/jogo/old-republic-faction-pack-for-star-wars-armada)                                                                                                                                                                                                   | Paid STL licensed for personal use only; cannot be redistributed with Holocron                                               |
 
-## No safe candidate yet
+## No exact safe candidate yet
 
 - Assassin-Class Corvette
 - YG-4250 Cloakship
+- Sprint-Class Rescue Craft
+- Aurek Light Fighter; the exact model found is personal-use-only.
+- YT-1000; an exact model exists, but no redistributable license has been
+  verified.
 - Rojan-class Invincible Firespray Patrol Craft currently uses the Firespray
   preview alias; a distinct LotJ-specific model would still be preferable.
 
@@ -165,3 +193,13 @@ visual family:
 20. Praetorian-class Frigate
 21. X-wing
 22. B-wing
+23. Aurek Light Fighter
+24. Naboo Fighter
+25. JumpMaster 5000
+26. YT-1000
+27. Sprint-Class Rescue Craft
+28. Naboo N-1 Starfighter
+
+`Naboo Fighter` and `Naboo N-1 Starfighter` are currently treated as telemetry
+aliases for one N-1 model. Split them only if LotJ uses the names for visually
+distinct hulls.

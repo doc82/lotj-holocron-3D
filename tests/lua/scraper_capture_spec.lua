@@ -211,6 +211,26 @@ YT-1300 'Wayfarer' |  | (Out) 200 30 40
     equal(fixture:entity("TeeHee3"), nil)
   end)
 
+  it("does not publish the trailing character HUD as a celestial contact", function()
+    assert(fixture:capture(
+      "radar",
+      [[
+Esstran Sector
+Dromund Kaas 0 0 0
+Speed: 80 Fuel Level: 97% Coords: -1 3 26
+Your Coordinates: -1 3 26
+]]
+    ))
+
+    equal(fixture:entity("Dromund Kaas").kind, "celestial")
+    equal(fixture:entity("Speed: 80 Fuel Level: 97% Coords:"), nil)
+    local count = 0
+    for _ in pairs(fixture.scraper.state.entities) do
+      count = count + 1
+    end
+    equal(count, 1)
+  end)
+
   it("rejects malformed entities at the telemetry state boundary", function()
     assert(fixture.scraper.applyResult({
       source = "radar",

@@ -28,6 +28,8 @@ export interface HyperspacePlannerRequest {
   mode: "local" | "galactic";
   origin: { x?: number; y?: number; z?: number };
   hyperspeed?: number;
+  formationMaximumSpeed?: number;
+  missingMaximumSpeedNames?: string[];
   routeScope: Pick<
     HyperspaceRoutePayload,
     | "scope"
@@ -77,6 +79,14 @@ function routeIncludesLocalShip(route: HyperspaceRoutePayload, localName: string
   if (!route.scope || route.scope === "local" || route.scope === "all") return true;
   if (route.scope === "wings") return false;
   return selectedRouteIncludesLocalShip(route, localName);
+}
+
+function memberMaximumSpeed(member: FleetMember): number {
+  const nested =
+    typeof member.speed === "object" && member.speed
+      ? (member.speed as { maximum?: number }).maximum
+      : undefined;
+  return Number(nested) || Number(member.maximumSpeed) || 0;
 }
 
 function trackByIdentity(
@@ -135,6 +145,7 @@ export function useHyperspaceController({
   const announcedCalculationWaitRef = useRef(false);
   const trackingReplotPendingRef = useRef(false);
   const trackingRecalculationSawCalculatingRef = useRef(false);
+  const announcedExitStatusRef = useRef<string | null>(null);
 
   const state = snapshot?.metadata?.hyperspace || { phase: "idle" as const };
   const battlegroupClearanceExemptions =
@@ -257,11 +268,55 @@ export function useHyperspaceController({
       observerWorldPosition,
       movementOriginsForScope(planner.routeScope.scope || "local"),
     );
+    const observerMaximum =
+      typeof snapshot?.observer?.speed === "object" && snapshot.observer.speed
+        ? Number(snapshot.observer.speed.maximum) || 0
+        : Number(snapshot?.observer?.maximumSpeed) || 0;
+    const scope = planner.routeScope.scope || "local";
+    const formationKind = planner.routeScope.formationKind;
+    const recipientMembers =
+      formationKind !== "battlegroup" || scope === "local"
+        ? []
+        : scope === "selected"
+          ? selectedFleetMembers
+          : scope === "wings"
+            ? (fleet?.members.filter((member) => !member.leader) ?? [])
+            : (fleet?.members ?? []);
+    const localRecipientName = localName.trim().toLowerCase();
+    const maximums: number[] = [];
+    const missingMaximumSpeedNames: string[] = [];
+    if (scope === "local" || formationKind !== "battlegroup") {
+      if (observerMaximum > 0) maximums.push(observerMaximum);
+      else missingMaximumSpeedNames.push(localName || "Your ship");
+    } else {
+      for (const member of recipientMembers) {
+        const maximum =
+          member.name.trim().toLowerCase() === localRecipientName
+            ? observerMaximum || memberMaximumSpeed(member)
+            : memberMaximumSpeed(member);
+        if (maximum > 0) maximums.push(maximum);
+        else missingMaximumSpeedNames.push(member.name);
+      }
+    }
     return {
       ...planner,
       origin: { x: origin[0], y: origin[1], z: origin[2] },
+      formationMaximumSpeed:
+        maximums.length > 0 && missingMaximumSpeedNames.length === 0
+          ? Math.min(...maximums)
+          : undefined,
+      missingMaximumSpeedNames,
     };
-  }, [movementOriginsForScope, observerWorldPosition, planner]);
+  }, [
+    fleet?.members,
+    localName,
+    movementOriginsForScope,
+    observerWorldPosition,
+    planner,
+    selectedFleetMembers,
+    snapshot?.observer?.maximumSpeed,
+    snapshot?.observer?.speed,
+  ]);
 
   const withTravelEstimate = useCallback(
     (route: HyperspaceRoutePayload): HyperspaceRoutePayload => {
@@ -491,6 +546,9 @@ export function useHyperspaceController({
 
   const escape = useCallback(async () => {
     setEscapePending(true);
+    setEscapePlan((current) =>
+      current ? { ...current, route: { ...current.route, exitPlan: undefined } } : current,
+    );
     const result = await window.holocron?.sendIntent("escape_hyperspace");
     if (result?.id) escapeIntentIdsRef.current.add(result.id);
     if (result?.accepted === false) {
@@ -567,6 +625,16 @@ export function useHyperspaceController({
   useEffect(() => {
     if (state.phase !== "hyperspace") setEscapePending(false);
   }, [state.phase]);
+
+  useEffect(() => {
+    const status = state.exitPlanStatus;
+    if (!status || ["pending", "armed", "waiting", "executing"].includes(status)) return;
+    const key = `${status}:${state.exitPlanUpdatedAt || 0}`;
+    if (announcedExitStatusRef.current === key) return;
+    announcedExitStatusRef.current = key;
+    const reason = state.exitPlanReason ? ` // ${state.exitPlanReason.toUpperCase()}` : "";
+    setAlert(`EXIT VECTOR ${status.toUpperCase()}${reason}`);
+  }, [setAlert, state.exitPlanReason, state.exitPlanStatus, state.exitPlanUpdatedAt]);
 
   useEffect(() => {
     if (!trackingRecalculationPending) return;

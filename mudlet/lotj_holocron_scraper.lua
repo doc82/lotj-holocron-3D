@@ -144,6 +144,8 @@ local Scraper = {
     realspaceLurchObserved = false,
     awaitingArrivalRadar = false,
     reentrySystemName = nil,
+    exitPlan = nil,
+    exitProbeTimerId = nil,
   },
   fleetCommand = {
     nextOrderId = 0,
@@ -158,6 +160,10 @@ local Scraper = {
 local scheduleNextPoll
 local releasePendingSensorPoll
 local completeOwnHyperspaceArrival
+local completeHyperspaceExitArrival
+local cancelHyperspaceExitPlan
+local armHyperspaceExitPlan
+local dispatchTacticalViewRequest
 local requestAutotrack
 local ensureShieldsOn
 local handleShieldStatus
@@ -848,9 +854,12 @@ local function resetObserverContext(name, reason)
   Scraper.shields.activationPending = false
   safeKill("killTimer", Scraper.hyperspace.statusTimerId)
   safeKill("killTimer", Scraper.hyperspace.reentryRefreshTimerId)
+  safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
   Scraper.hyperspace.phase = "idle"
   Scraper.hyperspace.statusTimerId = nil
   Scraper.hyperspace.reentryRefreshTimerId = nil
+  Scraper.hyperspace.exitProbeTimerId = nil
+  Scraper.hyperspace.exitPlan = nil
   Scraper.hyperspace.activeIntentId = nil
   Scraper.hyperspace.pendingLocalJumpUntil = 0
   Scraper.hyperspace.fleetJumpQueue = {}
@@ -1832,6 +1841,13 @@ function Scraper.applyResult(result, sentCommand, captureContext)
     local completedArrival = completeOwnHyperspaceArrival("fresh radar")
     if completedArrival then
       completeHyperspaceArrivalSample(Scraper.state.observer)
+      if completeHyperspaceExitArrival then
+        completeHyperspaceExitArrival(nil, {
+          observer = Scraper.state.observer,
+          entities = arrayOfEntities(),
+          system = Scraper.state.metadata.system,
+        })
+      end
     end
   end
   if
@@ -2366,6 +2382,9 @@ function Scraper.finishCapture(reason)
     end
     return nil, applyError
   end
+  if capture.remoteViewMemberId and completeHyperspaceExitArrival then
+    completeHyperspaceExitArrival(capture.remoteViewMemberName, parsed)
+  end
   if capture.targetReconciliation and reconcileTargetFromStatus then
     reconcileTargetFromStatus(parsed)
   end
@@ -2838,6 +2857,12 @@ function Scraper.disarmAutomation(reason)
   safeKill("killTimer", Scraper.shields.actionTimerId)
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
   safeKill("killTimer", Scraper.hyperspace.statusTimerId)
+  if cancelHyperspaceExitPlan then
+    cancelHyperspaceExitPlan(reason or "Automation disarmed")
+  else
+    safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
+    Scraper.hyperspace.exitProbeTimerId = nil
+  end
   Scraper.hyperspace.statusTimerId = nil
   Scraper.shields.recharging = false
   Scraper.shields.awaiting = false
@@ -2930,6 +2955,9 @@ end
 
 local function completeHyperspaceAbort(reason)
   cancelHyperspaceCalculationEstimate()
+  if cancelHyperspaceExitPlan then
+    cancelHyperspaceExitPlan(reason or "Hyperspace calculation aborted")
+  end
   local metadata = hyperspaceMetadata()
   metadata.remainingSeconds = nil
   metadata.route = nil
@@ -3031,6 +3059,18 @@ function Scraper.handleHyperspaceLine(text)
     markHyperspaceSample("navigator")
     publishHyperspace("calculating", { navigatorApplied = true })
     refreshRemoteHyperspaceCalculationEstimate()
+  elseif lower == "could not locate destination system in your nav computer." then
+    cancelHyperspaceCalculationEstimate()
+    Scraper.hyperspace.initiatedByHolocron = false
+    finishActiveHyperspaceSample("failed", "destination_system_missing")
+    publishHyperspace("failed", {
+      error = value,
+      waitingForCalculation = false,
+      calculationEstimated = false,
+      estimatedReadyAt = nil,
+      remainingSeconds = nil,
+    })
+    finishHyperspaceIntent("rejected", value)
   elseif
     lower:match("^jump requires [%d,]+ units of fuel")
     and lower:find("it will consume", 1, true)
@@ -3448,6 +3488,392 @@ local function sendScopedHyperspaceCommands(commands)
   return true
 end
 
+local function hyperspaceExitRecipients(payload)
+  payload = type(payload) == "table" and payload or {}
+  local scope = trim(payload.scope):lower()
+  if scope == "" then
+    scope = "local"
+  end
+  local localName = observerName()
+  local function localRecipient()
+    return {
+      key = localName ~= "" and localName:lower() or "local",
+      name = localName ~= "" and localName or "Your ship",
+      localShip = true,
+    }
+  end
+  if scope == "local" then
+    return { localRecipient() }
+  end
+
+  local fleet = Scraper.state and Scraper.state.metadata and Scraper.state.metadata.fleet
+  if type(fleet) ~= "table" or fleet.active ~= true then
+    return nil, "the selected formation is no longer active"
+  end
+  if fleet.kind == "squadron" then
+    return { localRecipient() }
+  end
+  if fleet.kind ~= "battlegroup" then
+    return nil, "unsupported formation type"
+  end
+
+  local members
+  if scope == "selected" then
+    local selected, selectionError = selectedFormationMembers(payload, fleet)
+    if not selected then
+      return nil, selectionError
+    end
+    members = selected
+  elseif scope == "wings" then
+    members = {}
+    for _, member in ipairs(fleet.members or {}) do
+      if not member.leader then
+        table.insert(members, member)
+      end
+    end
+  elseif scope == "all" then
+    members = fleet.members or {}
+  else
+    return nil, "hyperspace scope must be local, all, wings, or selected"
+  end
+
+  local recipients = {}
+  for _, member in ipairs(members) do
+    local name = trim(member.name)
+    if name ~= "" then
+      local localShip = localName ~= "" and name:lower() == localName:lower()
+      table.insert(recipients, {
+        key = name:lower(),
+        name = name,
+        id = member.id,
+        slot = member.slot,
+        selector = tonumber(member.slot) and tostring(member.slot) or name,
+        localShip = localShip,
+        member = member,
+      })
+    end
+  end
+  if #recipients == 0 then
+    return nil, "no ships are available in the selected hyperspace scope"
+  end
+  return recipients
+end
+
+local function recipientMaximumSpeed(recipient)
+  if recipient.localShip then
+    local observer = Scraper.state and Scraper.state.observer or {}
+    local reading = observer.speed
+    return type(reading) == "table" and tonumber(reading.maximum) or tonumber(observer.maximumSpeed)
+  end
+  local member = recipient.member or {}
+  local reading = member.speed
+  return type(reading) == "table" and tonumber(reading.maximum) or tonumber(member.maximumSpeed)
+end
+
+local function validateHyperspaceExitPlan(payload)
+  local plan = payload and payload.exitPlan
+  if plan == nil then
+    return true
+  end
+  if type(plan) ~= "table" then
+    return false, "hyperspace exit plan must be an object"
+  end
+  local mode = trim(plan.mode):lower()
+  if mode ~= "target" and mode ~= "coordinates" then
+    return false, "hyperspace exit plan must use a target or coordinates"
+  end
+  local speedPercent = tonumber(plan.speedPercent)
+  if not speedPercent or speedPercent ~= speedPercent or speedPercent < 1 or speedPercent > 100 then
+    return false, "hyperspace exit speed must be between 1 and 100 percent"
+  end
+  local recipients, recipientError = hyperspaceExitRecipients(payload)
+  if not recipients then
+    return false, recipientError
+  end
+  local formationMaximum
+  for _, recipient in ipairs(recipients) do
+    local maximum = recipientMaximumSpeed(recipient)
+    if not maximum or maximum <= 0 then
+      return false, "maximum speed is unavailable for " .. recipient.name
+    end
+    formationMaximum = formationMaximum and math.min(formationMaximum, maximum) or maximum
+  end
+  local exitSpeed = math.max(1, math.floor(formationMaximum * speedPercent / 100 + 0.5))
+  local canonical = {
+    mode = mode,
+    speedPercent = speedPercent,
+    formationMaximumSpeed = formationMaximum,
+    speed = exitSpeed,
+  }
+  if mode == "coordinates" then
+    local destination = type(plan.destination) == "table" and plan.destination or {}
+    local x, y, z =
+      validateSystemCoordinate(destination.x),
+      validateSystemCoordinate(destination.y),
+      validateSystemCoordinate(destination.z)
+    if not x or not y or not z then
+      return false, "exit course coordinates must be within -50,000 and 50,000"
+    end
+    canonical.destination = { x = x, y = y, z = z }
+  else
+    local target = type(plan.target) == "table" and plan.target or {}
+    local name = trim(target.name)
+    local kind = trim(target.kind):lower()
+    if
+      name == ""
+      or #name > 160
+      or name:find("[%c\r\n]")
+      or (kind ~= "ship" and kind ~= "planet" and kind ~= "celestial" and kind ~= "star")
+    then
+      return false, "hyperspace exit target is invalid"
+    end
+    canonical.target = {
+      id = trim(target.id) ~= "" and trim(target.id) or nil,
+      name = name,
+      kind = kind,
+      systemName = trim(target.systemName) ~= "" and trim(target.systemName) or nil,
+    }
+    local fallback = type(target.lastKnownPosition) == "table" and target.lastKnownPosition or nil
+    if fallback then
+      local x, y, z =
+        validateSystemCoordinate(fallback.x),
+        validateSystemCoordinate(fallback.y),
+        validateSystemCoordinate(fallback.z)
+      if x and y and z then
+        canonical.target.lastKnownPosition = { x = x, y = y, z = z }
+      end
+    end
+  end
+  payload.exitPlan = canonical
+  return true
+end
+
+local function publishHyperspaceExitStatus(status, reason)
+  local metadata = hyperspaceMetadata()
+  metadata.exitPlanStatus = status
+  metadata.exitPlanReason = reason
+  metadata.exitPlanUpdatedAt = os.time()
+  Scraper.publish()
+end
+
+local function recountHyperspaceExitPlan()
+  local active = Scraper.hyperspace.exitPlan
+  if type(active) ~= "table" then
+    return
+  end
+  local waiting, completed, failed, cancelled = 0, 0, 0, 0
+  for _, result in pairs(active.results or {}) do
+    if result.status == "waiting" then
+      waiting = waiting + 1
+    elseif result.status == "completed" then
+      completed = completed + 1
+    elseif result.status == "failed" then
+      failed = failed + 1
+    elseif result.status == "cancelled" then
+      cancelled = cancelled + 1
+    end
+  end
+  local status = waiting > 0 and "waiting"
+    or cancelled > 0 and completed == 0 and failed == 0 and "cancelled"
+    or failed > 0 and completed > 0 and "partial"
+    or failed > 0 and "failed"
+    or "completed"
+  local metadata = hyperspaceMetadata()
+  metadata.exitPlanResults = copyTable(active.results)
+  publishHyperspaceExitStatus(status, active.reason)
+end
+
+local function exitTargetPosition(plan, context)
+  if plan.mode == "coordinates" then
+    return plan.destination
+  end
+  local target = plan.target or {}
+  local wantedId = trim(target.id):lower()
+  local wantedName = trim(target.name):lower()
+  for _, entity in ipairs(type(context) == "table" and context.entities or {}) do
+    local id = trim(entity.id):lower()
+    local name = trim(entity.name):lower()
+    if (wantedId ~= "" and id == wantedId) or (wantedName ~= "" and name == wantedName) then
+      local x, y, z = tonumber(entity.x), tonumber(entity.y), tonumber(entity.z)
+      if x and y and z then
+        return { x = x, y = y, z = z }
+      end
+    end
+  end
+  if target.kind ~= "ship" and type(target.lastKnownPosition) == "table" then
+    local expectedSystem = trim(target.systemName):lower()
+    local actualSystem = trim(context and context.system):lower()
+    if expectedSystem == "" or actualSystem == "" or expectedSystem == actualSystem then
+      return target.lastKnownPosition
+    end
+  end
+  return nil, "exit target " .. tostring(target.name or "object") .. " is not present after arrival"
+end
+
+local function transmitHyperspaceExit(recipient, plan, context)
+  local destination, destinationError = exitTargetPosition(plan, context)
+  if not destination then
+    return false, destinationError
+  end
+  local x, y, z =
+    validateSystemCoordinate(destination.x),
+    validateSystemCoordinate(destination.y),
+    validateSystemCoordinate(destination.z)
+  if not x or not y or not z then
+    return false, "resolved exit course is outside supported sector coordinates"
+  end
+  local prefix = recipient.localShip and "" or ("battlegroup nav " .. recipient.selector .. " ")
+  local commands = {
+    prefix .. "speed " .. tostring(math.floor(tonumber(plan.speed) + 0.5)),
+    prefix .. string.format("course %d %d %d", x, y, z),
+  }
+  local sent, sendError = sendScopedHyperspaceCommands(commands)
+  if not sent then
+    return false, sendError
+  end
+  return true
+end
+
+local function scheduleHyperspaceExitProbe(delay)
+  safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
+  Scraper.hyperspace.exitProbeTimerId = nil
+  local active = Scraper.hyperspace.exitPlan
+  if type(active) ~= "table" or active.cancelled then
+    return
+  end
+  local pending
+  for _, recipient in ipairs(active.recipients or {}) do
+    local result = active.results and active.results[recipient.key]
+    if not recipient.localShip and result and result.status == "waiting" then
+      pending = recipient
+      break
+    end
+  end
+  if not pending then
+    return
+  end
+  Scraper.hyperspace.exitProbeTimerId = tempTimer(math.max(0.25, tonumber(delay) or 3), function()
+    Scraper.hyperspace.exitProbeTimerId = nil
+    local current = Scraper.hyperspace.exitPlan
+    if type(current) ~= "table" or current.cancelled then
+      return
+    end
+    local requested = dispatchTacticalViewRequest({
+      memberId = pending.id,
+      memberName = pending.name,
+      memberSlot = pending.slot,
+    })
+    scheduleHyperspaceExitProbe(requested and 8 or 3)
+  end)
+end
+
+armHyperspaceExitPlan = function(payload)
+  local plan = type(payload) == "table" and payload.exitPlan or nil
+  if type(plan) ~= "table" then
+    Scraper.hyperspace.exitPlan = nil
+    return true
+  end
+  local recipients, recipientError = hyperspaceExitRecipients(payload)
+  if not recipients then
+    return false, recipientError
+  end
+  local results = {}
+  for _, recipient in ipairs(recipients) do
+    results[recipient.key] = { name = recipient.name, status = "waiting", observedAt = os.time() }
+  end
+  Scraper.hyperspace.exitPlan = {
+    plan = copyTable(plan),
+    route = copyTable(payload),
+    recipients = recipients,
+    results = results,
+    cancelled = false,
+  }
+  local metadata = hyperspaceMetadata()
+  metadata.exitPlanResults = copyTable(results)
+  publishHyperspaceExitStatus("armed")
+  local initialDelay = math.max(2, tonumber(payload.estimatedTravelSeconds) or 30)
+  scheduleHyperspaceExitProbe(initialDelay)
+  return true
+end
+
+local function remoteHyperspaceExitArrivalConfirmed(active, context)
+  local route = active.route or {}
+  local observer = type(context) == "table" and context.observer or nil
+  if type(observer) ~= "table" then
+    return false
+  end
+  if trim(route.mode):lower() == "galactic" then
+    local expectedSystem = trim(route.systemName):lower()
+    local actualSystem = trim(context.system):lower()
+    if expectedSystem ~= "" and actualSystem ~= "" then
+      return expectedSystem == actualSystem
+    end
+  end
+  local destination = type(route.destination) == "table" and route.destination or {}
+  local ox, oy, oz = tonumber(observer.x), tonumber(observer.y), tonumber(observer.z)
+  local dx, dy, dz = tonumber(destination.x), tonumber(destination.y), tonumber(destination.z)
+  if not ox or not oy or not oz or not dx or not dy or not dz then
+    return false
+  end
+  return math.sqrt((ox - dx) ^ 2 + (oy - dy) ^ 2 + (oz - dz) ^ 2) <= 250
+end
+
+completeHyperspaceExitArrival = function(memberName, context)
+  local active = Scraper.hyperspace.exitPlan
+  if type(active) ~= "table" or active.cancelled then
+    return false
+  end
+  local wanted = trim(memberName):lower()
+  local recipient
+  for _, candidate in ipairs(active.recipients or {}) do
+    if
+      (wanted == "" and candidate.localShip) or (wanted ~= "" and candidate.name:lower() == wanted)
+    then
+      recipient = candidate
+      break
+    end
+  end
+  if not recipient then
+    return false
+  end
+  local result = active.results and active.results[recipient.key]
+  if not result or result.status ~= "waiting" then
+    return false
+  end
+  if not recipient.localShip and not remoteHyperspaceExitArrivalConfirmed(active, context) then
+    return false
+  end
+  publishHyperspaceExitStatus("executing")
+  local sent, reason = transmitHyperspaceExit(recipient, active.plan, context or {})
+  result.status = sent and "completed" or "failed"
+  result.reason = reason
+  result.observedAt = os.time()
+  active.reason = not sent and reason or active.reason
+  recountHyperspaceExitPlan()
+  scheduleHyperspaceExitProbe(0.5)
+  return sent
+end
+
+cancelHyperspaceExitPlan = function(reason)
+  local active = Scraper.hyperspace.exitPlan
+  safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
+  Scraper.hyperspace.exitProbeTimerId = nil
+  if type(active) ~= "table" then
+    return false
+  end
+  active.cancelled = true
+  active.reason = reason or "Hyperspace exit plan cancelled"
+  for _, result in pairs(active.results or {}) do
+    if result.status == "waiting" then
+      result.status = "cancelled"
+      result.reason = active.reason
+      result.observedAt = os.time()
+    end
+  end
+  recountHyperspaceExitPlan()
+  return true
+end
+
 local function dispatchHyperspacePlot(payload, message)
   if not Scraper.state or Scraper.state.metadata.inSpace ~= true then
     return false, "hyperspace navigation is unavailable while landed"
@@ -3455,6 +3881,9 @@ local function dispatchHyperspacePlot(payload, message)
   if Scraper.hyperspace.phase == "calculating" then
     return false, "a hyperspace calculation is already running"
   end
+  safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
+  Scraper.hyperspace.exitProbeTimerId = nil
+  Scraper.hyperspace.exitPlan = nil
   local destination = type(payload.destination) == "table" and payload.destination or {}
   local x, y, z =
     validateSystemCoordinate(destination.x),
@@ -3484,6 +3913,10 @@ local function dispatchHyperspacePlot(payload, message)
   else
     return false, "hyperspace mode must be local or galactic"
   end
+  local exitValid, exitError = validateHyperspaceExitPlan(payload)
+  if not exitValid then
+    return false, exitError
+  end
   local commands, includesLocal, scopeError, usesLocalCommand =
     scopedHyperspaceCommands(payload, command)
   if not commands then
@@ -3509,6 +3942,10 @@ local function dispatchHyperspacePlot(payload, message)
   metadata.hyperjumpCompleteObservedAt = nil
   metadata.realspaceLurchObservedAt = nil
   metadata.reentrySystemName = nil
+  metadata.exitPlanStatus = payload.exitPlan and "pending" or nil
+  metadata.exitPlanReason = nil
+  metadata.exitPlanUpdatedAt = nil
+  metadata.exitPlanResults = nil
   Scraper.hyperspace.hyperjumpCompleteObserved = false
   Scraper.hyperspace.realspaceLurchObserved = false
   Scraper.hyperspace.awaitingArrivalRadar = false
@@ -5922,7 +6359,7 @@ local function currentFleet()
   return fleet
 end
 
-local function dispatchTacticalViewRequest(payload, message)
+dispatchTacticalViewRequest = function(payload, message)
   local gateError = commandGateError()
   if gateError then
     return false, gateError
@@ -7217,7 +7654,7 @@ function Scraper.setup(proxy, options)
       Scraper.handleAutotrackResponse(line or "")
     end),
     tempRegexTrigger(
-      "^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Using your skill with navigation you reroute energy to the hyperdrives\\.|Checking hyperspace course integrity\\. Please wait\\.|Please Wait\\. The Navigation Computer is calculating the route\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You must be at a nav computer to calculate jumps\\.|You aren't in the pilots seat\\.|You aren't in the pilot's seat\\.|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.|The ship lurches slightly as it comes out of hyperspace\\.)\\s*$",
+      "^\\s*(?:Hyperspace course locked\\. Running final jump checks\\.\\.\\.|Using your skill with navigation you reroute energy to the hyperdrives\\.|Could not locate destination system in your nav computer\\.|Checking hyperspace course integrity\\. Please wait\\.|Please Wait\\. The Navigation Computer is calculating the route\\.|Warning - Not enough fuel to complete the jump!|Jump requires .+|\\[Status\\]: Hyperspace calculations have been completed\\.|\\[ALERT\\]: Aborting Hyperspace calculation\\. Terminal reset\\.|\\[Alert\\]: Jump coordinates too close to stellar object\\. Jump not set\\.|Calculating Hyperspace Trajectory: \\d+ seconds remaining\\.|You are too close to .+ to make the jump to lightspeed!|You must be at a nav computer to calculate jumps\\.|You aren't in the pilots seat\\.|You aren't in the pilot's seat\\.|You push forward the hyperspeed lever\\.|The stars become streaks of light as you enter hyperspace\\.|Destination reached\\. Initiating realspace reentry\\.\\.\\.|Hyperjump complete\\.|The ship lurches slightly as it comes out of hyperspace\\.)\\s*$",
       function()
         Scraper.handleHyperspaceLine(line or "")
       end
@@ -7336,7 +7773,15 @@ function Scraper.setup(proxy, options)
       if includesLocal then
         Scraper.hyperspace.pendingLocalJumpUntil = os.time() + 30
       end
-      return sendScopedHyperspaceCommands(commands)
+      local sent, sendError = sendScopedHyperspaceCommands(commands)
+      if not sent then
+        return false, sendError
+      end
+      local armed, armError = armHyperspaceExitPlan(payload)
+      if not armed then
+        return false, armError
+      end
+      return true
     end)
     proxy.registerIntentHandler("escape_hyperspace", function()
       if Scraper.hyperspace.phase ~= "hyperspace" then
@@ -7348,6 +7793,7 @@ function Scraper.setup(proxy, options)
       if not sent or sendResult == false then
         return false, tostring(sent and sendError or sendResult)
       end
+      cancelHyperspaceExitPlan("Emergency hyperspace cutoff requested")
       local metadata = hyperspaceMetadata()
       metadata.escapeRequestedAt = os.time()
       Scraper.publish()

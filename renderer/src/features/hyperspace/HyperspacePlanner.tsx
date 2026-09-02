@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useLatestRef } from "../../hooks/useLatestRef";
 import { PlanetSphere } from "../../components/PlanetSphere";
@@ -14,6 +14,7 @@ import type {
   GalaxyCatalog,
   GalaxyPlanet,
   GalaxySystem,
+  HyperspaceExitPlan,
   HyperspaceRoutePayload,
   SystemSnapshot,
   TelemetryEntity,
@@ -36,12 +37,15 @@ interface Props {
   observer: { x?: number; y?: number; z?: number };
   snapshot?: SystemSnapshot | null;
   hyperspeed?: number;
+  formationMaximumSpeed?: number;
+  missingMaximumSpeedNames?: string[];
   motionTracks?: MotionTrackMap;
   destinations?: Array<{
     system: string;
     distanceParsecs: number;
     reachable: boolean;
     travelTime?: string;
+    travelTimeSeconds?: number;
     fuelPercent?: number;
   }>;
   onCancel(): void;
@@ -160,6 +164,8 @@ export function HyperspacePlanner({
   observer,
   snapshot = null,
   hyperspeed,
+  formationMaximumSpeed,
+  missingMaximumSpeedNames = [],
   motionTracks = new Map(),
   destinations = [],
   onCancel,
@@ -195,6 +201,14 @@ export function HyperspacePlanner({
   const [escapeSy, setEscapeSy] = useState(0);
   const [escapeSz, setEscapeSz] = useState(0);
   const [escapeDistance, setEscapeDistance] = useState(1);
+  const [exitEnabled, setExitEnabled] = useState(false);
+  const [exitMode, setExitMode] = useState<"target" | "coordinates">("target");
+  const [exitTargetKey, setExitTargetKey] = useState("");
+  const [exitX, setExitX] = useState(0);
+  const [exitY, setExitY] = useState(0);
+  const [exitZ, setExitZ] = useState(0);
+  const [exitSpeedPercent, setExitSpeedPercent] = useState(50);
+  const exitSpeedScanAttemptsRef = useRef(new Map<string, number>());
   const knownSectorShips = useMemo(() => {
     const ships = new Map<string, TelemetryEntity>();
     for (const entity of snapshot?.entities ?? []) {
@@ -222,6 +236,53 @@ export function HyperspacePlanner({
       .toLowerCase()
       .includes(activeContactSearch),
   );
+  const exitTargets = useMemo(() => {
+    const targets: Array<{
+      key: string;
+      id?: string;
+      name: string;
+      kind: "ship" | "planet" | "celestial" | "star";
+      systemName?: string;
+      position: { x: number; y: number; z: number };
+    }> = [];
+    const planets = mode === "local" ? (current?.planets ?? []) : (selectedSystem?.planets ?? []);
+    for (const planet of planets) {
+      targets.push({
+        key: `planet:${selectedSystem?.name || currentSystem || "current"}:${planet.name}`,
+        name: planet.name,
+        kind: "planet",
+        systemName: mode === "galactic" ? selectedSystem?.name : currentSystem,
+        position: {
+          x: Number(planet.x) || 0,
+          y: Number(planet.y) || 0,
+          z: Number(planet.z) || 0,
+        },
+      });
+    }
+    if (mode === "local") {
+      for (const ship of knownSectorShips) {
+        targets.push({
+          key: `ship:${ship.id || ship.name}`,
+          id: ship.id,
+          name: String(ship.name || ship.id),
+          kind: "ship",
+          systemName: currentSystem,
+          position: {
+            x: Number(ship.x) || 0,
+            y: Number(ship.y) || 0,
+            z: Number(ship.z) || 0,
+          },
+        });
+      }
+    }
+    return targets;
+  }, [current?.planets, currentSystem, knownSectorShips, mode, selectedSystem]);
+  const selectedExitTarget = exitTargets.find((target) => target.key === exitTargetKey);
+  const exitSpeed = Math.max(
+    1,
+    Math.round((Number(formationMaximumSpeed) * exitSpeedPercent) / 100),
+  );
+  const exitSpeedReady = Number(formationMaximumSpeed) > 0 && missingMaximumSpeedNames.length === 0;
   const setLocalDestination = useCallback((destination: [number, number, number]) => {
     setX(clampSectorCoordinate(destination[0]));
     setY(clampSectorCoordinate(destination[1]));
@@ -270,6 +331,30 @@ export function HyperspacePlanner({
     if (reachableEscapeSystems.some((system) => system.name === escapeSystemName)) return;
     setEscapeSystemName(reachableEscapeSystems[0]?.name || "");
   }, [escapeSystemName, reachableEscapeSystems]);
+
+  useEffect(() => {
+    if (exitTargets.some((target) => target.key === exitTargetKey)) return;
+    setExitTargetKey("");
+  }, [exitTargetKey, exitTargets]);
+
+  useEffect(() => {
+    if (!exitEnabled || missingMaximumSpeedNames.length === 0) return;
+    const requestMissingSpeed = () => {
+      const now = Date.now();
+      const name = missingMaximumSpeedNames.find(
+        (candidate) => now - (exitSpeedScanAttemptsRef.current.get(candidate) || 0) >= 12_000,
+      );
+      if (!name) return;
+      exitSpeedScanAttemptsRef.current.set(name, now);
+      void window.holocron?.sendIntent("scan_ship", {
+        targetName: name,
+        source: "info",
+      });
+    };
+    requestMissingSpeed();
+    const timer = setInterval(requestMissingSpeed, 2_500);
+    return () => clearInterval(timer);
+  }, [exitEnabled, missingMaximumSpeedNames]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -341,7 +426,41 @@ export function HyperspacePlanner({
     };
   };
 
-  const submit = () =>
+  const buildExitPlan = (): HyperspaceExitPlan | undefined => {
+    if (!exitEnabled || !exitSpeedReady) return undefined;
+    if (exitMode === "target") {
+      if (!selectedExitTarget) return undefined;
+      return {
+        mode: "target",
+        target: {
+          id: selectedExitTarget.id,
+          name: selectedExitTarget.name,
+          kind: selectedExitTarget.kind,
+          systemName: selectedExitTarget.systemName,
+          lastKnownPosition: selectedExitTarget.position,
+        },
+        speedPercent: exitSpeedPercent,
+        formationMaximumSpeed: Number(formationMaximumSpeed),
+        speed: exitSpeed,
+      };
+    }
+    return {
+      mode: "coordinates",
+      destination: {
+        x: clampSectorCoordinate(exitX),
+        y: clampSectorCoordinate(exitY),
+        z: clampSectorCoordinate(exitZ),
+      },
+      speedPercent: exitSpeedPercent,
+      formationMaximumSpeed: Number(formationMaximumSpeed),
+      speed: exitSpeed,
+    };
+  };
+
+  const submit = () => {
+    const exitPlan = buildExitPlan();
+    const escape = buildEscape();
+    if (escape && exitPlan) escape.route.exitPlan = exitPlan;
     onPlot(
       {
         mode,
@@ -349,14 +468,17 @@ export function HyperspacePlanner({
         systemName: mode === "galactic" ? selectedSystem?.name : currentSystem,
         planetName: selectedPlanet?.name,
         tracking: mode === "local" ? tracking : undefined,
+        estimatedTravelSeconds: mode === "galactic" ? routeEstimate?.travelTimeSeconds : undefined,
+        exitPlan: escape ? undefined : exitPlan,
         destination: {
           x: clampSectorCoordinate(x),
           y: clampSectorCoordinate(y),
           z: clampSectorCoordinate(z),
         },
       },
-      buildEscape(),
+      escape,
     );
+  };
 
   const minX = Math.min(...systems.map((system) => system.x), currentGalaxy?.x ?? 0, -10);
   const maxX = Math.max(...systems.map((system) => system.x), currentGalaxy?.x ?? 0, 10);
@@ -622,6 +744,100 @@ export function HyperspacePlanner({
             </div>
           )}
 
+          <div className={styles.exitVector}>
+            <label className={styles.exitToggle}>
+              <input
+                type="checkbox"
+                checked={exitEnabled}
+                onChange={(event) => setExitEnabled(event.target.checked)}
+              />
+              <span>ARM EXIT VECTOR</span>
+            </label>
+            {exitEnabled && (
+              <>
+                <div className={styles.modeTabs}>
+                  {(["target", "coordinates"] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={exitMode === value}
+                      onClick={() => setExitMode(value)}
+                    >
+                      {value === "target" ? "KNOWN OBJECT" : "CUSTOM XYZ"}
+                    </button>
+                  ))}
+                </div>
+                {exitMode === "target" ? (
+                  <label className={styles.exitTarget}>
+                    EXIT COURSE TARGET
+                    <select
+                      value={exitTargetKey}
+                      onChange={(event) => setExitTargetKey(event.target.value)}
+                    >
+                      <option value="">SELECT TARGET</option>
+                      {exitTargets.map((target) => (
+                        <option key={target.key} value={target.key}>
+                          {target.name} // {target.kind.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className={styles.miniCoordinates}>
+                    {[
+                      ["X", exitX, setExitX],
+                      ["Y", exitY, setExitY],
+                      ["Z", exitZ, setExitZ],
+                    ].map(([label, value, setter]) => (
+                      <label key={String(label)}>
+                        {String(label)}
+                        <input
+                          type="number"
+                          min={-50000}
+                          max={50000}
+                          value={Number(value)}
+                          onChange={(event) =>
+                            (setter as (value: number) => void)(
+                              clampSectorCoordinate(numeric(event.target.value)),
+                            )
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <label className={styles.exitSpeed}>
+                  EXIT SPEED // {exitSpeedPercent}% OF FORMATION MAX
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    value={exitSpeedPercent}
+                    onChange={(event) => setExitSpeedPercent(Number(event.target.value))}
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={exitSpeedPercent}
+                    onChange={(event) =>
+                      setExitSpeedPercent(Math.max(1, Math.min(100, numeric(event.target.value))))
+                    }
+                    aria-label="Exit speed percentage"
+                  />
+                </label>
+                <div
+                  className={`${styles.rangeStatus} ${exitSpeedReady ? styles.rangeSafe : styles.rangePending}`}
+                >
+                  {exitSpeedReady
+                    ? `FORMATION MAX ${formationMaximumSpeed} // COMMAND SPEED ${exitSpeed}`
+                    : `ACQUIRING MAX SPEED // ${missingMaximumSpeedNames.join(", ") || "TELEMETRY PENDING"}`}
+                </div>
+                <small>NORMAL ARRIVAL ONLY // EMERGENCY HYPERSPACE CUTOFF CANCELS THIS ORDER</small>
+              </>
+            )}
+          </div>
+
           {escapeAllowed && (
             <div className={styles.escape}>
               <label className={styles.escapeToggle}>
@@ -746,6 +962,7 @@ export function HyperspacePlanner({
             catalogPending ||
             (mode === "galactic" && !selectedSystem) ||
             !planetArrivalClear ||
+            (exitEnabled && (!exitSpeedReady || (exitMode === "target" && !selectedExitTarget))) ||
             (escapeEnabled && (rangeDataPending || !escapeReachability.allowed))
           }
           onClick={submit}

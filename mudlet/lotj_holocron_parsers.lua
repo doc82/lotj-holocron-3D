@@ -205,7 +205,11 @@ function Parsers.parseRadar(input)
       local position = { x = number(x), y = number(y), z = number(z) }
       if label:lower():match("^your%s+coordinates%s*:") then
         result.observer = position
-      else
+      elseif not label:find(":", 1, true) and not label:find("%", 1, true) then
+        -- Hidden radar polling owns the complete response envelope through the
+        -- prompt, including LotJ's trailing character HUD. HUD summaries such
+        -- as `Speed: 80 Fuel Level: 97% Coords: -1 3 26` also end in three
+        -- numbers, but their colon/percentage labels are not radar contacts.
         local name, class, validName = parseDisplayName(label)
         if validName then
           local kind = classify(name, class)

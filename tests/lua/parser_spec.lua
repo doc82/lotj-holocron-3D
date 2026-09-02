@@ -31,6 +31,21 @@ Your Coordinates: 12 22 -3
     equal(result.entities[1].name, "Gore")
   end)
 
+  it("ignores trailing character HUD lines that resemble radar coordinates", function()
+    local result = assert(parsers.parseRadar([[
+Esstran Sector
+Dromund Kaas 0 0 0
+Speed: 80 Fuel Level: 97% Coords: -1 3 26
+Your Coordinates: -1 3 26
+]]))
+    equal(#result.entities, 1)
+    equal(result.entities[1].name, "Dromund Kaas")
+    equal(result.entities[1].kind, "celestial")
+    equal(result.observer.x, -1)
+    equal(result.observer.y, 3)
+    equal(result.observer.z, 26)
+  end)
+
   it("rejects arrival prose and spaced ship callsigns as radar contacts", function()
     local result = assert(parsers.parseRadar([[
 Esstran Sector

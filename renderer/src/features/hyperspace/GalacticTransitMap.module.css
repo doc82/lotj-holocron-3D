@@ -1,0 +1,219 @@
+.overlay {
+  position: absolute;
+  z-index: 2;
+  inset: 88px clamp(28px, 7vw, 120px) 196px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid rgba(103, 211, 255, 0.34);
+  color: #dffaff;
+  background: linear-gradient(145deg, rgba(0, 12, 28, 0.5), rgba(1, 5, 17, 0.26));
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.24),
+    inset 0 0 70px rgba(20, 132, 207, 0.06);
+  font-family: ui-monospace, "Cascadia Mono", monospace;
+  pointer-events: none;
+  backdrop-filter: blur(1.5px);
+}
+
+.header,
+.footer {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 18px;
+  background: rgba(0, 9, 23, 0.46);
+  letter-spacing: 0.14em;
+}
+
+.header {
+  border-bottom: 1px solid rgba(93, 190, 228, 0.24);
+}
+
+.footer {
+  border-top: 1px solid rgba(93, 190, 228, 0.2);
+}
+
+.header span,
+.footer span {
+  color: #69b9d1;
+  font-size: 9px;
+}
+
+.header strong,
+.footer strong {
+  overflow: hidden;
+  color: #e4fbff;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.galaxyGlow {
+  position: absolute;
+  inset: -15% 1%;
+  opacity: 0.82;
+  background:
+    radial-gradient(ellipse at 48% 52%, rgba(44, 173, 239, 0.22), transparent 12%),
+    radial-gradient(
+      ellipse at center,
+      rgba(53, 132, 216, 0.16),
+      rgba(75, 37, 140, 0.1) 38%,
+      transparent 69%
+    );
+  filter: blur(13px);
+  transform: rotate(-13deg);
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.26;
+  background-image:
+    linear-gradient(rgba(67, 166, 219, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(67, 166, 219, 0.22) 1px, transparent 1px);
+  background-size: 8% 12%;
+  mask-image: radial-gradient(ellipse at center, black 15%, transparent 78%);
+}
+
+.route {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.remainingRoute {
+  stroke: rgba(114, 214, 255, 0.5);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 5;
+  animation: route-flow 1.2s linear infinite;
+}
+
+.completedRoute {
+  stroke: rgba(255, 220, 105, 0.72);
+  stroke-width: 1.35;
+  filter: drop-shadow(0 0 3px rgba(255, 217, 78, 0.72));
+}
+
+.system,
+.destination,
+.ship {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transform: translate(-4px, -50%);
+  color: rgba(126, 176, 194, 0.64);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.system i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 7px currentColor;
+}
+
+.customSystem {
+  color: rgba(164, 121, 208, 0.65);
+}
+
+.currentSystem,
+.destinationSystem {
+  color: rgba(167, 232, 251, 0.88);
+}
+
+.destination {
+  z-index: 5;
+  color: #7be2ff;
+  filter: drop-shadow(0 0 7px rgba(72, 201, 255, 0.9));
+}
+
+.destination i {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  transform: rotate(45deg);
+  background: rgba(18, 120, 163, 0.28);
+}
+
+.ship {
+  z-index: 7;
+  color: #fff0a6;
+  filter: drop-shadow(0 0 9px #f7c84c);
+  transition:
+    left 850ms linear,
+    top 850ms linear;
+}
+
+.ship i {
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 14px solid #fff6bd;
+  filter: drop-shadow(0 0 3px white);
+}
+
+.ship span,
+.destination span {
+  padding: 3px 5px;
+  background: rgba(0, 9, 20, 0.6);
+}
+
+.awaiting {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  border: 1px solid rgba(255, 214, 90, 0.36);
+  padding: 10px 14px;
+  color: #ffe18b;
+  background: rgba(21, 16, 4, 0.64);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  transform: translate(-50%, -50%);
+}
+
+@keyframes route-flow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+@media (max-width: 760px), (max-height: 700px) {
+  .overlay {
+    inset: 82px 20px 190px;
+  }
+
+  .system span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remainingRoute {
+    animation: none;
+  }
+
+  .ship {
+    transition: none;
+  }
+}

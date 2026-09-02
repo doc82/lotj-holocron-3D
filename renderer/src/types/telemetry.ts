@@ -223,6 +223,21 @@ export interface GalaxyCatalog {
   shipSystem?: { x?: number; y?: number; name?: string };
 }
 
+export interface HyperspaceExitPlan {
+  mode: "target" | "coordinates";
+  target?: {
+    id?: string;
+    name: string;
+    kind: "ship" | "planet" | "celestial" | "star";
+    systemName?: string;
+    lastKnownPosition?: { x: number; y: number; z: number };
+  };
+  destination?: { x: number; y: number; z: number };
+  speedPercent: number;
+  formationMaximumSpeed: number;
+  speed: number;
+}
+
 export interface HyperspaceRoutePayload {
   mode: "local" | "galactic";
   destination: { x: number; y: number; z: number };
@@ -241,6 +256,7 @@ export interface HyperspaceRoutePayload {
   recipientLabel?: string;
   predictionModel?: string;
   estimatedTravelSeconds?: number;
+  exitPlan?: HyperspaceExitPlan;
   tracking?: {
     targetId: string;
     targetName: string;
@@ -283,6 +299,26 @@ export interface HyperspaceState {
   realspaceLurchObservedAt?: number;
   arrivalConfirmedBy?: string;
   reentrySystemName?: string;
+  exitPlanStatus?:
+    | "pending"
+    | "armed"
+    | "waiting"
+    | "executing"
+    | "completed"
+    | "partial"
+    | "failed"
+    | "cancelled";
+  exitPlanReason?: string;
+  exitPlanUpdatedAt?: number;
+  exitPlanResults?: Record<
+    string,
+    {
+      name: string;
+      status: "waiting" | "completed" | "failed" | "cancelled";
+      reason?: string;
+      observedAt?: number;
+    }
+  >;
 }
 
 export interface ShipJumpEvent {

@@ -489,7 +489,8 @@
   white-space: nowrap;
 }
 .arrival,
-.escape {
+.escape,
+.exitVector {
   border-top: 1px solid #1c4553;
   padding-top: 16px;
   margin-top: 18px;
@@ -557,6 +558,70 @@
   color: #ffc95e;
   font: 800 11px monospace;
   letter-spacing: 0.1em;
+}
+.exitToggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #7dffc3;
+  font: 800 11px monospace;
+  letter-spacing: 0.1em;
+}
+.exitTarget {
+  display: block;
+  margin-top: 10px;
+  color: #73aab5;
+  font: 800 9px monospace;
+  letter-spacing: 0.08em;
+}
+.exitTarget select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid #295a68;
+  padding: 9px;
+  color: #d9faff;
+  background: #06131d;
+  font: 700 10px monospace;
+}
+.exitVector .miniCoordinates {
+  margin-top: 10px;
+}
+.exitVector .miniCoordinates input {
+  box-sizing: border-box;
+  width: 74px;
+}
+.exitSpeed {
+  display: grid;
+  grid-template-columns: 1fr 58px;
+  gap: 7px;
+  align-items: center;
+  margin-top: 12px;
+  color: #73aab5;
+  font: 800 9px monospace;
+  letter-spacing: 0.08em;
+}
+.exitSpeed input[type="range"] {
+  grid-column: 1;
+  width: 100%;
+}
+.exitSpeed input[type="number"] {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  box-sizing: border-box;
+  width: 58px;
+  border: 1px solid #295a68;
+  padding: 8px 4px;
+  color: #d9faff;
+  background: #06131d;
+  font: 700 11px monospace;
+}
+.exitVector > small {
+  display: block;
+  margin-top: 9px;
+  color: #66858d;
+  font: 8px/1.5 monospace;
 }
 .escape select {
   width: 100%;
