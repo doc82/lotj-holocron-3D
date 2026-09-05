@@ -3,8 +3,8 @@ import type { Vector3 } from "../../types/telemetry";
 import { ShipSpeedControl } from "./ShipSpeedControl";
 import styles from "./NavigationDrawer.module.css";
 
-export type ActiveNavigationMode = "vector" | "target" | "away" | "confirm";
-export type NavigationKind = "relative" | "target" | "away";
+export type ActiveNavigationMode = "vector" | "target" | "away" | "face" | "confirm";
+export type NavigationKind = "relative" | "target" | "away" | "face";
 
 interface NavigationDrawerProps {
   mode: ActiveNavigationMode;
@@ -58,7 +58,9 @@ export function NavigationDrawer({
       ? "PLOT COURSE VECTOR"
       : kind === "away"
         ? "COURSE AWAY"
-        : "COURSE TO CONTACT";
+        : kind === "face"
+          ? "FACE TARGET"
+          : "COURSE TO CONTACT";
   const targetMissing = kind !== "relative" && !targetName;
   const departureSpeedMissing = departureSpeedRequired && speed <= 0;
   const needsVectorLock = mode === "vector";
@@ -77,7 +79,9 @@ export function NavigationDrawer({
             ? "RELATIVE VECTOR"
             : kind === "away"
               ? "REVERSE VECTOR"
-              : "INTERCEPT VECTOR"}
+              : kind === "face"
+                ? "TARGET BEARING"
+                : "INTERCEPT VECTOR"}
         </span>
         <strong>
           {kind === "relative"
@@ -126,7 +130,9 @@ export function NavigationDrawer({
           onClick={needsVectorLock ? onStageVector : onConfirm}
         >
           <ActionIcon type="confirm" />
-          <span>{needsVectorLock ? "LOCK VECTOR" : "CONFIRM COURSE"}</span>
+          <span>
+            {needsVectorLock ? "LOCK VECTOR" : kind === "face" ? "CONFIRM FACE" : "CONFIRM COURSE"}
+          </span>
         </button>
         <button type="button" className={styles.cancel} onClick={onCancel}>
           <ActionIcon type="cancel" />

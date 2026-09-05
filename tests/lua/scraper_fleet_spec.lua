@@ -580,6 +580,23 @@ Hull: 712/1000 Shields: 400/500
     )
   end)
 
+  it("faces a selected contact without changing formation speed", function()
+    battlegroup()
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "navigate",
+      scope = "selected",
+      mode = "face",
+      targetId = "wayfarer",
+      memberIds = { "reeheehee" },
+      memberNames = { "ReeHeeHee" },
+      memberSlots = { 1 },
+    }, { id = "selected-face" })
+    assert(ok, failure)
+    equal(#fixture.commands, before + 1)
+    equal(fixture.commands[before + 1].command, "battlegroup nav ReeHeeHee face Wayfarer")
+  end)
+
   it("records a squadron target as both squadron and lead-ship target", function()
     local fleet = {
       kind = "squadron",
@@ -742,7 +759,7 @@ Hull: 712/1000 Shields: 400/500
     assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
     equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
     assert(fixture.scraper.handleReentrySystemLine("Corellian System"))
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
     assert(
       fixture.scraper.handleHyperspaceLine(
         "The ship lurches slightly as it comes out of hyperspace."
@@ -1453,13 +1470,122 @@ Hull: 712/1000 Shields: 400/500
     assert(fixture.scraper.state.metadata.hyperspace.route)
   end)
 
-  it("moves the observer into hyperspace after a direct local command", function()
-    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyper")
+  it("adopts a manually entered hyperspace route and inspects its destination", function()
+    _G.gmcp = {
+      Ship = { System = { name = "Corellian System", x = 10, y = 20 } },
+      Galaxy = { Systems = { ["Hutt Space"] = { name = "Hutt Space", x = -32, y = 48 } } },
+    }
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyperspace")
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "engaging")
     assert(
       fixture.scraper.handleHyperspaceLine(
         "The stars become streaks of light as you enter hyperspace."
       )
     )
     equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    equal(fixture.scraper.state.metadata.hyperspace.galaxyOrigin.x, 10)
+    equal(fixture.scraper.state.metadata.hyperspace.galaxyOrigin.y, 20)
+    assert(fixture:tickTimersAt(0.1) >= 1)
+    equal(fixture:lastCommand().command, "navstat")
+
+    fixture.scraper.captureLine("Readout for YT-1000 Light Freighter 'BlueSkies':")
+    fixture.scraper.captureLine("--Location-----------------------------------------------")
+    fixture.scraper.captureLine(" (Unable to determine current location)")
+    fixture.scraper.captureLine("--Nav Computer-------------------------------------------")
+    fixture.scraper.captureLine("This ship can jump to all standard sectors.")
+    fixture.scraper.captureLine("--Hyperspace---------------------------------------------")
+    fixture.scraper.captureLine("Jump System:         Hutt Space")
+    fixture.scraper.captureLine("Jump Distance:       18.1 parsecs")
+    fixture.scraper.captureLine("Jump Time:           2m 14s")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    local route = fixture.scraper.state.metadata.hyperspace.route
+    equal(route.mode, "galactic")
+    equal(route.manuallyInitiated, true)
+    equal(route.detectedBy, "navstat")
+    equal(route.systemName, "Hutt Space")
+    equal(route.galaxy.x, -32)
+    equal(route.galaxy.y, 48)
+    equal(route.galaxyOrigin.x, 10)
+    equal(route.galaxyOrigin.y, 20)
+    equal(fixture.scraper.state.metadata.navigation.jumpTimeSeconds, 134)
+  end)
+
+  it("selects the galactic overlay before destination coordinates are available", function()
+    _G.gmcp = {
+      Ship = { System = { name = "Corellian System", x = 10, y = 20 } },
+      Galaxy = { Systems = {} },
+    }
+    fixture.scraper.state.metadata.navigation = { jumpSystem = "Stale Destination" }
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyper")
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.navigation.jumpSystem, nil)
+    assert(fixture.scraper.publishGalaxyCatalog())
+    equal(fixture.scraper.state.metadata.hyperspace.route, nil)
+    assert(fixture:tickTimersAt(0.1) >= 1)
+
+    fixture.scraper.captureLine("Readout for YT-1000 Light Freighter 'BlueSkies':")
+    fixture.scraper.captureLine(" (Unable to determine current location)")
+    fixture.scraper.captureLine("Jump System:         Hutt Space")
+    fixture.scraper.captureLine("Jump Distance:       18.1 parsecs")
+    fixture.scraper.captureLine("Jump Time:           2m 14s")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    local route = fixture.scraper.state.metadata.hyperspace.route
+    equal(route.mode, "galactic")
+    equal(route.systemName, "Hutt Space")
+    equal(route.galaxy, nil)
+
+    _G.gmcp.Galaxy.Systems["Hutt Space"] = { x = -32, y = 48 }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    equal(route.galaxy.x, -32)
+    equal(route.galaxy.y, 48)
+  end)
+
+  it("uses navstat to distinguish a local manual jump", function()
+    _G.gmcp = {
+      Ship = { System = { name = "Hutt Space", x = -32, y = 48 } },
+      Galaxy = { Systems = { ["Hutt Space"] = { x = -32, y = 48 } } },
+    }
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyp")
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    assert(fixture:tickTimersAt(0.1) >= 1)
+
+    fixture.scraper.captureLine("Readout for YT-1000 Light Freighter 'BlueSkies':")
+    fixture.scraper.captureLine(" (Unable to determine current location)")
+    fixture.scraper.captureLine("Jump System:         Hutt Space")
+    fixture.scraper.captureLine("Jump Distance:       0.1 parsecs")
+    fixture.scraper.captureLine("Jump Time:           8s")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    local route = fixture.scraper.state.metadata.hyperspace.route
+    equal(route.mode, "local")
+    equal(route.systemName, "Hutt Space")
+    equal(route.detectedBy, "navstat")
+  end)
+
+  it("adopts a manual jump when the outgoing command event is missed", function()
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    equal(fixture.scraper.active, nil)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "engaging")
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    equal(fixture.scraper.state.metadata.hyperspace.manuallyInitiated, true)
   end)
 end)

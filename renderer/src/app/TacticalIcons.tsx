@@ -106,6 +106,7 @@ export type CommandIconType =
   | "scan"
   | "info"
   | "to"
+  | "face"
   | "away"
   | "track"
   | "cancel"
@@ -139,6 +140,12 @@ export function CommandIcon({ type }: { type: CommandIconType }) {
       <>
         <path d="M4 16h20M18 9l7 7-7 7" />
         <circle cx="27" cy="16" r="2" />
+      </>
+    ),
+    face: (
+      <>
+        <path d="M5 16h15M14 9l7 7-7 7" />
+        <path d="M25 7v18M22 10l3-3 3 3M22 22l3 3 3-3" />
       </>
     ),
     away: (

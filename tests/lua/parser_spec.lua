@@ -18,6 +18,57 @@ Your Coordinates:   10 20 -5
     equal(result.observer.z, -5)
   end)
 
+  it("distinguishes a marked star from an unprefixed planet contact", function()
+    local result = assert(parsers.parseRadar([[
+Corellian System
+
+(STAR) Corell                                             345 285 674
+Corellia                                                  1567 -10000 21812
+
+YT-1000 Light Freighter 'Fast Hauler Three'               1585 -10116 21786
+JumpMaster 5000 'High Flier'                              1643 -13647 25592
+JumpMaster 5000 'Planet Jumper Three'                     1567 -10000 21812
+
+Your Coordinates:                                         2008 -10017 21858
+]]))
+    equal(result.system, "Corellian System")
+    equal(#result.entities, 5)
+    equal(result.entities[1].name, "Corell")
+    equal(result.entities[1].kind, "star")
+    equal(result.entities[2].name, "Corellia")
+    equal(result.entities[2].kind, "celestial")
+    equal(result.entities[5].name, "Planet Jumper Three")
+    equal(result.entities[5].kind, "ship")
+    equal(result.observer.x, 2008)
+  end)
+
+  it("keeps planet words in quoted ship callsigns from changing their kind", function()
+    local result = assert(parsers.parseRadar([[
+Hutt Space
+
+(STAR) Y'Toub                                             -23000 5432 -2135
+Nar Shaddaa                                               10000 0 1000
+Nal Hutta                                                 13000 5250 -300
+
+YT-1000 Light Freighter 'Planetary Lanes Co'              9918 -45 925
+JumpMaster 5000 'Planet Jumper Six'                       12988 4978 1
+
+Your Coordinates:                                         12883 5428 -441
+]]))
+    equal(result.system, "Hutt Space")
+    equal(#result.entities, 5)
+    equal(result.entities[1].name, "Y'Toub")
+    equal(result.entities[1].kind, "star")
+    equal(result.entities[2].kind, "celestial")
+    equal(result.entities[3].kind, "celestial")
+    equal(result.entities[4].name, "Planetary Lanes Co")
+    equal(result.entities[4].class, "YT-1000 Light Freighter")
+    equal(result.entities[4].kind, "ship")
+    equal(result.entities[5].name, "Planet Jumper Six")
+    equal(result.entities[5].class, "JumpMaster 5000")
+    equal(result.entities[5].kind, "ship")
+  end)
+
   it("ignores chat while finding a radar system heading", function()
     local result = assert(parsers.parseRadar([[
 (OOC) @Bando: My apologies.
@@ -46,7 +97,7 @@ Your Coordinates: -1 3 26
     equal(result.observer.z, 26)
   end)
 
-  it("rejects arrival prose and spaced ship callsigns as radar contacts", function()
+  it("rejects arrival prose while accepting spaced ship callsigns", function()
     local result = assert(parsers.parseRadar([[
 Esstran Sector
 Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at celestial 3670 3491 3402
@@ -55,11 +106,39 @@ Victory-II Class Star Destroyer 'VSD02' 3670 3491 3402
 Planet 'Dromund Kaas' 0 0 0
 Your Coordinates: 3510 3491 3402
 ]]))
-    equal(#result.entities, 2)
-    equal(result.entities[1].name, "VSD02")
+    equal(#result.entities, 3)
+    equal(result.entities[1].name, "Bad Name")
     equal(result.entities[1].kind, "ship")
-    equal(result.entities[2].name, "Dromund Kaas")
-    equal(result.entities[2].kind, "planet")
+    equal(result.entities[2].name, "VSD02")
+    equal(result.entities[2].kind, "ship")
+    equal(result.entities[3].name, "Dromund Kaas")
+    equal(result.entities[3].kind, "planet")
+  end)
+
+  it("parses named stations and grouped ships in nebula radar output", function()
+    local result = assert(parsers.parseRadar([[
+Bala Trix Nebula
+Black Market Station 'Rust Ring'                            0 0 0
+
+Z-95 Headhunter 'AngerTL's squadron:
+Z-95 Headhunter 'AngerTL'                             (Ctr) 1 37 -1
+Z-95 Headhunter 'AngerT5'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT4'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT2'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT3'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT6'                             (Out) 1 37 -1
+]]))
+
+    equal(result.system, "Bala Trix Nebula")
+    equal(#result.entities, 7)
+    equal(result.entities[1].name, "Rust Ring")
+    equal(result.entities[1].class, "Black Market Station")
+    equal(result.entities[1].kind, "ship")
+    equal(result.entities[1].shipCategory, "battlestation")
+    equal(result.entities[2].name, "AngerTL")
+    equal(result.entities[2].position, "Ctr")
+    equal(result.entities[7].name, "AngerT6")
+    equal(result.entities[7].position, "Out")
   end)
 
   it("classifies projectile radar contacts", function()
@@ -277,6 +356,13 @@ Victory-II Class Star Destroyer 'Gore' |  | (Out) 0 0 0
     equal(piped.entities[1].name, "Pollution")
     equal(piped.entities[1].position, "Ctr")
     equal(piped.entities[1].x, -51)
+    local callsigns = assert(parsers.parseFleetRadar([[
+Hutt Space
+YT-1000 Light Freighter 'Planetary Lanes Co' |  | (Ctr) 9918 -45 925
+JumpMaster 5000 'Planet Jumper Six' |  | (Out) 12988 4978 1
+]]))
+    equal(callsigns.entities[1].kind, "ship")
+    equal(callsigns.entities[2].kind, "ship")
     local grouped = assert(parsers.parseFleetRadar([[
 Esstran Sector
 Imperial-II Class Star Destroyer 'Verdandi's battlegroup:

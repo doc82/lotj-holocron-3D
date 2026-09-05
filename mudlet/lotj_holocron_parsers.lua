@@ -77,29 +77,64 @@ local function slug(value)
   return result
 end
 
+local function isInstallationClass(value)
+  local lower = tostring(value or ""):lower()
+  return lower:find("station", 1, true) ~= nil
+    or lower:find("platform", 1, true) ~= nil
+    or lower:find("starbase", 1, true) ~= nil
+    or lower:find("shipyard", 1, true) ~= nil
+    or lower:find("installation", 1, true) ~= nil
+end
+
+local function installationCategory(value)
+  if not isInstallationClass(value) then
+    return nil
+  end
+  return tostring(value or ""):lower():find("platform", 1, true) and "platform" or "battlestation"
+end
+
+local function containsWord(value, word)
+  return tostring(value or ""):lower():find("%f[%a]" .. word .. "%f[%A]") ~= nil
+end
+
 local function classify(name, class)
-  local value = ((class or "") .. " " .. (name or "")):lower()
-  if value:find("planet", 1, true) then
+  local classValue = trim(tostring(class or "")):lower()
+  if classValue ~= "" then
+    if containsWord(classValue, "planet") then
+      return "planet"
+    end
+    if containsWord(classValue, "moon") then
+      return "moon"
+    end
+    if containsWord(classValue, "asteroid") then
+      return "asteroid"
+    end
+    if classValue == "star" or classValue == "sun" then
+      return "star"
+    end
+    -- A quoted display name is preceded by its object class. Once explicitly
+    -- celestial classes are handled above, that class is authoritative: words
+    -- such as "Planet" or "Missile" in a ship's callsign do not change it.
+    return "ship"
+  end
+
+  local value = tostring(name or ""):lower()
+  if containsWord(value, "planet") then
     return "planet"
   end
-  if value:find("moon", 1, true) then
+  if containsWord(value, "moon") then
     return "moon"
   end
-  if value:find("asteroid", 1, true) then
+  if containsWord(value, "asteroid") then
     return "asteroid"
   end
   if
-    value:find("missile", 1, true)
-    or value:find("torpedo", 1, true)
-    or value:find("rocket", 1, true)
-    or value:find("bomb", 1, true)
+    containsWord(value, "missile")
+    or containsWord(value, "torpedo")
+    or containsWord(value, "rocket")
+    or containsWord(value, "bomb")
   then
     return "projectile"
-  end
-  -- In current radar output, a quoted display name is preceded by its ship
-  -- class. Do not mistake "Star Destroyer" for a stellar object.
-  if class and class ~= "" then
-    return "ship"
   end
   if value == "star" or value == "sun" or value:match("%sstar$") or value:match("%ssun$") then
     return "star"
@@ -108,11 +143,7 @@ local function classify(name, class)
 end
 
 local function validShipName(name)
-  return type(name) == "string"
-    and name ~= ""
-    and #name <= 64
-    and name:find("%s") == nil
-    and name:find("'", 1, true) == nil
+  return type(name) == "string" and name ~= "" and #name <= 64 and name:find("'", 1, true) == nil
 end
 
 local function parseDisplayName(raw)
@@ -127,8 +158,6 @@ local function parseDisplayName(raw)
     if quoted == "" or #quoted > 160 then
       return nil, nil, false
     end
-    -- Player-assigned ship callsigns are one token. Celestial display names
-    -- may contain spaces, so apply this restriction only to ship classes.
     if classify(quoted, class) == "ship" and not validShipName(quoted) then
       return nil, nil, false
     end
@@ -173,7 +202,12 @@ local function radarSystemName(line)
   if lower == "uncharted space" or lower == "unknown space" then
     return line
   end
-  if lower:match("%ssector$") or lower:match("%ssystem$") then
+  if
+    lower:match("%ssector$")
+    or lower:match("%ssystem$")
+    or lower:match("%snebula$")
+    or lower:match("%sspace$")
+  then
     return line
   end
   return nil
@@ -187,6 +221,13 @@ local function resultOrError(result, recognized, command)
   return result
 end
 
+local RADAR_MARKED_KINDS = {
+  star = "star",
+  planet = "planet",
+  moon = "moon",
+  asteroid = "asteroid",
+}
+
 function Parsers.parseRadar(input)
   local lines, err = linesFrom(input)
   if not lines then
@@ -196,36 +237,64 @@ function Parsers.parseRadar(input)
   local result = { source = "radar", entities = {} }
   local recognized = 0
   local sawEntity = false
+  local afterEntityBreak = false
 
   for _, line in ipairs(lines) do
+    if line == "" and sawEntity then
+      afterEntityBreak = true
+    end
     local label, x, y, z =
       line:match("^(.-)%s+([+-]?[%d,]+%.?%d*)%s+([+-]?[%d,]+%.?%d*)%s+([+-]?[%d,]+%.?%d*)%s*$")
     if label then
       label = trim(label)
-      local position = { x = number(x), y = number(y), z = number(z) }
+      local coordinates = { x = number(x), y = number(y), z = number(z) }
       if label:lower():match("^your%s+coordinates%s*:") then
-        result.observer = position
+        result.observer = coordinates
       elseif not label:find(":", 1, true) and not label:find("%", 1, true) then
         -- Hidden radar polling owns the complete response envelope through the
         -- prompt, including LotJ's trailing character HUD. HUD summaries such
         -- as `Speed: 80 Fuel Level: 97% Coords: -1 3 26` also end in three
         -- numbers, but their colon/percentage labels are not radar contacts.
-        local name, class, validName = parseDisplayName(label)
+        local displayLabel, tacticalPosition = label:match("^(.-)%s+%((%a+)%)$")
+        local normalizedPosition = tacticalPosition and tacticalPosition:lower() or nil
+        if
+          normalizedPosition == "ctr"
+          or normalizedPosition == "mid"
+          or normalizedPosition == "out"
+        then
+          label = trim(displayLabel)
+        else
+          tacticalPosition = nil
+        end
+        local markedKind
+        local marker, markedLabel = label:match("^%(([%a]+)%)%s+(.+)$")
+        if marker and RADAR_MARKED_KINDS[marker:lower()] then
+          markedKind = RADAR_MARKED_KINDS[marker:lower()]
+          label = trim(markedLabel)
+        end
+        local name, class, validName
+        if markedKind then
+          name, class, validName = label, nil, label ~= "" and #label <= 160
+        else
+          name, class, validName = parseDisplayName(label)
+        end
         if validName then
-          local kind = classify(name, class)
-          -- Current LotJ radar output gives ships as Class 'Name', while
-          -- unquoted rows are celestial contacts (for example Dromund Kaas).
-          -- Radar alone cannot reliably distinguish a planet from a star.
-          if not class and kind == "ship" then
-            kind = "celestial"
+          local kind = markedKind or classify(name, class)
+          -- LotJ separates the celestial and ship blocks with a blank line.
+          -- Quoted Class 'Name' rows remain authoritative, while this boundary
+          -- provides a fallback for otherwise ambiguous unquoted contacts.
+          if not class and not markedKind and kind == "ship" then
+            kind = afterEntityBreak and "ship" or "celestial"
           end
           table.insert(result.entities, {
             name = name,
             class = class,
             kind = kind,
-            x = position.x,
-            y = position.y,
-            z = position.z,
+            shipCategory = installationCategory(class),
+            position = tacticalPosition,
+            x = coordinates.x,
+            y = coordinates.y,
+            z = coordinates.z,
           })
           sawEntity = true
           recognized = recognized + 1
@@ -1016,8 +1085,11 @@ function Parsers.parseFleetRadar(input)
           local parsedName, parsedClass, validName = parseDisplayName(trim(entity.name))
           if validName then
             entity.name, entity.class = parsedName, parsedClass
-            entity.kind = classify(entity.name, entity.class)
-            if entity.kind == "ship" and not validShipName(entity.name) then
+            -- Fleet radar is itself a ship census. Do not infer object type
+            -- from callsign words such as "Planet", "Moon", or "Missile".
+            entity.kind = "ship"
+            entity.shipCategory = installationCategory(entity.class)
+            if not validShipName(entity.name) then
               entity.name = nil
             end
           else

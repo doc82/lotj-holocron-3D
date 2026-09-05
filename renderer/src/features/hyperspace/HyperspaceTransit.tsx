@@ -59,10 +59,11 @@ export function HyperspaceTransit({
     >
       <HyperspaceField engaged className={styles.field} />
       <div className={styles.vignette} aria-hidden="true" />
-      {route?.mode === "galactic" && route.galaxy && (
+      {route?.mode === "galactic" && (
         <GalacticTransitMap
           catalog={catalog}
           current={galaxyPosition}
+          origin={route.galaxyOrigin}
           destination={route.galaxy}
           destinationName={route.systemName}
         />

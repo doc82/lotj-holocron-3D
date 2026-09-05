@@ -35,6 +35,24 @@ h.after_each(function()
 end)
 
 describe("scraper authoritative telemetry", function()
+  it("publishes every live GMCP galactic position update", function()
+    _G.gmcp = {
+      Galaxy = { Systems = { Corellian = { x = 10, y = 20 } } },
+      Ship = { System = { name = "Corellian", x = 10, y = 20 } },
+    }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    local first = fixture.messages[#fixture.messages]
+    equal(first.type, "galaxy_catalog")
+    equal(first.shipSystem.x, 10)
+    equal(first.shipSystem.y, 20)
+
+    _G.gmcp.Ship.System = { name = "Hyperspace", x = 14, y = 23 }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    local moved = fixture.messages[#fixture.messages]
+    equal(moved.shipSystem.x, 14)
+    equal(moved.shipSystem.y, 23)
+  end)
+
   it("applies GMCP ship readings without treating piloting as space state", function()
     _G.gmcp = {
       Ship = {
@@ -123,6 +141,14 @@ describe("scraper authoritative telemetry", function()
     equal(fixture.scraper.handleAutotrackResponse("Autotracking off."), false)
     equal(fixture:lastSnapshot().observer.autotrack, false)
     equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
+  end)
+
+  it("respects autotrack changes made directly in Mudlet", function()
+    local commandCount = #fixture.commands
+    equal(fixture.scraper.handleAutotrackResponse("Autotracking on."), true)
+    equal(#fixture.commands, commandCount)
+    equal(fixture:lastSnapshot().observer.autotrack, true)
+    equal(fixture:lastSnapshot().metadata.autotrackDesired, true)
   end)
 
   it("consolidates ship damage into a delayed shield status check", function()

@@ -24,6 +24,7 @@ Hull: 150/150 Shields: 150/150 Energy(fuel): 5000/5000
       [[
 Corellian System
 YT-1300 'Wayfarer' 600 0 0
+Planet 'Corellia' 5000 0 0
 Your Coordinates: 0 0 0
 ]]
     )),
@@ -77,7 +78,7 @@ describe("scraper renderer commands", function()
     assert(speedFailure:find("outside", 1, true))
   end)
 
-  it("navigates toward and away from known contacts", function()
+  it("navigates toward and away from known contacts and faces ships", function()
     local toward, towardFailure = fixture.intentHandlers.navigate_ship({
       mode = "target",
       targetId = "wayfarer",
@@ -91,19 +92,37 @@ describe("scraper renderer commands", function()
     }, { id = "away" })
     assert(away, awayFailure)
     equal(fixture:lastCommand().command, "course away Wayfarer")
+    fixture:trigger("Maneuver complete.")
+    local face, faceFailure = fixture.intentHandlers.navigate_ship({
+      mode = "face",
+      targetId = "wayfarer",
+    }, { id = "face" })
+    assert(face, faceFailure)
+    equal(fixture:lastCommand().command, "face Wayfarer")
+
+    fixture:trigger("Maneuver complete.")
+    local planetFace, planetFaceFailure = fixture.intentHandlers.navigate_ship({
+      mode = "face",
+      targetId = "corellia",
+    }, { id = "face-planet" })
+    equal(planetFace, false)
+    assert(planetFaceFailure:find("only ships", 1, true))
   end)
 
-  it("locks a target before enabling autotrack", function()
+  it("locks a target without automatically enabling autotrack", function()
     local ok, failure = fixture.intentHandlers.target_ship(
       { targetId = "wayfarer" },
       { id = "target" }
     )
     assert(ok, failure)
     equal(fixture:lastCommand().command, "target Wayfarer")
+    local commandCount = #fixture.commands
     equal(fixture.scraper.pendingCommandKind, "target")
     equal(fixture:entity("Wayfarer").disposition, nil)
     assert(fixture:trigger("Target Locked."))
-    equal(fixture:lastCommand().command, "autotrack")
+    equal(#fixture.commands, commandCount)
+    equal(fixture:lastCommand().command, "target Wayfarer")
+    equal(fixture.scraper.state.metadata.autotrackDesired, false)
     equal(fixture:entity("Wayfarer").disposition, "enemy")
     equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
   end)

@@ -1,4 +1,5 @@
 import type { Color3, SystemSnapshot, TelemetryEntity, Vector3 } from "../types/telemetry";
+import { planetVisual } from "./planetVisuals.ts";
 import { tacticalShipPixelsForCategory } from "./shipModels.ts";
 
 const TAU = Math.PI * 2;
@@ -196,19 +197,23 @@ export function buildScene(snapshot: SystemSnapshot | null): TacticalScene {
       finite(entity.y) - origin[1],
       finite(entity.z) - origin[2],
     ];
+    const kind =
+      entity.kind === "celestial" && planetVisual(entity.name || entity.id).exact
+        ? "planet"
+        : entity.kind || "unknown";
     const visual = shipVisual(entity.shipCategory);
-    const projectile = entity.kind === "projectile" ? projectileVisual(entity) : null;
+    const projectile = kind === "projectile" ? projectileVisual(entity) : null;
     contacts.push({
       ...entity,
       name: entity.name || entity.id,
-      kind: entity.kind || "unknown",
+      kind,
       distance: Math.round(Math.hypot(...position3d)),
       position3d,
       worldPosition: [finite(entity.x), finite(entity.y), finite(entity.z)],
       color: colorFor(entity),
       pointSize: Number.isFinite(Number(entity.renderPointSize))
         ? Math.max(1, Number(entity.renderPointSize))
-        : ["celestial", "planet", "star"].includes(entity.kind || "")
+        : ["celestial", "planet", "star"].includes(kind)
           ? 13
           : (projectile?.pixels ?? visual.pixels),
       markerShape: entity.kind === "ship" ? visual.shape : (projectile?.shape ?? 0),

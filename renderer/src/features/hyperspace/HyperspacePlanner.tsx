@@ -416,6 +416,7 @@ export function HyperspacePlanner({
       route: {
         mode: "galactic",
         galaxy: escapeSelection.galaxy,
+        galaxyOrigin: primaryGalaxy,
         systemName: escapeSelection.systemName,
         destination: {
           x: clampSectorCoordinate(escapeSx),
@@ -465,6 +466,7 @@ export function HyperspacePlanner({
       {
         mode,
         galaxy: mode === "galactic" ? primaryGalaxy : undefined,
+        galaxyOrigin: mode === "galactic" ? currentGalaxy : undefined,
         systemName: mode === "galactic" ? selectedSystem?.name : currentSystem,
         planetName: selectedPlanet?.name,
         tracking: mode === "local" ? tracking : undefined,

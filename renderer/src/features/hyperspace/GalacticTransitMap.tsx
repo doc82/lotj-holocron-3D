@@ -11,7 +11,8 @@ interface GalaxyPoint {
 interface Props {
   catalog: GalaxyCatalog | null;
   current?: GalaxyPoint;
-  destination: GalaxyPoint;
+  origin?: GalaxyPoint;
+  destination?: GalaxyPoint;
   destinationName?: string;
 }
 
@@ -46,22 +47,36 @@ function sameName(left: string, right?: string) {
   return right ? left.trim().toLowerCase() === right.trim().toLowerCase() : false;
 }
 
-export function GalacticTransitMap({ catalog, current, destination, destinationName }: Props) {
+export function GalacticTransitMap({
+  catalog,
+  current,
+  origin: routeOrigin,
+  destination,
+  destinationName,
+}: Props) {
   const livePosition = finitePoint(current);
-  const [origin, setOrigin] = useState<GalaxyPoint | undefined>(livePosition);
+  const explicitOrigin = finitePoint(routeOrigin);
+  const [observedOrigin, setObservedOrigin] = useState<GalaxyPoint | undefined>(livePosition);
 
   useEffect(() => {
-    if (!origin && livePosition) setOrigin(livePosition);
-  }, [livePosition, origin]);
+    if (!explicitOrigin && !observedOrigin && livePosition) setObservedOrigin(livePosition);
+  }, [explicitOrigin, livePosition, observedOrigin]);
+
+  const origin = explicitOrigin || observedOrigin;
 
   const systems = useMemo(() => normalizeSystems(catalog), [catalog]);
+  const resolvedDestination =
+    finitePoint(destination) || systems.find((system) => sameName(system.name, destinationName));
   const bounds = useMemo(() => {
     const points = [
       ...systems,
-      destination,
+      ...(resolvedDestination ? [resolvedDestination] : []),
       ...(origin ? [origin] : []),
       ...(livePosition ? [livePosition] : []),
     ];
+    if (points.length === 0) {
+      points.push({ x: -1, y: -1 }, { x: 1, y: 1 });
+    }
     const xs = points.map((point) => point.x);
     const ys = points.map((point) => point.y);
     const minX = Math.min(...xs);
@@ -76,13 +91,13 @@ export function GalacticTransitMap({ catalog, current, destination, destinationN
       minY: minY - yPadding,
       maxY: maxY + yPadding,
     };
-  }, [destination, livePosition, origin, systems]);
+  }, [livePosition, origin, resolvedDestination, systems]);
 
   const project = (point: GalaxyPoint) => ({
     left: MAP_MIN + ((point.x - bounds.minX) / (bounds.maxX - bounds.minX || 1)) * MAP_SPAN,
     top: MAP_MIN + ((bounds.maxY - point.y) / (bounds.maxY - bounds.minY || 1)) * MAP_SPAN,
   });
-  const destinationPosition = project(destination);
+  const destinationPosition = resolvedDestination ? project(resolvedDestination) : undefined;
   const originPosition = origin ? project(origin) : undefined;
   const shipPosition = livePosition ? project(livePosition) : originPosition;
   const currentSystemName = catalog?.shipSystem?.name;
@@ -96,7 +111,7 @@ export function GalacticTransitMap({ catalog, current, destination, destinationN
       <div className={styles.map}>
         <div className={styles.galaxyGlow} aria-hidden="true" />
         <div className={styles.grid} aria-hidden="true" />
-        {originPosition && (
+        {originPosition && destinationPosition && (
           <svg
             className={styles.route}
             viewBox="0 0 100 100"
@@ -139,14 +154,16 @@ export function GalacticTransitMap({ catalog, current, destination, destinationN
             </div>
           );
         })}
-        <div
-          className={styles.destination}
-          style={{ left: `${destinationPosition.left}%`, top: `${destinationPosition.top}%` }}
-          aria-label={`Destination ${destinationName || "custom vector"}`}
-        >
-          <i aria-hidden="true" />
-          <span>{destinationName || "CUSTOM VECTOR"}</span>
-        </div>
+        {destinationPosition && (
+          <div
+            className={styles.destination}
+            style={{ left: `${destinationPosition.left}%`, top: `${destinationPosition.top}%` }}
+            aria-label={`Destination ${destinationName || "custom vector"}`}
+          >
+            <i aria-hidden="true" />
+            <span>{destinationName || "CUSTOM VECTOR"}</span>
+          </div>
+        )}
         {shipPosition && (
           <div
             className={styles.ship}
@@ -158,6 +175,9 @@ export function GalacticTransitMap({ catalog, current, destination, destinationN
           </div>
         )}
         {!shipPosition && <div className={styles.awaiting}>AWAITING GMCP.SHIP.SYSTEM</div>}
+        {!destinationPosition && (
+          <div className={styles.awaiting}>AWAITING DESTINATION COORDINATES</div>
+        )}
       </div>
       <div className={styles.footer} aria-live="polite">
         <span>LIVE GMCP // SHIP.SYSTEM</span>

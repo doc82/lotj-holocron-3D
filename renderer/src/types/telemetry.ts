@@ -88,6 +88,7 @@ export interface PollingState {
   paused?: boolean;
   pausedAt?: number;
   pauseReason?: string;
+  gagPolledOutput?: boolean;
   command?: string;
   sensorTickFallbackSeconds?: number;
   sensorPollWaitingForTick?: boolean;
@@ -242,6 +243,7 @@ export interface HyperspaceRoutePayload {
   mode: "local" | "galactic";
   destination: { x: number; y: number; z: number };
   galaxy?: { x: number; y: number };
+  galaxyOrigin?: { x: number; y: number };
   systemName?: string;
   planetName?: string;
   acknowledgeFuelRisk?: boolean;
@@ -254,6 +256,8 @@ export interface HyperspaceRoutePayload {
   memberNames?: string[];
   memberSlots?: number[];
   recipientLabel?: string;
+  manuallyInitiated?: boolean;
+  detectedBy?: "navstat";
   predictionModel?: string;
   estimatedTravelSeconds?: number;
   exitPlan?: HyperspaceExitPlan;
@@ -295,10 +299,16 @@ export interface HyperspaceState {
   error?: string;
   arrivedAt?: number;
   awaitingArrivalRadar?: boolean;
+  destinationReachedAt?: number;
   hyperjumpCompleteObservedAt?: number;
   realspaceLurchObservedAt?: number;
   arrivalConfirmedBy?: string;
   reentrySystemName?: string;
+  manuallyInitiated?: boolean;
+  galaxyOrigin?: { x: number; y: number };
+  originSystemName?: string;
+  navstatRequestedAt?: number;
+  navstatObservedAt?: number;
   exitPlanStatus?:
     | "pending"
     | "armed"

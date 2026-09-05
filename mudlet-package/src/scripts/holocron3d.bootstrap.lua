@@ -5,6 +5,7 @@ Package.VERSION = "0.1.12"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
 Package.settingsPath = getMudletHomeDir() .. "/holocron3d-settings.txt"
+Package.infoCachePath = getMudletHomeDir() .. "/holocron3d-ship-info-cache.json"
 Package.settings = { confirmations = true, debug = false }
 
 local function trim(value)
@@ -417,7 +418,10 @@ function Package.start()
     end
   end
 
-  local scraperReady, scraperError = scraper.setup(lotjHolocron3D, { polling = false })
+  local scraperReady, scraperError = scraper.setup(lotjHolocron3D, {
+    polling = false,
+    infoCache = { path = Package.infoCachePath },
+  })
   if not scraperReady then
     say("red", "could not start live scraping: " .. tostring(scraperError))
     return nil, scraperError

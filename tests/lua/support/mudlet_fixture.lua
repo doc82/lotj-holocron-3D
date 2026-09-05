@@ -12,6 +12,7 @@ local globalNames = {
   "send",
   "sendGMCP",
   "deleteLine",
+  "getCurrentLine",
   "denyCurrentSend",
   "echo",
   "cecho",
@@ -50,6 +51,7 @@ function Fixture.new(options)
     diagnostics = {},
     intentHandlers = {},
     intentAcks = {},
+    messages = {},
     deletedLines = 0,
     deniedSends = 0,
     output = {},
@@ -151,7 +153,14 @@ function Fixture.new(options)
     table.insert(self.intentAcks, { id = intentId, status = status, reason = reason })
     return true
   end
-  assert(self.scraper.setup(self.proxy, { polling = options.polling == true and {} or false }))
+  self.proxy.sendMessage = function(message)
+    table.insert(self.messages, message)
+    return true
+  end
+  assert(self.scraper.setup(self.proxy, {
+    polling = options.polling == true and {} or false,
+    infoCache = options.infoCache,
+  }))
 
   function self:capture(command, output, sentCommand)
     assert(self.scraper.startCapture(command, sentCommand or command, { polled = false }))
@@ -181,6 +190,23 @@ function Fixture.new(options)
     local timer = self.timers[timerId]
     assert(timer, "timer is not active: " .. tostring(timerId))
     timer.callback()
+  end
+  function self:tickTimersAt(seconds)
+    local timerIds = {}
+    for timerId, timer in pairs(self.timers) do
+      if timer.seconds == seconds then
+        table.insert(timerIds, timerId)
+      end
+    end
+    table.sort(timerIds)
+    for _, timerId in ipairs(timerIds) do
+      local timer = self.timers[timerId]
+      if timer then
+        self.timers[timerId] = nil
+        timer.callback()
+      end
+    end
+    return #timerIds
   end
   function self:trigger(pattern, text)
     for _, trigger in pairs(self.triggers) do

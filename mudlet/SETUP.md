@@ -231,12 +231,19 @@ complete cycle. It pauses while landed and resumes after launch. To control it:
 ```lua
 lua lotjHolocron3D.scraper.stopPolling()
 lua lotjHolocron3D.scraper.startPolling({commandGapSeconds = 1, cycleDelaySeconds = 5})
+lua lotjHolocron3D.scraper.setPolledOutputGagged(false)
 ```
 
-Holocron3D is compatible with the official `LotJ/lotj-mudlet-ui` package. Chat
-and unknown game output remain available to that package's tabbed consoles;
-only lines positively identified as part of a Holocron3D background telemetry
-request are hidden. Any command entered in Mudlet interrupts the current
+Holocron3D is compatible with the official `LotJ/lotj-mudlet-ui` package. Chat,
+critical events, and unknown game output remain available to that package's
+tabbed consoles. Background captures may retain unknown continuation lines as
+parser context, but only lines positively identified as telemetry output are
+eligible to be hidden. That cosmetic gag is deferred until every package has
+processed the line, allowing lotj-ui to copy clan and local speech into its
+consoles first. If Mudlet has already advanced to another line, Holocron3D skips
+the gag instead of risking deletion of unrelated output. Pass
+`gagPolledOutput = false` to `startPolling`, or use the setter above, to leave
+all polling output visible. Any command entered in Mudlet interrupts the current
 background capture and pauses polling briefly. Radar issued manually or by
 another package is reused for the next Holocron3D snapshot rather than followed
 by an immediate duplicate request.
@@ -245,9 +252,31 @@ Holocron3D also subscribes to LotJ's `gmcp.Ship.Info` feed. Fresh GMCP values
 provide the player's live coordinates, heading, speed, hull, shields, energy,
 and whether the player is at the controls. This suppresses routine self-`status`
 polls while the feed is healthy; `status` remains the fallback for stale data
-and does not infer landed/in-space state from the `piloting` flag. A launch or
-`You grip the controls.` queues a fresh self-`info` for class, sensors, and
-weapons, which are not included in `Ship.Info`.
+and does not infer landed/in-space state from the `piloting` flag.
+
+During galactic hyperspace travel, `gmcp.Ship.System` supplies the moving galaxy
+`x`/`y` position and `gmcp.Galaxy.Systems` supplies the known system catalog.
+Holocron3D relays both to the transparent transit map layered over the
+hyperspace field. Jumps entered directly in Mudlet with `hyper`, `hyp`, or
+`hyperspace` are adopted automatically. After the jump begins, Holocron3D runs
+one hidden `navstat` capture to identify the Jump System and reconstruct the
+route overlay. A Jump System different from the departure system selects the
+galactic map; a matching (or absent) Jump System keeps the local hyperspace
+view. Galactic mode is selected as soon as `navstat` identifies it, even if the
+destination's GMCP coordinates arrive a little later.
+
+`Destination reached. Initiating realspace reentry...` is also treated as the
+authoritative boundary for requesting fresh world telemetry. Holocron3D queues
+an immediate `radar` there and uses the first successful full response to close
+the hyperspace animation, even if Mudlet misses the later realspace-lurch line.
+
+Static `info` results are acquired once per unique ship-name and ship-class
+pair, then stored in `holocron3d-ship-info-cache.json` within the Mudlet profile
+directory. Cached weapons, sensors, category, performance, and safe dossier
+details are restored when that exact ship is observed again. Access codes are
+never written to this file. Automatic polling does not refresh a cached record;
+enter `info` or `info <ship name>` manually when the stored loadout needs to be
+replaced.
 
 Ships inside `500 + (10 × Sensor Array)` units are also queued for targeted
 `status <ship>` and `info <ship>` scans. Enemy status defaults to a four-second

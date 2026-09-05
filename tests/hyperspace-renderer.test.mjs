@@ -185,7 +185,11 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(transit, /HyperspaceField engaged/);
   assert.match(transit, /route\?\.mode === "galactic"/);
   assert.match(transit, /GalacticTransitMap/);
+  assert.match(transit, /origin=\{route\.galaxyOrigin\}/);
+  assert.match(planner, /galaxyOrigin: mode === "galactic" \? currentGalaxy : undefined/);
   assert.match(app, /liveShipGalaxyPosition/);
+  assert.match(app, /const transitRoute = hyperspaceState\.route \|\| activeRoute \|\| null/);
+  assert.match(app, /route=\{transitRoute\}/);
   assert.match(app, /telemetry\.galaxyCatalog\?\.shipSystem/);
   assert.match(transitMap, /GALACTIC TRANSIT PLOT/);
   assert.match(transitMap, /LIVE GMCP \/\/ SHIP\.SYSTEM/);
@@ -197,6 +201,10 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(field, /edgeActivation/);
   assert.match(scraper, /calc stop/);
   assert.match(scraper, /"hyper off", false/);
+  assert.match(scraper, /normalized == "hyperspace"/);
+  assert.match(scraper, /requestManualHyperspaceNavstat/);
+  assert.match(scraper, /updateManualHyperspaceRoute/);
+  assert.match(scraper, /command ~= "navstat"/);
   assert.match(scraper, /escape_hyperspace/);
   assert.match(scraper, /automation lease expired/i);
   assert.match(scraper, /Galaxy 1/);
@@ -213,6 +221,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /capture\.followupRadar/);
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);
+  assert.match(scraper, /queueImmediateWorldRefresh\("hyperspace destination reached", true\)/);
   assert.match(scraper, /The ship lurches slightly as it comes out of hyperspace/);
   assert.match(scraper, /queueImmediateWorldRefresh\("own ship realspace lurch", true\)/);
   assert.match(scraper, /completeOwnHyperspaceArrival\("fresh radar"\)/);

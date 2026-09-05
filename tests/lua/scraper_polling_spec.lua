@@ -71,6 +71,8 @@ describe("scraper polling scheduler", function()
     assert(fixture.scraper.startCapture("fleetradar", "fleetradar", { polled = true }))
     local deleted = fixture.deletedLines
     assert(fixture.scraper.captureLine("You must be in the co-pilots seat!"))
+    equal(fixture.deletedLines, deleted)
+    equal(fixture:tickTimersAt(0), 1)
     assert(fixture.deletedLines > deleted)
     assert(fixture.scraper.finishCapture("prompt"))
     equal(fixture.scraper.state.metadata.fleetRadarUnavailableReason, "copilot_seat_required")
@@ -127,6 +129,8 @@ describe("scraper polling scheduler", function()
     assert(fixture.scraper.startCapture("squadron status", "squadron status", { polled = true }))
     local deleted = fixture.deletedLines
     assert(fixture.scraper.captureLine("You must be in a fighter cockpit to manage squadrons."))
+    equal(fixture.deletedLines, deleted)
+    equal(fixture:tickTimersAt(0), 1)
     assert(fixture.deletedLines > deleted)
     assert(fixture.scraper.finishCapture("prompt"))
     equal(fixture.scraper.state.metadata.formations.squadron.active, false)
@@ -282,30 +286,22 @@ Jump Time: 8s
     equal(fixture:lastCommand().command, "fleetradar")
   end)
 
-  it("waits for the realspace lurch before refreshing the observer", function()
+  it("uses hyperjump completion as an arrival-radar fallback", function()
     beginPolling()
     fixture.scraper.hyperspace.phase = "reentry"
     assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
     assert(fixture.scraper.handleReentrySystemLine("Corellian System"))
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
-    equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, false)
-
-    assert(
-      fixture.scraper.handleHyperspaceLine(
-        "The ship lurches slightly as it comes out of hyperspace."
-      )
-    )
-    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
     equal(fixture.scraper.getPollingState().radarRefreshPending, true)
     equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, true)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
 
     fixture:tick(fixture.scraper.getPollingState().timerId)
     equal(fixture:lastCommand().command, "radar")
     equal(fixture.scraper.active.sensorTickSource, "realspace")
   end)
 
-  it("suspends automatic telemetry until the observer finishes reentry", function()
+  it("requests radar when the destination is reached and completes without a lurch line", function()
     local pendingTimer = beginPolling()
     fixture.scraper.hyperspace.pendingLocalJumpUntil = os.time() + 30
 
@@ -331,20 +327,20 @@ Jump Time: 8s
       fixture.scraper.handleHyperspaceLine("Destination reached. Initiating realspace reentry...")
     )
     equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
-    equal(fixture.scraper.getPollingState().timerId, nil)
+    assert(fixture.scraper.getPollingState().timerId)
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
+    equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, true)
     equal(#fixture.commands, commandCount)
-
-    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
-    equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
-    assert(fixture.scraper.handleReentrySystemLine("Corellian System"))
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
-    assert(
-      fixture.scraper.handleHyperspaceLine(
-        "The ship lurches slightly as it comes out of hyperspace."
-      )
-    )
     fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(fixture:lastCommand().command, "radar")
+    fixture.scraper.captureLine("You can only do that in realspace!")
+    local earlyResult = fixture.scraper.finishCapture("prompt")
+    equal(earlyResult, nil)
+    local retryTimer = fixture.scraper.getPollingState().timerId
+    assert(retryTimer and fixture.timers[retryTimer])
+    equal(fixture.timers[retryTimer].seconds, fixture.scraper.REENTRY_RADAR_RETRY_SECONDS)
+
+    fixture:tick(retryTimer)
     equal(fixture:lastCommand().command, "radar")
     fixture.scraper.captureLine("Corellian System")
     fixture.scraper.captureLine("Your Coordinates: 1200 -50 800")
@@ -355,8 +351,6 @@ Jump Time: 8s
   it("accepts a successful full radar as arrival confirmation if the lurch was missed", function()
     beginPolling()
     fixture.scraper.hyperspace.phase = "reentry"
-    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
     equal(fixture.scraper.hyperspace.reentryRefreshTimerId, nil)
 
     assert(fixture.scraper.applyResult(
@@ -447,6 +441,75 @@ Your Coordinates: 20 30 40
     assert(fixture.scraper.finishCapture("prompt"))
     fixture:tick(fixture.scraper.getPollingState().timerId)
     equal(fixture:lastCommand().command, "info Wayfarer")
+  end)
+
+  it("never automatically repeats info after the ship identity is cached", function()
+    assert(fixture.scraper.applyResult(
+      assert(fixture.parsers.parse(
+        "radar",
+        [[
+Corellian System
+YT-1300 'Wayfarer' 200 30 40
+Your Coordinates: 20 30 40
+]]
+      )),
+      "radar"
+    ))
+    assert(fixture.scraper.applyResult(
+      assert(fixture.parsers.parse(
+        "status",
+        [[
+Readout for YT-1300 'Wayfarer':
+Hull: 90/100 Shields: 40/50
+]]
+      )),
+      "status Wayfarer"
+    ))
+    assert(fixture.scraper.applyResult(
+      assert(fixture.parsers.parse(
+        "info",
+        [[
+[Class: Freighter] : YT-1300 'Wayfarer'
+Autoblasters: 0 Laser cannons: 2 Turbolasers: 2
+Ion cannons: 0 Maximum Missiles: 8 Maximum Torpedoes: 0
+Maximum Rockets: 0 Maximum Pulses: 0 Missile Tubes: 2
+Sensor Array: 7
+]]
+      )),
+      "info Wayfarer"
+    ))
+
+    local timer = beginPolling()
+    local now = os.time()
+    fixture.scraper.polling.lastBattlegroupAt = now
+    fixture.scraper.polling.lastSquadronAt = now
+    fixture.scraper.polling.lastFleetRadarAt = now
+    fixture.scraper.combat.lastRadarAt = now
+    fixture.scraper.scanState.wayfarer = { statusAt = now, infoAt = 0 }
+    fixture:tick(timer)
+
+    equal(fixture:lastCommand().command, "status")
+  end)
+
+  it("does not queue cached observer info during startup hydration", function()
+    assert(fixture.scraper.applyResult(
+      assert(fixture.parsers.parse(
+        "info",
+        [[
+[Class: Freighter] : YT-1300 'Wayfarer'
+Autoblasters: 0 Laser cannons: 2 Turbolasers: 2
+Ion cannons: 0 Maximum Missiles: 8 Maximum Torpedoes: 0
+Maximum Rockets: 0 Maximum Pulses: 0 Missile Tubes: 2
+Sensor Array: 7
+]]
+      )),
+      "info"
+    ))
+    assert(fixture.scraper.startStartupPolling())
+
+    for _, command in ipairs(fixture.scraper.getPollingState().hydrationQueue) do
+      assert(command ~= "info")
+    end
   end)
 
   it("throttles periodic hostile scans until explicitly overdue", function()

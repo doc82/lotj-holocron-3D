@@ -332,6 +332,10 @@ export function App() {
     telemetry.galaxyCatalog?.shipSystem?.x,
     telemetry.galaxyCatalog?.shipSystem?.y,
   ]);
+  // Once transit begins, the Mudlet snapshot is authoritative. This is
+  // especially important for jumps entered directly in Mudlet, whose navstat
+  // route must not be masked by an older planner selection.
+  const transitRoute = hyperspaceState.route || activeRoute || null;
 
   const navigation = useNavigationController({
     connected: telemetry.connected,
@@ -380,7 +384,7 @@ export function App() {
   );
   const autotrackObserved = typeof observer.autotrack === "boolean" ? observer.autotrack : null;
   const observerHasNoWeapons = observer.hasWeapons === false;
-  const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired !== false;
+  const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired === true;
   const autotrackPending = telemetry.snapshot?.metadata?.autotrackPending === true;
   const combatEvent = telemetry.snapshot?.metadata?.combatEvent;
   const combatEvents =
@@ -556,7 +560,7 @@ export function App() {
             reentry={["reentry", "arrived"].includes(hyperspaceState.phase || "")}
             arrived={hyperspaceState.phase === "arrived"}
             escapePending={hyperspaceEscapePending}
-            route={activeRoute}
+            route={transitRoute}
             catalog={telemetry.galaxyCatalog}
             galaxyPosition={liveShipGalaxyPosition}
             onEscape={() => void escapeHyperspace()}
@@ -742,7 +746,10 @@ export function App() {
               }
               vector={courseVector}
               status={navigationStatus}
-              departureSpeedRequired={Boolean(navigation.fleetScope) || observerSpeed === 0}
+              departureSpeedRequired={
+                pendingNavigationMode !== "face" &&
+                (Boolean(navigation.fleetScope) || observerSpeed === 0)
+              }
               speed={requestedSpeed}
               maximumSpeed={maximumSpeed}
               commandLocked={commandLocked}
