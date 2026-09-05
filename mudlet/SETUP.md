@@ -265,6 +265,12 @@ galactic map; a matching (or absent) Jump System keeps the local hyperspace
 view. Galactic mode is selected as soon as `navstat` identifies it, even if the
 destination's GMCP coordinates arrive a little later.
 
+Own-ship galactic positioning prefers `Ship.System.x/y` over cached `navstat`
+coordinates. The planner makes at most two missing-position `navstat` attempts
+per opening and suspends its navigation refreshes during transit. Ordinary
+arrival requires no `navstat`; an armed escape plan requests it once only when
+arrival position has not been verified by GMCP or a fresh navigation report.
+
 `Destination reached. Initiating realspace reentry...` is also treated as the
 authoritative boundary for requesting fresh world telemetry. Holocron3D queues
 an immediate `radar` there and uses the first successful full response to close

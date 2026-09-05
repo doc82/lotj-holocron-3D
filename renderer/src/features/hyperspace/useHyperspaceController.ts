@@ -141,6 +141,7 @@ export function useHyperspaceController({
   const navigationRefreshIntentIdsRef = useRef(new Set<string>());
   const escapeTriggeredRef = useRef(false);
   const arrivalRefreshAtRef = useRef<number | null>(null);
+  const positionRefreshAttemptsRef = useRef(0);
   const announcedReadyKeyRef = useRef<string | null>(null);
   const announcedCalculationWaitRef = useRef(false);
   const trackingReplotPendingRef = useRef(false);
@@ -175,16 +176,20 @@ export function useHyperspaceController({
   const navigationDestinations = snapshot?.metadata?.navigation?.destinations || [];
   const navigationGalaxy = snapshot?.metadata?.navigation?.galaxy;
   const catalogGalaxy = galaxyCatalog?.shipSystem;
+  const ownGalaxyPosition = useMemo(() => {
+    for (const point of [catalogGalaxy, navigationGalaxy]) {
+      if (point?.x == null || point?.y == null) continue;
+      const x = Number(point.x);
+      const y = Number(point.y);
+      if (Number.isFinite(x) && Number.isFinite(y)) return { x, y };
+    }
+    return undefined;
+  }, [catalogGalaxy?.x, catalogGalaxy?.y, navigationGalaxy?.x, navigationGalaxy?.y]);
   const currentGalaxyPosition = useMemo(
     () =>
       Number.isFinite(Number(viewpointGalaxy?.x)) && Number.isFinite(Number(viewpointGalaxy?.y))
         ? { x: Number(viewpointGalaxy?.x), y: Number(viewpointGalaxy?.y) }
-        : Number.isFinite(Number(navigationGalaxy?.x)) &&
-            Number.isFinite(Number(navigationGalaxy?.y))
-          ? { x: Number(navigationGalaxy?.x), y: Number(navigationGalaxy?.y) }
-          : Number.isFinite(Number(catalogGalaxy?.x)) && Number.isFinite(Number(catalogGalaxy?.y))
-            ? { x: Number(catalogGalaxy?.x), y: Number(catalogGalaxy?.y) }
-            : undefined,
+        : ownGalaxyPosition,
     [
       catalogGalaxy?.x,
       catalogGalaxy?.y,
@@ -192,6 +197,7 @@ export function useHyperspaceController({
       navigationGalaxy?.y,
       viewpointGalaxy?.x,
       viewpointGalaxy?.y,
+      ownGalaxyPosition,
     ],
   );
   const galaxyCatalogSize =
@@ -583,14 +589,19 @@ export function useHyperspaceController({
   }, [activeRoute, hyperdriveClearance.known, pollingPaused, state.phase]);
 
   useEffect(() => {
+    if (!planner) positionRefreshAttemptsRef.current = 0;
     if (pollingPaused || !planner || navigationRefreshBlocked) return;
+    if (["engaging", "hyperspace", "reentry"].includes(state.phase || "idle")) return;
     const needsRange = navigationDestinations.length === 0;
     const needsCatalog = planner.mode === "galactic" && galaxyCatalogSize === 0;
-    const needsPosition = !currentGalaxyPosition;
+    const positionMissing = !currentGalaxyPosition;
+    const needsPosition = positionMissing && positionRefreshAttemptsRef.current < 2;
     if (!needsRange && !needsCatalog && !needsPosition) return;
     const refreshMissingNavigationData = async () => {
       if (needsCatalog) void window.holocron?.sendIntent("refresh_galaxy_catalog");
+      const needsPosition = positionMissing && positionRefreshAttemptsRef.current < 2;
       if (!needsPosition && !needsRange) return;
+      if (needsPosition) positionRefreshAttemptsRef.current += 1;
       const result = await window.holocron?.sendIntent("refresh_navigation", {
         command: needsPosition ? "navstat" : "calc",
       });
@@ -606,6 +617,7 @@ export function useHyperspaceController({
     navigationRefreshBlocked,
     planner,
     pollingPaused,
+    state.phase,
   ]);
 
   useEffect(() => {
@@ -675,21 +687,27 @@ export function useHyperspaceController({
       return;
     }
     // Arrival is authoritative and must always release the navigation panel.
-    // Pausing telemetry only suppresses the follow-up navstat request.
     setActiveRoute(null);
-    if (pollingPaused) return;
+    if (pollingPaused || !escapePlan || escapeTriggeredRef.current) return;
     const arrivedAt = Number(state.arrivedAt) || 0;
+    const gmcpPositionReady =
+      catalogGalaxy?.x != null &&
+      catalogGalaxy?.y != null &&
+      Number.isFinite(Number(catalogGalaxy.x)) &&
+      Number.isFinite(Number(catalogGalaxy.y)) &&
+      Number(galaxyCatalog?.observedAt) >= arrivedAt;
     const arrivalNavigationReady =
-      Number(snapshot?.metadata?.navigation?.arrivalRefreshedAt) >= arrivedAt;
-    if (arrivalRefreshAtRef.current !== arrivedAt) {
+      gmcpPositionReady || Number(snapshot?.metadata?.navigation?.arrivalRefreshedAt) >= arrivedAt;
+    if (!arrivalNavigationReady && arrivalRefreshAtRef.current !== arrivedAt) {
       arrivalRefreshAtRef.current = arrivedAt;
       void window.holocron?.sendIntent("refresh_navigation", {
         command: "navstat",
       });
     }
-    if (!escapePlan || escapeTriggeredRef.current || !arrivalNavigationReady) return;
-    const actualX = Number(currentGalaxyPosition?.x);
-    const actualY = Number(currentGalaxyPosition?.y);
+    if (!arrivalNavigationReady) return;
+    const arrivalPosition = gmcpPositionReady ? catalogGalaxy : navigationGalaxy;
+    const actualX = Number(arrivalPosition?.x);
+    const actualY = Number(arrivalPosition?.y);
     if (actualX !== escapePlan.triggerGalaxy.x || actualY !== escapePlan.triggerGalaxy.y) return;
     escapeTriggeredRef.current = true;
     const escapeRoute = escapePlan.route;
@@ -707,6 +725,11 @@ export function useHyperspaceController({
     snapshot?.metadata?.navigation?.arrivalRefreshedAt,
     state.arrivedAt,
     state.phase,
+    catalogGalaxy?.x,
+    catalogGalaxy?.y,
+    galaxyCatalog?.observedAt,
+    navigationGalaxy?.x,
+    navigationGalaxy?.y,
   ]);
 
   useEffect(() => {
@@ -786,6 +809,7 @@ export function useHyperspaceController({
     routeClearance,
     navigationDestinations,
     currentGalaxyPosition,
+    ownGalaxyPosition,
     motionTracks,
     openPlanner,
     closePlanner,

@@ -326,9 +326,9 @@ export function App() {
     const shipSystem = telemetry.galaxyCatalog?.shipSystem;
     const x = Number(shipSystem?.x);
     const y = Number(shipSystem?.y);
-    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : currentGalaxyPosition;
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : hyperspace.ownGalaxyPosition;
   }, [
-    currentGalaxyPosition,
+    hyperspace.ownGalaxyPosition,
     telemetry.galaxyCatalog?.shipSystem?.x,
     telemetry.galaxyCatalog?.shipSystem?.y,
   ]);
