@@ -27,12 +27,397 @@ h.after_each(function()
 end)
 
 describe("scraper capture lifecycle", function()
+  local function response(lines)
+    for value in (lines .. "\n"):gmatch("(.-)\n") do
+      fixture.scraper.captureLine(value)
+    end
+    if fixture.scraper.active then
+      fixture.scraper.finishCapture("prompt")
+    end
+  end
+
+  it("discovers logistics from an empty landed catalogue and completes all markets", function()
+    fixture.scraper.setInSpace(false, "landed")
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "refresh-1" }))
+    equal(fixture:lastCommand().command, "planets")
+    response(
+      "  Planet           Starsystem            Governed By               Notices\n  Ithor            Ottega System         A Neutral Government      [FP]"
+    )
+    equal(fixture.scraper.state.metadata.inSpace, false)
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "clans")
+    response(
+      "Major Organizations:\nClan Name | Planets | Active Members\nA Neutral Government | 7 | (None)"
+    )
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "l hyp")
+    response(" | Between Ithor and Naboo : Passable |\n *----------------------*")
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "showp Ithor resources")
+    response("--Planet Data: ---\nPlanet: Ithor\nFood ( Price per unit: 10.00)")
+    fixture:tickTimersAt(0.05)
+    local logistics = fixture.scraper.state.metadata.logistics
+    equal(logistics.refresh.phase, "completed")
+    equal(logistics.refresh.completed, 4)
+    equal(logistics.refresh.total, 4)
+    equal(logistics.markets.ithor.resources.Food, 10)
+    equal(fixture.scraper.state.metadata.inSpace, false)
+    equal(#fixture.intentAcks, 1)
+    equal(fixture.intentAcks[1].status, "completed")
+  end)
+
+  it("rejects overlapping logistics refreshes without replacing the active batch", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "first" }))
+    equal(fixture.intentHandlers.refresh_logistics({}, { id = "second" }), false)
+    equal(fixture.scraper.logistics.refreshIntentId, "first")
+    equal(#fixture.commands, 1)
+  end)
+
+  local function beginMonCalaRefresh()
+    fixture.scraper.setInSpace(false, "landed")
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "mon-cala" }))
+    response(
+      "  Planet           Starsystem            Governed By               Notices\n  Mon Cala         Calamari System       A Neutral Government      [FP]\n  Lorrd            Kanz Sector           A Neutral Government      [FP]"
+    )
+    fixture:tickTimersAt(0.05)
+    response(
+      "Major Organizations:\nClan Name | Planets | Active Members\nA Neutral Government | 7 | (None)"
+    )
+    fixture:tickTimersAt(0.05)
+    response(" | Between Mon Cala and Lorrd : Passable |\n *----------------------*")
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, 'showp "Mon Cala" resources')
+  end
+
+  it("quotes multi-word market destinations and matches their unquoted response names", function()
+    beginMonCalaRefresh()
+    response([[You use the datapad to lookup the information.
+--Planet Data: -----------------------------------------
+Planet: Mon Cala
+Starsystem: Calamari System
+Governed By: A Neutral Government
+Tax Rate: 15.00
+Food                 ( Price per unit: 11.00)
+Water                ( Price per unit: 18.92)
+Use 'SHOWPLANET <planet> RESOURCES <resource>' for price history.
+]])
+    local logistics = fixture.scraper.state.metadata.logistics
+    equal(logistics.markets["mon cala"].planet, "Mon Cala")
+    equal(logistics.markets["mon cala"].resources.Water, 18.92)
+    equal(#fixture.intentAcks, 0)
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "showp Lorrd resources")
+    response("--Planet Data: ---\nPlanet: Lorrd\nFood ( Price per unit: 11.00)")
+    fixture:tickTimersAt(0.05)
+    equal(logistics.refresh.phase, "completed")
+    equal(logistics.refresh.completed, 5)
+    equal(fixture.intentAcks[1].status, "completed")
+    equal(fixture.scraper.state.metadata.inSpace, false)
+  end)
+
+  it("does not accept a planet description as a multi-word market response", function()
+    beginMonCalaRefresh()
+    response([[You use the datapad to lookup the information.
+--Planet Data: -----------------------------------------
+Planet: Mon Cala
+Starsystem: Calamari System
+Coordinates: 0 0 0
+Governed By: A Neutral Government
+--Planet Description: ------------------------
+Mon Cala is home to the Mon Calamari and the Quarren.
+--Planet Economy: ----------------------------
+GDP:               143002/hr
+Tax Rate:               15.00%
+Use 'SHOWPLANET <planet> RESOURCES' for current resources.
+Use 'SHOWPLANET <planet> AI' for current population status.
+Use 'SHOWPLANET <planet> NEWS' for current events.
+]])
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(fixture.scraper.state.metadata.logistics.markets, nil)
+    equal(fixture.intentAcks[1].status, "rejected")
+  end)
+
+  it("rejects another planet's prices during a quoted market request", function()
+    beginMonCalaRefresh()
+    response("--Planet Data: ---\nPlanet: Lorrd\nFood ( Price per unit: 11.00)")
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(fixture.scraper.state.metadata.logistics.markets, nil)
+    equal(fixture.intentAcks[1].status, "rejected")
+  end)
+
+  it("waits for the clan prompt before capturing the next hyperlane response", function()
+    fixture.scraper.setInSpace(false, "landed")
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "clan-prompt" }))
+    response(
+      "  Planet           Starsystem            Governed By               Notices\n  Naboo            Naboo System          A Neutral Government      [FP]"
+    )
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "clans")
+    for value in
+      ([[Major Organizations:
+Clan Name                                | Planets | Active Members
+A Neutral Government                     | 7       | (None)
+Confederacy of Independent Systems       | 3       | 30+
+The Galactic Republic                    | 5       | 30+
+Minor Organizations:
+Clan Name                                | Planets | Active Members
+Merr-Sonn Munitions                      | 0       | 20+
+Durafly                                  | 0       | 10+
+Lorellian Raiders                        | 0       | 20+
+Use SHOWCLAN for more information.
+]]):gmatch("(.-)\n")
+    do
+      fixture.scraper.captureLine(value)
+    end
+    -- The footer is not the end of the command's output envelope.
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "clans")
+    equal(fixture.scraper.active.parserCommand, "clans")
+    fixture.scraper.captureLine("{Tone: none } {Time: night } {Ambience: average }")
+    fixture.scraper.captureLine("{Health: 1400/1400} {OOC:||||||} [ ] {Movement: 2690/2690} []")
+    assert(fixture:trigger("prompt"))
+    equal(#fixture.scraper.state.metadata.logistics.clans, 6)
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "l hyp")
+    -- Even an extra delayed prompt cannot consume an empty new capture.
+    local capture = fixture.scraper.active
+    assert(fixture:trigger("prompt"))
+    equal(fixture.scraper.active, capture)
+    equal(#fixture.intentAcks, 0)
+    for value in
+      ([[You glance at the monitor's rendering of the galactic hyperlane hazards:
+.--------------------------------------------------.
+|   Between Naboo and Bespin         : No Route    |
+|   Between Corellia and Wroona      : Passable    |
+|   Between Kashyyyk and Core Worlds : No Route    |
+|   Between Arkania and Lorrd        : No Route    |
+|   Between Hutt Space and Tatooine  : No Route    |
+*--------------------------------------------------*
+]]):gmatch("(.-)\n")
+    do
+      fixture.scraper.captureLine(value)
+    end
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "l hyp")
+    assert(fixture:trigger("prompt"))
+    local lanes = fixture.scraper.state.metadata.logistics.hyperlanes
+    equal(#lanes, 5)
+    equal(lanes[2].from, "Corellia")
+    equal(lanes[2].status, "passable")
+    equal(lanes[3].to, "Core Worlds")
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "showp Naboo resources")
+    response("--Planet Data: ---\nPlanet: Naboo\nFood ( Price per unit: 10.00)")
+    fixture:tickTimersAt(0.05)
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "completed")
+    equal(fixture.scraper.state.metadata.inSpace, false)
+  end)
+
+  it("times out a logistics capture even after ignoring an early prompt", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "no-response" }))
+    assert(fixture:trigger("prompt"))
+    assert(fixture.scraper.active)
+    fixture:tickTimersAt(fixture.scraper.CAPTURE_TIMEOUT_SECONDS)
+    equal(fixture.scraper.active, nil)
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(#fixture.intentAcks, 1)
+    equal(fixture.intentAcks[1].status, "rejected")
+  end)
+
+  it("fails a partial logistics timeout and permits a fresh retry", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "timeout" }))
+    fixture.scraper.captureLine(
+      "  Planet           Starsystem            Governed By               Notices"
+    )
+    fixture.scraper.finishCapture("timeout")
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(#fixture.intentAcks, 1)
+    equal(fixture.intentAcks[1].status, "rejected")
+    fixture:tickTimersAt(0.05)
+    equal(#fixture.commands, 1)
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "retry" }))
+  end)
+
+  it("cancels queued logistics commands when the user intervenes between captures", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "interrupted" }))
+    response(
+      "  Planet           Starsystem            Governed By               Notices\n  Ithor            Ottega System         A Neutral Government      [FP]"
+    )
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "look")
+    fixture:tickTimersAt(0.05)
+    equal(#fixture.commands, 1)
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+  end)
+
+  it("captures typed cargo confirmations while landed before completing their intent", function()
+    fixture.scraper.setInSpace(false, "landed")
+    assert(
+      fixture.intentHandlers.logistics_action(
+        { action = "buy", shipName = "BlueSkies", resource = "Textiles", quantity = 10 },
+        { id = "buy-1" }
+      )
+    )
+    equal(#fixture.intentAcks, 0)
+    response("You purchased 10 units of Textiles for 100 credits.")
+    equal(fixture.scraper.state.metadata.logistics.lastTransaction.amount, 10)
+    equal(fixture.scraper.state.metadata.inSpace, false)
+    equal(fixture.intentAcks[1].id, "buy-1")
+    equal(fixture.intentAcks[1].status, "completed")
+  end)
+
+  it("captures manually requested logistics while landed", function()
+    fixture.scraper.setInSpace(false, "landed")
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "refuel BlueSkies")
+    assert(fixture.scraper.active)
+    response("You pay 10 credits to refuel the ship.")
+    equal(fixture.scraper.state.metadata.logistics.lastTransaction.action, "refuel")
+    equal(fixture.scraper.state.metadata.inSpace, false)
+  end)
+
+  it("completes refueling when the ship is already full", function()
+    fixture.scraper.setInSpace(false, "landed")
+    assert(
+      fixture.intentHandlers.logistics_action(
+        { action = "refuel", shipName = "gg" },
+        { id = "full-refuel" }
+      )
+    )
+    response("That ship is already fully fueled!")
+    equal(fixture.scraper.state.metadata.logistics.lastTransaction.cost, 0)
+    equal(fixture.scraper.state.metadata.logistics.lastTransaction.alreadyFull, true)
+    equal(fixture.intentAcks[1].status, "completed")
+  end)
+
+  it("captures the credit balance while landed", function()
+    fixture.scraper.setInSpace(false, "landed")
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "credits")
+    response("You have 1097793 credits.")
+    equal(fixture.scraper.state.metadata.logistics.credits, 1097793)
+    equal(fixture.scraper.active, nil)
+  end)
+
+  it("uses only bare showplanet as a current location observation", function()
+    fixture.scraper.setInSpace(false, "landed")
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "showplanet")
+    response(
+      "Planet: Naboo\nStarsystem: Naboo System\nUse 'SHOWPLANET <planet> RESOURCES' for current resources."
+    )
+    equal(fixture.scraper.state.metadata.logistics.location.planet, "Naboo")
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", 'showplanet "Mon Cala"')
+    response(
+      "Planet: Mon Cala\nStarsystem: Calamari System\nUse 'SHOWPLANET <planet> RESOURCES' for current resources."
+    )
+    equal(fixture.scraper.state.metadata.logistics.location.planet, "Naboo")
+  end)
+
+  it("rejects an empty catalogue without reporting a successful refresh", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "empty" }))
+    response("  Planet           Starsystem            Governed By               Notices")
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(#fixture.intentAcks, 1)
+    equal(fixture.intentAcks[1].status, "rejected")
+    equal(fixture.scraper.logistics.refreshing, false)
+  end)
+
+  it("does not allow polling to supersede a logistics capture", function()
+    fixture.scraper.setInSpace(true, "fixture")
+    assert(fixture.scraper.startPolling({ initialDelaySeconds = 0.1 }))
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "poll-safe" }))
+    local capture = fixture.scraper.active
+    fixture:tickTimersAt(0.1)
+    equal(fixture.scraper.active, capture)
+    equal(#fixture.commands, 1)
+  end)
+
+  it("fails an interrupted logistics capture rather than advancing its queue", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "superseded" }))
+    fixture.scraper.captureLine(
+      "  Planet           Starsystem            Governed By               Notices"
+    )
+    assert(fixture.scraper.startCapture("status", "status", { allowLanded = true }))
+    fixture:tickTimersAt(0.05)
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(fixture.scraper.active.parserCommand, "status")
+    equal(#fixture.intentAcks, 1)
+  end)
+
+  it("releases logistics refresh ownership when sending fails", function()
+    _G.send = function()
+      return false, "disconnected"
+    end
+    equal(fixture.intentHandlers.refresh_logistics({}, { id = "send-failed" }), false)
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(fixture.scraper.active, nil)
+    equal(fixture.scraper.logistics.refreshing, false)
+  end)
+
+  it("does not retry a cargo action without a confirmation", function()
+    assert(
+      fixture.intentHandlers.logistics_action(
+        { action = "refuel", shipName = "BlueSkies" },
+        { id = "refuel-timeout" }
+      )
+    )
+    fixture.scraper.finishCapture("timeout")
+    equal(#fixture.commands, 1)
+    equal(fixture.intentAcks[1].status, "rejected")
+    equal(fixture.scraper.state.metadata.logistics, nil)
+  end)
+
+  it("rejects an unrelated transaction confirmation for a typed cargo action", function()
+    assert(
+      fixture.intentHandlers.logistics_action(
+        { action = "buy", shipName = "BlueSkies", resource = "Textiles", quantity = 10 },
+        { id = "buy-mismatch" }
+      )
+    )
+    response("You pay 10 credits to refuel the ship.")
+    equal(fixture.intentAcks[1].status, "rejected")
+    equal(fixture.scraper.state.metadata.logistics, nil)
+    equal(#fixture.commands, 1)
+  end)
+
   it("registers protocol listeners and intent handlers in a fresh fixture", function()
     equal(#fixture.scraper.eventHandlerIds, 5)
-    equal(#fixture.scraper.stateTriggerIds, 24)
+    equal(#fixture.scraper.stateTriggerIds, 26)
     equal(fixture.gmcpRequests[1].command, "Core.Supports.Add")
     assert(type(fixture.intentHandlers.scan_ship) == "function")
     assert(type(fixture.intentHandlers.navigate_ship) == "function")
+    assert(type(fixture.intentHandlers.route_operation) == "function")
+    assert(type(fixture.intentHandlers.route_stop) == "function")
+  end)
+
+  it("connects navigation intents to command responses and completion telemetry", function()
+    fixture.scraper.setInSpace(false, "landed")
+    assert(fixture.intentHandlers.route_operation({
+      operation = {
+        id = "run:1",
+        runId = "run",
+        kind = "reconcile",
+        destination = { name = "Corellia" },
+      },
+      ship = { name = "Sunrise", enterPath = { "n" }, exitPath = { "s" } },
+    }, { id = "navigation-intent" }))
+    equal(fixture.scraper.polling.paused, true)
+    equal(fixture.commands[#fixture.commands].command, "showplanet")
+    local function reply(lines)
+      for line in (lines .. "\n"):gmatch("([^\n]*)\n") do
+        fixture.scraper.routeNavigation:line(line)
+      end
+      fixture.scraper.routeNavigation:prompt()
+      fixture:tickTimersAt(0)
+    end
+    reply("Planet: Corellia\nStarsystem: Corellia System")
+    reply("Landing Pad\nLethisk-Class Armed Freighter: Sunrise")
+    reply("Cargo Readout for Freighter 'Sunrise':\n[1 ] [(Empty)] [0/500]")
+    reply("You have 1097793 credits.")
+    reply("You have 1097793 credits.")
+    equal(fixture.scraper.state.metadata.routeNavigation.confirmation.operationId, "run:1")
+    equal(fixture.scraper.state.metadata.routeNavigation.confirmation.location.ship, "Sunrise")
+    equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
+    equal(fixture.intentAcks[#fixture.intentAcks].id, "navigation-intent")
+    assert(fixture.intentHandlers.route_stop({ runId = "run" }))
+    equal(fixture.scraper.polling.paused, false)
   end)
 
   it("applies observer status without depending on snapshot indexes", function()

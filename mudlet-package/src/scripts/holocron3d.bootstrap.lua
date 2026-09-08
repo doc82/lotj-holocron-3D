@@ -368,6 +368,9 @@ function Package.start()
   package.loaded["lotj_holocron_proxy"] = nil
   package.loaded["lotj_holocron_parsers"] = nil
   package.loaded["lotj_holocron_scraper"] = nil
+  package.loaded["lotj_holocron_navigation"] = nil
+  package.loaded["lotj_holocron_topology"] = nil
+  package.loaded["lotj_holocron_topology_data"] = nil
 
   local runtime, runtimeError = resolveRuntime(false)
   if not runtime then

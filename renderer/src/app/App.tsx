@@ -1,3 +1,4 @@
+import { useMarketArchive } from "../features/trader/useMarketArchive";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { buildScene, findScenePoint } from "../domain/scene";
@@ -33,6 +34,8 @@ import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
 import type { TacticalCameraMode, TacticalScaleMode } from "../features/tactical/TacticalEngine";
 import { TargetShortcutRail } from "../features/tactical/TargetShortcutRail";
+import { TraderWorkspace } from "../features/trader/TraderWorkspace";
+import { useTraderController } from "../features/trader/useTraderController";
 import { useTacticalInteractionController } from "../features/tactical/useTacticalInteractionController";
 import type { RangeReading } from "../features/telemetry/RangeMeter";
 import { ShipDossierPanel } from "../features/telemetry/ShipDossierPanel";
@@ -66,6 +69,7 @@ export function App() {
   const [cinematicMode, setCinematicMode] = useState(false);
   const [commandLocked, setCommandLocked] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
+  const [traderOpen, setTraderOpen] = useState(false);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const {
@@ -97,6 +101,34 @@ export function App() {
       starting,
       setAlert: setCommandAlert,
     });
+  const marketArchive = useMarketArchive(
+    telemetry.logisticsSnapshot?.metadata?.logistics,
+    telemetry.galaxyCatalog,
+  );
+  const {
+    refreshMarkets,
+    refreshError,
+    execution: traderExecution,
+    armRoute,
+    pauseRoute,
+    resumeRoute,
+    abortRoute,
+    config: traderConfig,
+    addShip,
+    addPad,
+    saveRoute,
+    storageError,
+    deleteShip,
+    selectShip,
+    deletePad,
+    deleteRoute,
+    renameRoute,
+  } = useTraderController(
+    telemetry.connected,
+    telemetry.logisticsSnapshot,
+    telemetry.galaxyCatalog ?? marketArchive.archive.catalog,
+    marketArchive.archive.logistics,
+  );
   const viewpointMember = fleetMemberForSelectionKey(fleet?.members ?? [], viewpointMemberKey);
   const activeTacticalView = tacticalViewForMember(telemetry.snapshot, viewpointMemberKey);
   const tacticalSnapshot = useMemo(
@@ -341,7 +373,7 @@ export function App() {
     connected: telemetry.connected,
     landed,
     pollingPaused,
-    keyboardEnabled: !hyperspacePlanner && !managementOpen && !cinematicMode,
+    keyboardEnabled: !hyperspacePlanner && !managementOpen && !traderOpen && !cinematicMode,
     commandLocked,
     setCommandLocked,
     setAlert: setCommandAlert,
@@ -452,6 +484,12 @@ export function App() {
   useEffect(() => {
     const handleManagementKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (traderOpen) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setTraderOpen(false);
+        return;
+      }
       if (cinematicMode) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -486,6 +524,7 @@ export function App() {
     hyperspacePlanner,
     managementOpen,
     navigationMode,
+    traderOpen,
     scopeDrawerOpen,
     shipDossier,
     starting,
@@ -510,7 +549,7 @@ export function App() {
         return;
       if (
         !cinematicMode &&
-        (!spaceTelemetryActive || starting || managementOpen || hyperspacePlanner)
+        (!spaceTelemetryActive || starting || managementOpen || traderOpen || hyperspacePlanner)
       )
         return;
       event.preventDefault();
@@ -518,7 +557,14 @@ export function App() {
     };
     window.addEventListener("keydown", handleCinematicKey);
     return () => window.removeEventListener("keydown", handleCinematicKey);
-  }, [cinematicMode, hyperspacePlanner, managementOpen, spaceTelemetryActive, starting]);
+  }, [
+    cinematicMode,
+    hyperspacePlanner,
+    managementOpen,
+    traderOpen,
+    spaceTelemetryActive,
+    starting,
+  ]);
 
   useEffect(() => {
     if (!spaceTelemetryActive) setCinematicMode(false);
@@ -535,6 +581,34 @@ export function App() {
   const managementMenu = managementOpen ? (
     <ManagementMenu onClose={() => setManagementOpen(false)} />
   ) : null;
+  const traderWorkspace = traderOpen ? (
+    <TraderWorkspace
+      connected={telemetry.connected}
+      refreshError={refreshError}
+      snapshot={telemetry.logisticsSnapshot}
+      catalog={marketArchive.archive.catalog ?? telemetry.galaxyCatalog}
+      storedLogistics={marketArchive.archive.logistics}
+      execution={traderExecution}
+      config={traderConfig}
+      onClose={() => setTraderOpen(false)}
+      onRefresh={refreshMarkets}
+      onPauseRoute={pauseRoute}
+      onArmRoute={armRoute}
+      onResumeRoute={resumeRoute}
+      onAbortRoute={abortRoute}
+      onAddShip={addShip}
+      onAddPad={addPad}
+      onSaveRoute={(route, name) =>
+        saveRoute(route, name, Object.values(marketArchive.archive.logistics.markets ?? {}))
+      }
+      storageError={[storageError, marketArchive.error].filter(Boolean).join(" ") || null}
+      onDeleteShip={deleteShip}
+      onSelectShip={selectShip}
+      onDeletePad={deletePad}
+      onDeleteRoute={deleteRoute}
+      onRenameRoute={renameRoute}
+    />
+  ) : null;
 
   if (!spaceTelemetryActive)
     return (
@@ -543,10 +617,12 @@ export function App() {
         <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
           <div className={styles.scanlines} aria-hidden="true" />
           <UplinkNotice
+            onOpenTrader={() => setTraderOpen(true)}
             paused={telemetry.connected && landed}
             reason={telemetry.spaceState?.reason}
           />
           {managementMenu}
+          {traderWorkspace}
         </main>
       </>
     );
@@ -575,7 +651,7 @@ export function App() {
           observerLabel={viewpointMemberKey ? "REMOTE VIEW" : "YOUR SHIP"}
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
-          keyboardEnabled={!hyperspacePlanner && !managementOpen}
+          keyboardEnabled={!hyperspacePlanner && !managementOpen && !traderOpen}
           combatEvents={viewpointMemberKey ? [] : combatEvents}
           jumpEvents={viewpointMemberKey ? [] : telemetry.snapshot?.metadata?.shipJumpEvents}
           destructionEvents={telemetry.snapshot?.metadata?.shipDestructionEvents}
@@ -622,6 +698,7 @@ export function App() {
               onCameraMode={chooseCameraMode}
               onScaleMode={(mode) => tacticalRef.current?.setScaleMode(mode)}
               onCinematicMode={() => setCinematicMode(true)}
+              onOpenTrader={() => setTraderOpen(true)}
               onPollingPaused={(paused) => void changePollingPause(paused)}
             />
           )}
@@ -638,6 +715,8 @@ export function App() {
               <kbd>ESC</kbd>
             </button>
           )}
+
+          {traderWorkspace}
 
           {telemetry.connected && !cinematicMode && (
             <CommandScopeRail

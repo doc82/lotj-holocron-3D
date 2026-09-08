@@ -80,6 +80,7 @@ The legacy launcher is now:
 - `lotj_holocron_proxy.lua`
 - `lotj_holocron_parsers.lua`
 - `lotj_holocron_scraper.lua`
+- `lotj_holocron_navigation.lua`
 - `poc/mudlet/start_prototype.lua`
 
 Do not move the launcher or runtime modules; their relative paths are intentional.

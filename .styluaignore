@@ -5,3 +5,6 @@ mudlet-package/build/
 mudlet-package/.output/
 mudlet-package/src/resources/
 .pnpm-store/
+
+# Generated from the authoritative galaxy topology.
+mudlet/lotj_holocron_topology_data.lua

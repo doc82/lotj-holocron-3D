@@ -13,7 +13,7 @@ test("Escape management documents log-based hyperspace diagnostics", async () =>
 
   assert.match(app, /event\.key !== "Escape"/);
   assert.match(app, /<ManagementMenu/);
-  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen\}/);
+  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen && !traderOpen\}/);
   assert.match(menu, /HYPERSPACE DIAGNOSTICS/);
   assert.match(menu, /NO CALIBRATION DATABASE/);
   assert.match(menu, /\[Holocron3D\]\[HyperspaceSample\]/);

@@ -70,7 +70,10 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
   assert.match(canvas, /engine\.dispose\(\)/);
   assert.match(telemetry, /function receiveSpaceState[\s\S]*snapshot: null/);
   assert.match(telemetry, /spaceState\?\.inSpace === false[\s\S]*snapshot: null/);
-  assert.match(telemetry, /!connected \? \{ snapshot: null, spaceState: null \}/);
+  assert.match(
+    telemetry,
+    /!connected \? \{ snapshot: null, logisticsSnapshot: null, spaceState: null \}/,
+  );
   assert.match(hyperspaceField, /edgeActivation/);
   assert.doesNotMatch(startup, /dissolving/);
   assert.match(startup, /styles\.hyperspace/);

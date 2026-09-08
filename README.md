@@ -87,6 +87,10 @@ waits and reconnects automatically until both sides are available.
 
 ## Documentation
 
+See the [documentation index](docs/README.md), including the current
+[Trader/autopilot iteration](docs/trader/README.md) and
+[galaxy maps and navigation evidence](docs/navigation/README.md).
+
 ### Using Holocron3D
 
 - [Current capabilities](docs/capabilities.md) describes telemetry, rendering,

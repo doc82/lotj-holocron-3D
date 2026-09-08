@@ -34,6 +34,17 @@ export function ViewIcon({ type }: { type: "radar" | "grid" | "sector" | "cinema
   );
 }
 
+export function TraderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 5h2l2 10h9l2-7H7" />
+      <circle cx="10" cy="19" r="1.5" />
+      <circle cx="17" cy="19" r="1.5" />
+      <path d="M12 3v5m-3-2 3-3 3 3" />
+    </svg>
+  );
+}
+
 export function CameraIcon({ type }: { type: TacticalCameraMode }) {
   if (type === "player")
     return (

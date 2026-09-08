@@ -1310,6 +1310,240 @@ function Parsers.parseSquadronStatus(input)
   return resultOrError(result, recognized, "squadron status")
 end
 
+function Parsers.parseHyperlane(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "hyperlane", lanes = {} }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local from, to, status = line:match("^|?%s*Between%s+(.+)%s+and%s+(.+)%s*:%s*(.-)%s*|?%s*$")
+    if from and to and status then
+      local normalized = status:lower():gsub("%s+", "_")
+      if normalized == "no_route" then
+        normalized = "no_route"
+      elseif normalized == "passable" then
+        normalized = "passable"
+      else
+        normalized = "unknown"
+      end
+      table.insert(result.lanes, {
+        from = trim(from),
+        to = trim(to),
+        status = normalized,
+      })
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "hyperlane")
+end
+
+function Parsers.parseClans(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "clans", organizations = {} }
+  local category = nil
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local heading = line:match("^(Major Organizations):$") or line:match("^(Minor Organizations):$")
+    if heading then
+      category = heading == "Major Organizations" and "major" or "minor"
+    elseif category and not line:match("^Clan Name%s+|%s*Planets") then
+      local name, planets, members = line:match("^(.-)%s*|%s*(%d+)%s*|%s*(.-)%s*$")
+      if name and planets and members then
+        table.insert(result.organizations, {
+          name = trim(name),
+          category = category,
+          planets = tonumber(planets),
+          activeMembers = trim(members),
+        })
+        recognized = recognized + 1
+      end
+    end
+  end
+  return resultOrError(result, recognized, "clans")
+end
+
+function Parsers.parsePlanets(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "planets", planets = {} }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local name, system, governedBy, notices = line:match("^(.-)%s%s+(.-)%s%s+(.-)%s+(%b[])%s*$")
+    if name and system and governedBy and notices and name ~= "Planet" then
+      table.insert(result.planets, {
+        name = trim(name),
+        system = trim(system),
+        governedBy = trim(governedBy),
+        notices = trim(notices),
+      })
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "planets")
+end
+
+function Parsers.parsePlanet(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "showplanet", resources = {} }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local planet = line:match("^Planet:%s*(.-)%s*$")
+    local system = line:match("^Starsystem:%s*(.-)%s*$")
+    local government = line:match("^Governed By:%s*(.-)%s*$")
+    local coordinates = line:match("^Coordinates:%s*(.-)%s*$")
+    local tax = line:match("^Tax Rate:%s*([%d,.]+)%s*%%?%s*$")
+    local resource, price = line:match("^(.-)%s+%(%s*Price per unit:%s*([%d,.]+)%s*%)%s*$")
+    if planet then
+      result.planet = trim(planet)
+      recognized = recognized + 1
+    elseif system then
+      result.system = trim(system)
+      recognized = recognized + 1
+    elseif government then
+      result.governedBy = trim(government)
+      recognized = recognized + 1
+    elseif coordinates then
+      result.coordinates = vector(coordinates)
+      recognized = result.coordinates and recognized + 1 or recognized
+    elseif tax then
+      result.taxRate = number(tax)
+      recognized = recognized + 1
+    elseif resource and price then
+      result.resources[trim(resource)] = number(price)
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "showplanet")
+end
+
+function Parsers.parseCargo(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "listcargo", items = {}, used = 0, capacity = 0 }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local ship = line:match("^Cargo Readout for .-'(.-)':$")
+    local slot, resource, amountValue = line:match("^%[(%d+)%s*%]%s*%[(.-)%]%s*%[(.-)%]%s*$")
+    if ship then
+      result.shipName = trim(ship)
+      recognized = recognized + 1
+    elseif slot and resource and amountValue then
+      local current, maximum = amountValue:match("([%d,]+)%s*/%s*([%d,]+)")
+      local currentValue = number(current or amountValue)
+      local maximumValue = number(maximum)
+      table.insert(result.items, {
+        slot = tonumber(slot),
+        resource = trim(resource),
+        current = currentValue,
+        maximum = maximumValue,
+      })
+      result.used = result.used + (currentValue or 0)
+      result.capacity = result.capacity + (maximumValue or 0)
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "listcargo")
+end
+
+function Parsers.parseCredits(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+  for _, line in ipairs(lines) do
+    local balance = line:match("^You have ([%d,]+) credits%.$")
+    if balance then
+      return { source = "credits", balance = number(balance) }
+    end
+  end
+  return nil, "no credit balance was recognized"
+end
+
+function Parsers.parseCargoTransaction(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "cargo_transaction" }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local smuggledCost, smuggledAmount, smuggledResource = line:match(
+      "^You pay%s+([%d,]+)%s+credits to have%s+([%d,]+)%s+units of smuggled%s+(.+)%s+loaded on to your ship%.$"
+    )
+    if smuggledCost then
+      return {
+        source = "cargo_transaction",
+        action = "buy",
+        tradeMode = "contraband",
+        cost = number(smuggledCost),
+        amount = number(smuggledAmount),
+        resource = trim(smuggledResource),
+      }
+    end
+    smuggledCost, smuggledAmount, smuggledResource = line:match(
+      "^You find a contact willing to pay%s+([%d,]+)%s+credits to unload%s+([%d,]+)%s+units of smuggled%s+(.+)%.$"
+    )
+    if smuggledCost then
+      return {
+        source = "cargo_transaction",
+        action = "sell",
+        tradeMode = "contraband",
+        revenue = number(smuggledCost),
+        amount = number(smuggledAmount),
+        resource = trim(smuggledResource),
+      }
+    end
+    if line == "That ship is already fully fueled!" then
+      return { source = "cargo_transaction", action = "refuel", cost = 0, alreadyFull = true }
+    end
+    local amountValue, resource, cost =
+      line:match("^You purchased%s+([%d,]+)%s+units of%s+(.+)%s+for%s+([%d,]+)%s+credits%.$")
+    if amountValue then
+      result.action = "buy"
+      result.amount = number(amountValue)
+      result.resource = trim(resource)
+      result.cost = number(cost)
+      recognized = recognized + 1
+    else
+      amountValue, resource, cost =
+        line:match("^You sell%s+([%d,]+)%s+units of%s+(.+)%s+for%s+([%d,]+)%s+credits%.$")
+      if amountValue then
+        result.action = "sell"
+        result.amount = number(amountValue)
+        result.resource = trim(resource)
+        result.revenue = number(cost)
+        recognized = recognized + 1
+      else
+        cost = line:match("^You pay%s+([%d,]+)%s+credits to refuel the ship%.$")
+        if cost then
+          result.action = "refuel"
+          result.cost = number(cost)
+          recognized = recognized + 1
+        end
+      end
+    end
+  end
+  return resultOrError(result, recognized, "cargo_transaction")
+end
+
 function Parsers.parse(command, input)
   if type(command) ~= "string" then
     return nil, "command must be a string"
@@ -1335,6 +1569,22 @@ function Parsers.parse(command, input)
     battlegroup = Parsers.parseBattlegroup,
     bg = Parsers.parseBattlegroup,
     ["squadron status"] = Parsers.parseSquadronStatus,
+    clans = Parsers.parseClans,
+    planets = Parsers.parsePlanets,
+    showplanet = Parsers.parsePlanet,
+    showp = Parsers.parsePlanet,
+    listcargo = Parsers.parseCargo,
+    listc = Parsers.parseCargo,
+    hyperlane = Parsers.parseHyperlane,
+    ["look hyperlane"] = Parsers.parseHyperlane,
+    ["l hyp"] = Parsers.parseHyperlane,
+    buycargo = Parsers.parseCargoTransaction,
+    sellcargo = Parsers.parseCargoTransaction,
+    buyc = Parsers.parseCargoTransaction,
+    sellc = Parsers.parseCargoTransaction,
+    refuel = Parsers.parseCargoTransaction,
+    credits = Parsers.parseCredits,
+    cargo_transaction = Parsers.parseCargoTransaction,
   }
 
   local parser = dispatch[normalized]

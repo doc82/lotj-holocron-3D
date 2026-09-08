@@ -159,7 +159,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /completeHyperspaceExitArrival/);
   assert.match(scraper, /Emergency hyperspace cutoff requested/);
   assert.match(computer, /RECALCULATE BEYOND/);
-  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen\}/);
+  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen && !traderOpen\}/);
   assert.match(navigation, /!current\.keyboardEnabled/);
   assert.match(tacticalCanvas, /setKeyboardEnabled\(keyboardEnabled\)/);
   assert.match(tacticalCanvas, /focusPoint: \(targetId\)/);
@@ -232,6 +232,9 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
     /recipient\.localShip[\s\S]*?table\.insert\(commands, localCommand\)[\s\S]*?battlegroup nav " \.\. recipient\.selector/,
   );
   assert.match(scraper, /routeIncludesLocalShip/);
-  assert.match(scraper, /MIN_HYPERSPACE_CLEARANCE = 500/);
+  assert.match(
+    await readFile("mudlet/lotj_holocron_navigation.lua", "utf8"),
+    /MIN_HYPERSPACE_CLEARANCE = 500/,
+  );
   assert.match(await readFile("mudlet/lotj_holocron_parsers.lua", "utf8"), /\[%dsmh%s\]\+/);
 });

@@ -1,6 +1,14 @@
 import styles from "./UplinkNotice.module.css";
 
-export function UplinkNotice({ paused = false, reason }: { paused?: boolean; reason?: string }) {
+export function UplinkNotice({
+  paused = false,
+  reason,
+  onOpenTrader,
+}: {
+  paused?: boolean;
+  reason?: string;
+  onOpenTrader?: () => void;
+}) {
   return (
     <section className={styles.uplink} role="status" aria-live="polite">
       <div className={styles.reticle} aria-hidden="true">
@@ -25,6 +33,11 @@ export function UplinkNotice({ paused = false, reason }: { paused?: boolean; rea
           </>
         )}
       </p>
+      {onOpenTrader && (
+        <button className={styles.trader} type="button" onClick={onOpenTrader}>
+          OPEN TRADER
+        </button>
+      )}
       <div className={styles.scan} aria-hidden="true">
         <i />
       </div>

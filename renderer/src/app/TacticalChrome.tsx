@@ -1,6 +1,6 @@
 import type { TacticalCameraMode, TacticalScaleMode } from "../features/tactical/TacticalEngine";
 import styles from "./App.module.css";
-import { CameraIcon, PollingControlIcon, ViewIcon } from "./TacticalIcons";
+import { CameraIcon, PollingControlIcon, TraderIcon, ViewIcon } from "./TacticalIcons";
 
 interface TacticalHeaderProps {
   connected: boolean;
@@ -20,6 +20,7 @@ interface TacticalHeaderProps {
   onCameraMode(mode: TacticalCameraMode): void;
   onScaleMode(mode: TacticalScaleMode): void;
   onCinematicMode(): void;
+  onOpenTrader(): void;
   onPollingPaused(paused: boolean): void;
 }
 
@@ -41,6 +42,7 @@ export function TacticalHeader({
   onCameraMode,
   onScaleMode,
   onCinematicMode,
+  onOpenTrader,
   onPollingPaused,
 }: TacticalHeaderProps) {
   return (
@@ -52,6 +54,15 @@ export function TacticalHeader({
       {connected && (
         <div className={styles.controlStack}>
           <nav className={styles.viewControls} aria-label="Tactical view controls">
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Open trader workspace"
+              data-tooltip="TRADER // ROUTE OPERATIONS"
+              onClick={onOpenTrader}
+            >
+              <TraderIcon />
+            </button>
             <button
               type="button"
               className={`${styles.iconButton} ${radarBubbleEnabled ? styles.activeViewControl : ""}`}

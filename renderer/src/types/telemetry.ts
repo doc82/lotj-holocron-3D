@@ -224,6 +224,82 @@ export interface GalaxyCatalog {
   shipSystem?: { x?: number; y?: number; name?: string };
 }
 
+export interface LogisticsPlanet {
+  name: string;
+  system?: string;
+  governedBy?: string;
+  notices?: string;
+}
+
+export interface LogisticsMarket {
+  planet?: string;
+  system?: string;
+  governedBy?: string;
+  taxRate?: number;
+  coordinates?: { x?: number; y?: number; z?: number };
+  resources?: Record<string, number>;
+  observedAt?: number;
+}
+
+export interface LogisticsCargoItem {
+  slot?: number;
+  resource: string;
+  current?: number;
+  maximum?: number;
+}
+
+export interface LogisticsState {
+  refresh?: {
+    phase: "refreshing" | "completed" | "failed";
+    completed: number;
+    total: number;
+    command?: string;
+    error?: string;
+    startedAt: number;
+    finishedAt?: number;
+  };
+  planets?: LogisticsPlanet[];
+  clans?: Array<{
+    name: string;
+    category?: "major" | "minor";
+    planets?: number;
+    activeMembers?: string;
+  }>;
+  hyperlanes?: Array<{
+    from: string;
+    to: string;
+    status: "passable" | "no_route" | "unknown" | "stale";
+  }>;
+  market?: LogisticsMarket;
+  credits?: number;
+  creditsObservedAt?: number;
+  location?: {
+    planet: string;
+    system?: string;
+    observedAt: number;
+    source: "showplanet";
+  };
+  markets?: Record<string, LogisticsMarket>;
+  cargo?: {
+    shipName?: string;
+    items?: LogisticsCargoItem[];
+    used?: number;
+    capacity?: number;
+    observedAt?: number;
+  };
+  lastTransaction?: {
+    alreadyFull?: boolean;
+    action?: "buy" | "sell" | "refuel";
+    amount?: number;
+    resource?: string;
+    cost?: number;
+    revenue?: number;
+  };
+  observedAt?: number;
+  clansObservedAt?: number;
+  hyperlanesObservedAt?: number;
+}
+
 export interface HyperspaceExitPlan {
   mode: "target" | "coordinates";
   target?: {
@@ -369,6 +445,14 @@ export interface SystemSnapshot {
     combatEvent?: CombatEvent;
     combatEvents?: CombatEvent[];
     autoRechargeEnabled?: boolean;
+    routeNavigation?: {
+      operationId: string;
+      runId: string;
+      status: "running" | "completed" | "blocked";
+      label?: string;
+      reason?: string;
+      confirmation?: import("../domain/routeAutopilot").RouteConfirmation;
+    };
     shieldRecharging?: boolean;
     shieldRechargeAttempts?: number;
     shieldStatusPending?: boolean;
@@ -391,6 +475,7 @@ export interface SystemSnapshot {
         fuelPercent?: number;
       }>;
     };
+    logistics?: LogisticsState;
     fleet?: FleetStatus;
     fleetOrder?: FleetOrderStatus;
     tacticalViews?: Record<string, TacticalView>;

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1180" viewBox="0 0 1200 1180" role="img" aria-labelledby="title desc">
+<title id="title">Current galaxy: 14 planets and Eeropha</title>
+<desc id="desc">Equal-scale X and Y sector map from supplied system coordinates. Positive Y points upward. No travel connections are inferred. Eeropha marks the system containing Lodestar Utopia Refueling Station.</desc>
+<rect width="1200" height="1180" fill="#101923"/>
+<g font-family="Segoe UI, Arial, sans-serif" fill="#eaf1f8">
+<text x="70" y="55" font-size="30" font-weight="700">Current galaxy / sector coordinates</text>
+<text x="70" y="87" font-size="16" fill="#b5c4d4">14 visible planets + Eeropha station system ? Equal X/Y scale ? Travel links pending audit</text>
+<line x1="100" y1="150" x2="100" y2="1050" stroke="#283949"/><text x="100" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">-20</text>
+<line x1="190" y1="150" x2="190" y2="1050" stroke="#283949"/><text x="190" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">-10</text>
+<line x1="280" y1="150" x2="280" y2="1050" stroke="#61788d"/><text x="280" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">0</text>
+<line x1="370" y1="150" x2="370" y2="1050" stroke="#283949"/><text x="370" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">10</text>
+<line x1="460" y1="150" x2="460" y2="1050" stroke="#283949"/><text x="460" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">20</text>
+<line x1="550" y1="150" x2="550" y2="1050" stroke="#283949"/><text x="550" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">30</text>
+<line x1="640" y1="150" x2="640" y2="1050" stroke="#283949"/><text x="640" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">40</text>
+<line x1="730" y1="150" x2="730" y2="1050" stroke="#283949"/><text x="730" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">50</text>
+<line x1="820" y1="150" x2="820" y2="1050" stroke="#283949"/><text x="820" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">60</text>
+<line x1="910" y1="150" x2="910" y2="1050" stroke="#283949"/><text x="910" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">70</text>
+<line x1="1000" y1="150" x2="1000" y2="1050" stroke="#283949"/><text x="1000" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">80</text>
+<line x1="1090" y1="150" x2="1090" y2="1050" stroke="#283949"/><text x="1090" y="1080" text-anchor="middle" font-size="14" fill="#b5c4d4">90</text>
+<line x1="100" y1="1050" x2="1090" y2="1050" stroke="#283949"/><text x="82" y="1055" text-anchor="end" font-size="14" fill="#b5c4d4">-20</text>
+<line x1="100" y1="960" x2="1090" y2="960" stroke="#283949"/><text x="82" y="965" text-anchor="end" font-size="14" fill="#b5c4d4">-10</text>
+<line x1="100" y1="870" x2="1090" y2="870" stroke="#61788d"/><text x="82" y="875" text-anchor="end" font-size="14" fill="#b5c4d4">0</text>
+<line x1="100" y1="780" x2="1090" y2="780" stroke="#283949"/><text x="82" y="785" text-anchor="end" font-size="14" fill="#b5c4d4">10</text>
+<line x1="100" y1="690" x2="1090" y2="690" stroke="#283949"/><text x="82" y="695" text-anchor="end" font-size="14" fill="#b5c4d4">20</text>
+<line x1="100" y1="600" x2="1090" y2="600" stroke="#283949"/><text x="82" y="605" text-anchor="end" font-size="14" fill="#b5c4d4">30</text>
+<line x1="100" y1="510" x2="1090" y2="510" stroke="#283949"/><text x="82" y="515" text-anchor="end" font-size="14" fill="#b5c4d4">40</text>
+<line x1="100" y1="420" x2="1090" y2="420" stroke="#283949"/><text x="82" y="425" text-anchor="end" font-size="14" fill="#b5c4d4">50</text>
+<line x1="100" y1="330" x2="1090" y2="330" stroke="#283949"/><text x="82" y="335" text-anchor="end" font-size="14" fill="#b5c4d4">60</text>
+<line x1="100" y1="240" x2="1090" y2="240" stroke="#283949"/><text x="82" y="245" text-anchor="end" font-size="14" fill="#b5c4d4">70</text>
+<line x1="100" y1="150" x2="1090" y2="150" stroke="#283949"/><text x="82" y="155" text-anchor="end" font-size="14" fill="#b5c4d4">80</text>
+<text x="1090" y="1110" text-anchor="end" font-size="15">X / east ?</text><text x="100" y="129" font-size="15">Y / north ?</text>
+<g><title>Ithor | Ottega System | (57, 8)</title>
+<circle cx="793" cy="798" r="6" fill="#62d6bb"/>
+<text x="805" y="813" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Ithor</text><text x="805" y="832" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(57, 8)</text></g>
+<g><title>Lorrd | Kanz Sector | (26, 41)</title>
+<circle cx="514" cy="501" r="6" fill="#62d6bb"/>
+<text x="502" y="486" text-anchor="end" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Lorrd</text><text x="502" y="505" text-anchor="end" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(26, 41)</text></g>
+<g><title>Mon Cala | Calamari System | (-12, -7)</title>
+<circle cx="172" cy="933" r="6" fill="#62d6bb"/>
+<text x="184" y="955" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Mon Cala</text><text x="184" y="974" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(-12, -7)</text></g>
+<g><title>Nal Hutta | Hutt Space | (43, -15)</title>
+<circle cx="667" cy="1005" r="6" fill="#62d6bb"/>
+<text x="655" y="1030" text-anchor="end" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Nal Hutta</text><text x="655" y="1049" text-anchor="end" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(43, -15)</text></g>
+<g><title>Ryloth | Gaulus Sector | (56, 35)</title>
+<circle cx="784" cy="555" r="6" fill="#62d6bb"/>
+<text x="796" y="555" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Ryloth</text><text x="796" y="574" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(56, 35)</text></g>
+<g><title>Tatooine | Arkanis Sector | (61, -10)</title>
+<circle cx="829" cy="960" r="6" fill="#62d6bb"/>
+<text x="841" y="968" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Tatooine</text><text x="841" y="987" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(61, -10)</text></g>
+<g><title>Arkania | Perave System | (64, 53)</title>
+<circle cx="856" cy="393" r="6" fill="#ffa86b"/>
+<text x="844" y="371" text-anchor="end" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Arkania</text><text x="844" y="390" text-anchor="end" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(64, 53)</text></g>
+<g><title>Bespin | Anoat Sector | (84, 50)</title>
+<circle cx="1036" cy="420" r="6" fill="#ffa86b"/>
+<text x="1048" y="420" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Bespin</text><text x="1048" y="439" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(84, 50)</text></g>
+<g><title>Naboo | Chommell Sector | (78, 68)</title>
+<circle cx="982" cy="258" r="6" fill="#ffa86b"/>
+<text x="994" y="246" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Naboo</text><text x="994" y="265" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(78, 68)</text></g>
+<g><title>Alderaan | Alderaan System | (-11, 9)</title>
+<circle cx="181" cy="789" r="6" fill="#82b5ff"/>
+<text x="193" y="772" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Alderaan</text><text x="193" y="791" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(-11, 9)</text></g>
+<g><title>Corellia | Corellian System | (23, 3)</title>
+<circle cx="487" cy="843" r="6" fill="#82b5ff"/>
+<text x="475" y="865" text-anchor="end" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Corellia</text><text x="475" y="884" text-anchor="end" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(23, 3)</text></g>
+<g><title>Coruscant | Corusca Sector | (0, 0)</title>
+<circle cx="280" cy="870" r="6" fill="#82b5ff"/>
+<text x="292" y="870" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Coruscant</text><text x="292" y="889" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(0, 0)</text></g>
+<g><title>Kashyyyk | Mytaranor Sector | (2, 42)</title>
+<circle cx="298" cy="492" r="6" fill="#82b5ff"/>
+<text x="310" y="480" text-anchor="start" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Kashyyyk</text><text x="310" y="499" text-anchor="start" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(2, 42)</text></g>
+<g><title>Wroona | Wroona System | (46, 14)</title>
+<circle cx="694" cy="744" r="6" fill="#82b5ff"/>
+<text x="682" y="727" text-anchor="end" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Wroona</text><text x="682" y="746" text-anchor="end" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(46, 14)</text></g>
+<g><title>Eeropha / Lodestar | Eeropha System | (39, 30)</title>
+<path d="M 631 591 l 9 9 -9 9 -9 -9 Z" fill="#e4c5ff"/>
+<text x="619" y="580" text-anchor="end" font-size="17" font-weight="600" stroke="#101923" stroke-width="4" paint-order="stroke">Eeropha / Lodestar</text><text x="619" y="599" text-anchor="end" font-size="13" fill="#b5c4d4" stroke="#101923" stroke-width="3" paint-order="stroke">(39, 30)</text></g>
+<rect x="70" y="1140" width="10" height="10" fill="#62d6bb"/><text x="88" y="1150" font-size="13">A Neutral Government</text>
+<rect x="300" y="1140" width="10" height="10" fill="#ffa86b"/><text x="318" y="1150" font-size="13">Confederacy of Independent Systems</text>
+<rect x="680" y="1140" width="10" height="10" fill="#82b5ff"/><text x="698" y="1150" font-size="13">The Galactic Republic</text>
+<rect x="945" y="1140" width="10" height="10" fill="#e4c5ff"/><text x="963" y="1150" font-size="13">Station system</text>
+</g></svg>

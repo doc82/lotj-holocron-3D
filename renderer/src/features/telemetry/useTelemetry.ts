@@ -11,6 +11,7 @@ export interface TelemetryState {
   connected: boolean;
   connectionLabel: string;
   snapshot: SystemSnapshot | null;
+  logisticsSnapshot: SystemSnapshot | null;
   spaceState: SpaceState | null;
   galaxyCatalog: GalaxyCatalog | null;
 }
@@ -19,11 +20,12 @@ const initialTelemetry: TelemetryState = {
   connected: false,
   connectionLabel: "CONNECTING",
   snapshot: null,
+  logisticsSnapshot: null,
   spaceState: null,
   galaxyCatalog: null,
 };
 
-function mergeInitial(current: TelemetryState, initial: InitialState): TelemetryState {
+export function mergeInitial(current: TelemetryState, initial: InitialState): TelemetryState {
   const connected = initial.connected === true;
   const spaceState = current.spaceState ?? initial.spaceState ?? null;
   const snapshot =
@@ -32,16 +34,17 @@ function mergeInitial(current: TelemetryState, initial: InitialState): Telemetry
     connected,
     connectionLabel: connected ? "MUDLET LINK" : "WAITING FOR MUDLET",
     snapshot,
+    logisticsSnapshot: current.logisticsSnapshot ?? initial.snapshot ?? null,
     spaceState,
     galaxyCatalog: initial.galaxyCatalog ?? current.galaxyCatalog,
   };
 }
 
-function receiveSnapshot(current: TelemetryState, snapshot: SystemSnapshot): TelemetryState {
+export function receiveSnapshot(current: TelemetryState, snapshot: SystemSnapshot): TelemetryState {
   if (current.spaceState?.inSpace === false || snapshot.metadata?.inSpace === false) {
-    return { ...current, snapshot: null };
+    return { ...current, snapshot: null, logisticsSnapshot: snapshot };
   }
-  return { ...current, snapshot };
+  return { ...current, snapshot, logisticsSnapshot: snapshot };
 }
 
 function receiveSpaceState(current: TelemetryState, spaceState: SpaceState): TelemetryState {
@@ -74,7 +77,7 @@ export function useTelemetry(): TelemetryState {
             ...current,
             connected,
             connectionLabel: connected ? "MUDLET LINK" : "WAITING FOR MUDLET",
-            ...(!connected ? { snapshot: null, spaceState: null } : {}),
+            ...(!connected ? { snapshot: null, logisticsSnapshot: null, spaceState: null } : {}),
           }));
         }),
       );
@@ -151,6 +154,7 @@ export function useTelemetry(): TelemetryState {
           connected: false,
           connectionLabel: "RECONNECTING",
           snapshot: null,
+          logisticsSnapshot: null,
           spaceState: null,
         }));
         reconnectTimer = setTimeout(connect, reconnectDelay);

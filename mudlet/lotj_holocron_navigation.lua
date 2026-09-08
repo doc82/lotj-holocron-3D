@@ -1,0 +1,729 @@
+-- Reusable, response-driven navigation transport. Cargo is an optional stop action.
+local Navigation = {}
+Navigation.MIN_HYPERSPACE_CLEARANCE = 500
+Navigation.MAX_CLEARANCE_CHECKS = 10
+local function key(value)
+  local value = tostring(value or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  if value == "kashyyk" then
+    return "kashyyyk"
+  end
+  if value == "mon-cal" or value == "mon cal" or value == "mon-cala" then
+    return "mon cala"
+  end
+  return value
+end
+
+Navigation.canJump = require("lotj_holocron_topology").canJump
+local function quote(value)
+  assert(
+    type(value) == "string" and value ~= "" and not value:find('[%c"]'),
+    "Invalid command argument"
+  )
+  return '"' .. value .. '"'
+end
+
+function Navigation.new(io)
+  local self = { io = io, active = nil, runId = nil, completed = {}, at = nil }
+  local function now()
+    return io.now and io.now() or os.time()
+  end
+  function self:clearanceDelay(active, seconds, callback)
+    if active.timer then
+      io.cancel(active.timer)
+    end
+    active.timer = io.timer(seconds, function()
+      if self.active == active then
+        callback()
+      end
+    end)
+  end
+  function self:clearanceFailed(active, detail, delay)
+    local clearance = active.clearance
+    if clearance.attempts >= Navigation.MAX_CLEARANCE_CHECKS then
+      self:stop(
+        "Aborted jump clearance after 10 checks: "
+          .. detail
+          .. ". 500 units are required; inspect proximity and ship movement before resuming."
+      )
+      return
+    end
+    clearance.phase = "wait"
+    io.progress(
+      active,
+      string.format("Clearance %d/10: %s. Recheck in %ds", clearance.attempts, detail, delay)
+    )
+    self:clearanceDelay(active, delay, function()
+      self:scanClearance(active)
+    end)
+  end
+  function self:scanClearance(active)
+    local clearance = active.clearance
+    if clearance.attempts >= Navigation.MAX_CLEARANCE_CHECKS then
+      self:clearanceFailed(active, "the game still rejects the jump", 1)
+      return
+    end
+    clearance.attempts = clearance.attempts + 1
+    clearance.phase, active.lines, active.matched = "scan", {}, false
+    io.progress(
+      active,
+      string.format("Checking jump clearance %d/10 (500 units required)", clearance.attempts)
+    )
+    self:clearanceDelay(active, 8, function()
+      self:clearanceFailed(active, "no usable proximity response", 5)
+    end)
+    io.send("prox")
+  end
+  function self:beginClearance(active, blocker)
+    if active.clearance and active.clearance.phase ~= "retry" then
+      return
+    end
+    active.clearance = active.clearance or { attempts = 0 }
+    local clearance = active.clearance
+    clearance.blocker = blocker or clearance.blocker
+    clearance.phase, active.advancing = "queued", false
+    self:clearanceDelay(active, 0, function()
+      self:scanClearance(active)
+    end)
+  end
+  function self:clearancePrompt(active)
+    local clearance = active.clearance
+    if clearance.phase ~= "scan" then
+      return
+    end
+    local ok, result = pcall(io.parse, "prox", active.lines)
+    if not ok or not result then
+      return
+    end -- Ignore an early prompt; the scan timeout is bounded.
+    local info = io.clearanceInfo and io.clearanceInfo() or {}
+    local nearest, nearestName, blockerSeen, recognized = nil, nil, false, false
+    for _, entity in ipairs(result.entities or {}) do
+      local distance = tonumber(entity.distance)
+      if distance and distance >= 0 and distance < math.huge then
+        local namedBlocker = clearance.blocker and key(entity.name) == key(clearance.blocker)
+        if namedBlocker then
+          blockerSeen = true
+        end
+        local exempt = entity.kind == "ship"
+          and (
+            (info.exemptShips or {})[key(entity.name)]
+            or key(entity.name) == key(active.ship.name)
+          )
+        local relevant = entity.kind == "ship"
+          or entity.kind == "planet"
+          or entity.kind == "celestial"
+          or entity.kind == "star"
+        if (relevant and not exempt) or namedBlocker then
+          recognized = true
+          if not nearest or distance < nearest then
+            nearest, nearestName = distance, entity.name
+          end
+        end
+      end
+    end
+    if not recognized or (clearance.blocker and not blockerSeen) then
+      self:clearanceFailed(active, "proximity did not identify the blocking object", 5)
+      return
+    end
+    if nearest >= Navigation.MIN_HYPERSPACE_CLEARANCE then
+      clearance.phase = "retry"
+      active.lines, active.matched = {}, false
+      io.progress(
+        active,
+        string.format(
+          "Clearance confirmed at %.0f units; retrying hyperspace (%d/10)",
+          nearest,
+          clearance.attempts
+        )
+      )
+      self:clearanceDelay(active, 0, function()
+        self:clearanceDelay(active, active.steps[active.index].timeout or 900, function()
+          self:stop("Hyperspace completion was not confirmed after clearance recovery.")
+        end)
+        io.send("hyperspace")
+      end)
+      return
+    end
+    local rate = tonumber(info.speed)
+    local timestamp = now()
+    if
+      clearance.previous
+      and clearance.previous.name == nearestName
+      and timestamp > clearance.previous.at
+    then
+      rate = (nearest - clearance.previous.distance) / (timestamp - clearance.previous.at)
+    end
+    clearance.previous = { name = nearestName, distance = nearest, at = timestamp }
+    -- Speed predicts only when to scan again. A fresh proximity scan authorizes the jump.
+    local delay = rate
+        and rate > 0
+        and rate < math.huge
+        and math.max(
+          1,
+          math.min(30, math.ceil((Navigation.MIN_HYPERSPACE_CLEARANCE - nearest) / rate))
+        )
+      or 5
+    self:clearanceFailed(active, string.format("%s at %.0f units", nearestName, nearest), delay)
+  end
+  function self:stop(reason)
+    local active = self.active
+    self.active = nil
+    if active and active.timer then
+      io.cancel(active.timer)
+    end
+    if active then
+      io.finish(active, nil, reason or "Navigation stopped; reconcile before resuming.")
+    end
+  end
+  function self:finish()
+    local active = self.active
+    if not active then
+      return
+    end
+    self.active = nil
+    if active.timer then
+      io.cancel(active.timer)
+    end
+    local op = active.operation
+    local result = {
+      operationId = op.id,
+      runId = op.runId,
+      outcome = "completed",
+      location = {
+        ship = active.ship.name,
+        destination = op.destination.name,
+        landedOrDocked = true,
+      },
+      interruptedOutcome = active.interruptedOutcome or "not_started",
+    }
+    self.completed[op.id] = true
+    io.finish(active, result)
+  end
+  function self:next()
+    local active = self.active
+    if not active then
+      return
+    end
+    if active.timer then
+      io.cancel(active.timer)
+    end
+    active.index = active.index + 1
+    local step = active.steps[active.index]
+    if not step then
+      self:finish()
+      return
+    end
+    active.lines, active.matched = {}, false
+    local ok, command = pcall(step.command)
+    if not ok then
+      self:stop(tostring(command))
+      return
+    end
+    active.timer = io.timer(step.timeout or 30, function()
+      if self.active == active then
+        self:stop("No confirmation for " .. step.label .. "; inspect Mudlet before resuming.")
+      end
+    end)
+    io.progress(active, step.label)
+    io.send(command)
+  end
+  function self:line(text)
+    local active = self.active
+    if not active then
+      return
+    end
+    text = tostring(text):gsub("\r", "")
+    table.insert(active.lines, text)
+    local lower = key(text)
+    local step = active.steps[active.index]
+    local blocker = text:match("^You are too close to (.-) to make the jump to lightspeed!$")
+    local cannotJumpYet = lower == "you can't jump yet."
+      or lower == "you can't jump yet!"
+      or lower == "you cannot jump yet."
+      or lower == "you cannot jump yet!"
+    if step.clearanceRetry and (blocker or cannotJumpYet) then
+      self:beginClearance(active, blocker)
+      return
+    end
+    if
+      lower == "you fail."
+      or lower:find("you fail to", 1, true)
+      or lower:find("you can't", 1, true) == 1
+      or lower:find("you aren't", 1, true) == 1
+      or lower:find("you must", 1, true) == 1
+      or lower:find("not enough", 1, true)
+      or lower:find("insufficient", 1, true)
+      or lower:find("restricted landing", 1, true)
+      or lower:find("too close to", 1, true)
+      or lower:find("could not locate", 1, true)
+      or lower:find("jump not set", 1, true)
+    then
+      self:stop(text)
+      return
+    end
+    if active.clearance and active.clearance.phase ~= "retry" then
+      return
+    end
+    if step.match and step.match(text) then
+      active.matched = true
+      if step.clearanceRetry then
+        active.clearance = nil
+        self:prompt() -- Hyperspace completion is an event, not a prompt response.
+      end
+    end
+  end
+  function self:prompt()
+    local active = self.active
+    if not active then
+      return
+    end
+    if active.clearance and active.clearance.phase ~= "retry" then
+      self:clearancePrompt(active)
+      return
+    end
+    local step = active.steps[active.index]
+    if step.match and not active.matched then
+      return
+    end
+    if active.advancing then
+      return
+    end
+    active.advancing = true
+    local ok, err = pcall(function()
+      if step.confirm then
+        step.confirm(active.lines)
+      end
+    end)
+    if not ok then
+      self:stop(tostring(err))
+      return
+    end
+    -- Defer until all handlers for this response have finished.
+    if active.timer then
+      io.cancel(active.timer)
+    end
+    active.timer = io.timer(0, function()
+      if self.active == active then
+        active.advancing = false
+        self:next()
+      end
+    end)
+  end
+  function self:start(payload, intentId)
+    if self.active then
+      return false, "Another navigation operation is active."
+    end
+    local op, ship = payload.operation, payload.ship
+    if
+      type(op) ~= "table"
+      or type(ship) ~= "table"
+      or not op.id
+      or not op.runId
+      or type(op.destination) ~= "table"
+    then
+      return false, "Invalid navigation operation."
+    end
+    if self.runId ~= op.runId then
+      self.runId, self.completed, self.at = op.runId, {}, nil
+    end
+    local active = { operation = op, ship = ship, intentId = intentId, steps = {}, index = 0 }
+    local function step(label, command, match, confirm, timeout)
+      table.insert(active.steps, {
+        label = label,
+        command = type(command) == "function" and command or function()
+          return command
+        end,
+        match = match,
+        confirm = confirm,
+        timeout = timeout,
+      })
+    end
+    local function parsed(command, lines)
+      local result, err = io.parse(command, lines)
+      assert(result, err)
+      return result
+    end
+    local function query(label, command, parser, match, confirm)
+      step(label, command, match, function(lines)
+        confirm(parsed(parser, lines))
+      end)
+    end
+    local function cargo()
+      query("Inspect cargo", "listcargo " .. quote(ship.name), "listcargo", function(line)
+        return line:find("Cargo Readout for", 1, true) ~= nil
+      end, function(result)
+        assert(key(result.shipName) == key(ship.name), "Cargo readout belongs to another ship.")
+        active.cargo = result
+      end)
+    end
+    local function credits()
+      query("Check available credits", "credits", "credits", function(line)
+        return line:match("^You have [%d,]+ credits%.$")
+      end, function(result)
+        active.credits = result.balance
+      end)
+    end
+    local function refuel()
+      query("Refuel " .. ship.name, "refuel " .. quote(ship.name), "refuel", function(line)
+        return line == "That ship is already fully fueled!"
+          or line:match("^You pay .+ credits to refuel the ship%.$")
+      end, function(result)
+        assert(result.action == "refuel", "Unexpected refuel response.")
+        io.transaction(result)
+      end)
+    end
+    local ok, err = pcall(function()
+      quote(ship.name)
+      assert(
+        type(ship.enterPath) == "table" and type(ship.exitPath) == "table",
+        "Configure ship entry and exit paths before starting autopilot."
+      )
+      if ship.directCockpit == true then
+        assert(
+          #ship.enterPath == 0 and #ship.exitPath == 0,
+          "Direct cockpit access cannot include movement paths."
+        )
+      else
+        assert(
+          #ship.enterPath > 0 and #ship.exitPath > 0,
+          "Configure both ship entry and exit paths, or explicitly confirm direct cockpit access."
+        )
+      end
+      if op.kind == "reconcile" then
+        query("Confirm current planet", "showplanet", "showplanet", function(line)
+          return line:match("^Planet:")
+        end, function(result)
+          assert(
+            key(result.planet) == key(op.destination.name),
+            "Current planet does not match this stop. Move to "
+              .. op.destination.name
+              .. " before resuming."
+          )
+          self.at = result.planet
+        end)
+        step("Confirm ship is on this landing pad", "look", nil, function(lines)
+          local found = false
+          for _, line in ipairs(lines) do
+            local names = line:match("^[^:]+:%s*(.+)$")
+            for name in tostring(names or ""):gmatch("[^,]+") do
+              if key(name) == key(ship.name) then
+                found = true
+              end
+            end
+          end
+          assert(
+            found,
+            "Stand outside " .. ship.name .. " on its landing pad before starting or resuming."
+          )
+        end)
+        cargo()
+        credits()
+        step("Verify recovery checkpoint", "credits", function(line)
+          return line:match("^You have [%d,]+ credits%.$")
+        end, function()
+          local interrupted = payload.interrupted
+          if not interrupted then
+            active.interruptedOutcome = "not_started"
+          elseif self.completed[interrupted.id] or interrupted.kind == "navigate" then
+            active.interruptedOutcome = "completed"
+          elseif interrupted.kind == "refuel" then
+            active.interruptedOutcome = "not_started"
+          else
+            error(
+              "An interrupted cargo transaction is uncertain. Inspect the hold and stop this run before creating a new route."
+            )
+          end
+        end)
+      elseif op.kind == "refuel" then
+        assert(key(self.at) == key(op.destination.name), "Location must be reconciled first.")
+        refuel()
+      elseif op.kind == "stop_action" then
+        assert(key(self.at) == key(op.destination.name), "Location must be reconciled first.")
+        local action = op.action
+        assert(
+          action and (action.kind == "cargo.buy" or action.kind == "cargo.sell"),
+          "Unsupported stop action."
+        )
+        local data = action.payload
+        assert(
+          data.tradeMode == nil or data.tradeMode == "cargo" or data.tradeMode == "contraband",
+          "Invalid cargo trading mode."
+        )
+        assert(
+          type(data.quantity) == "number" and data.quantity > 0 and data.quantity % 1 == 0,
+          "Invalid cargo quantity."
+        )
+        quote(data.resource)
+        cargo()
+        credits()
+        if action.kind == "cargo.buy" then
+          query(
+            "Check purchase price",
+            "showplanet " .. quote(self.at) .. " resources",
+            "showplanet",
+            function(line)
+              return line:find("Price per unit:", 1, true) ~= nil
+            end,
+            function(result)
+              assert(key(result.planet) == key(self.at), "Market belongs to another planet.")
+              local price
+              for name, value in pairs(result.resources) do
+                if key(name) == key(data.resource) then
+                  price = value
+                end
+              end
+              assert(
+                price and price * data.quantity <= active.credits,
+                "Insufficient credits or missing current price."
+              )
+              assert(
+                active.cargo.capacity - active.cargo.used >= data.quantity,
+                "Insufficient free cargo space."
+              )
+            end
+          )
+        end
+        local buying = action.kind == "cargo.buy"
+        query(
+          buying and "Buy cargo" or "Sell cargo",
+          function()
+            if not buying then
+              local held = 0
+              for _, item in ipairs(active.cargo.items) do
+                if key(item.resource) == key(data.resource) then
+                  held = held + (item.current or 0)
+                end
+              end
+              assert(held >= data.quantity, "Planned cargo is not in the hold.")
+            end
+            return (
+              data.tradeMode == "contraband"
+                and (buying and "buycontraband " or "sellcontraband ")
+              or (buying and "buycargo " or "sellcargo ")
+            )
+              .. quote(ship.name)
+              .. " "
+              .. quote(data.resource)
+              .. " "
+              .. data.quantity
+          end,
+          "cargo_transaction",
+          function(line)
+            return line:match("^You purchased .+ credits%.$")
+              or line:match("^You sell .+ credits%.$")
+              or line:match("^You pay .+ units of smuggled .+ loaded on to your ship%.$")
+              or line:match("^You find a contact willing to pay .+ units of smuggled .+%.$")
+          end,
+          function(result)
+            io.transaction(result)
+            assert(
+              result.action == (buying and "buy" or "sell")
+                and (result.tradeMode or "cargo") == (data.tradeMode or "cargo")
+                and key(result.resource) == key(data.resource)
+                and result.amount == data.quantity,
+              "Cargo confirmation differs from the planned transaction; reconcile the hold."
+            )
+          end
+        )
+      elseif op.kind == "navigate" then
+        assert(self.at, "Location must be reconciled first.")
+        local destination = op.destination
+        local target = destination.arrival.kind == "station" and destination.arrival.station
+          or destination.name
+        quote(target)
+        if destination.arrival.pad then
+          quote(destination.arrival.pad)
+        end
+        if key(self.at) == key(destination.name) then
+          error("Already at this destination; reconcile before navigating.")
+        end
+        local position, system
+        if payload.manualRoute == true then
+          local from, to = payload.from and payload.from.galaxy, destination.galaxy
+          local maximum = tonumber(payload.maxDistance) or 35
+          assert(
+            from
+              and to
+              and tonumber(from.x)
+              and tonumber(from.y)
+              and tonumber(to.x)
+              and tonumber(to.y)
+              and maximum > 0,
+            "Sector coordinates and maximum distance are required for a manual jump."
+          )
+          assert(
+            math.sqrt((from.x - to.x) ^ 2 + (from.y - to.y) ^ 2) <= maximum,
+            "The next manual jump exceeds the maximum sector distance."
+          )
+        end
+        query("Verify hyperlane availability", "l hyp", "hyperlane", function(line)
+          return line:find("Between ", 1, true) ~= nil
+        end, function(result)
+          assert(
+            payload.from and key(payload.from.name) == key(self.at),
+            "Departure does not match the previous stop."
+          )
+          assert(
+            Navigation.canJump(payload.from, destination, result.lanes, payload.manualRoute),
+            "The next jump is blocked. Recalculate the route."
+          )
+        end)
+        if destination.arrival.kind == "station" then
+          position, system = destination.position, destination.system
+        else
+          query(
+            "Resolve destination coordinates",
+            "showplanet " .. quote(destination.name),
+            "showplanet",
+            function(line)
+              return line:match("^Coordinates:")
+            end,
+            function(result)
+              assert(
+                key(result.planet) == key(destination.name) and result.coordinates and result.system,
+                "Destination coordinates were not confirmed."
+              )
+              position, system = result.coordinates, result.system
+            end
+          )
+        end
+        refuel()
+        step(
+          "Open ship",
+          "open " .. quote(ship.name) .. (ship.hatchCode and " " .. quote(ship.hatchCode) or ""),
+          function(line)
+            return line == "It's already open!" or line:match("^You open the hatch on ")
+          end
+        )
+        step("Board ship", "enter " .. quote(ship.name))
+        step("Close hatch", "close")
+        for _, direction in ipairs(ship.enterPath or {}) do
+          assert(
+            ({
+              n = true,
+              s = true,
+              e = true,
+              w = true,
+              ne = true,
+              nw = true,
+              se = true,
+              sw = true,
+              u = true,
+              d = true,
+              north = true,
+              south = true,
+              east = true,
+              west = true,
+              northeast = true,
+              northwest = true,
+              southeast = true,
+              southwest = true,
+              up = true,
+              down = true,
+            })[direction],
+            "Invalid cockpit path."
+          )
+          step("Move to cockpit: " .. direction, direction)
+        end
+        step("Disable ship autopilot", "autopilot off")
+        step("Take flight controls", "pilot")
+        step("Launch", "launch", function(line)
+          return line == "The ship leaves the platform far behind as it flies into space."
+        end, function()
+          self.at = nil
+        end, 120)
+        step("Calculate hyperspace", function()
+          assert(
+            position and tonumber(position.x) and tonumber(position.y) and tonumber(position.z),
+            "Missing destination coordinates."
+          )
+          return "calculate "
+            .. quote(system)
+            .. " "
+            .. (position.x + 289)
+            .. " "
+            .. (position.y + 289)
+            .. " "
+            .. (position.z + 289)
+        end, function(line)
+          return line:find("[Status]: Hyperspace calculations have been completed.", 1, true) ~= nil
+        end, nil, 180)
+        step("Travel through hyperspace", "hyperspace", function(line)
+          return line == "The ship lurches slightly as it comes out of hyperspace."
+        end, nil, 900)
+        active.steps[#active.steps].clearanceRetry = true
+        step("Approach " .. target, "course " .. quote(target), function(line)
+          return key(line:match("^You begin orbiting (.-)%.$")) == key(target)
+        end, nil, 900)
+        if not destination.arrival.pad then
+          step("Find landing pad", "land " .. quote(target), function(line)
+            return line:match("^Possible choices for ")
+          end, function(lines)
+            for _, line in ipairs(lines) do
+              local pad = line:match("^(.-) %(All Sizes%)$") or line:match("^(.-) %(Max: .-%)$")
+              if pad then
+                active.pad = pad
+                break
+              end
+            end
+            assert(active.pad, "No landing pad was listed. Set a preferred pad.")
+          end)
+        end
+        step("Land", function()
+          return "land " .. quote(target) .. " " .. (destination.arrival.pad or active.pad)
+        end, function(line)
+          return line == "You feel a slight thud as the ship sets down on the ground."
+        end, nil, 120)
+        step("Enable ship autopilot", "autopilot on")
+        for _, direction in ipairs(ship.exitPath or {}) do
+          assert(
+            ({
+              n = true,
+              s = true,
+              e = true,
+              w = true,
+              ne = true,
+              nw = true,
+              se = true,
+              sw = true,
+              u = true,
+              d = true,
+              north = true,
+              south = true,
+              east = true,
+              west = true,
+              northeast = true,
+              northwest = true,
+              southeast = true,
+              southwest = true,
+              up = true,
+              down = true,
+            })[direction],
+            "Invalid exit path."
+          )
+          step("Move to hatch: " .. direction, direction)
+        end
+        step("Open hatch", "open")
+        step("Leave ship", "leave")
+        step("Close ship", "close " .. quote(ship.name))
+        -- A cargo readout outside the ship also verifies access before trading.
+        cargo()
+        refuel()
+        active.steps[#active.steps].confirm = function(lines)
+          local result = parsed("refuel", lines)
+          io.transaction(result)
+          self.at = destination.name
+        end
+      else
+        error("Unsupported navigation operation.")
+      end
+    end)
+    if not ok then
+      return false, tostring(err)
+    end
+    self.active = active
+    self:next()
+    return true, nil, true
+  end
+  return self
+end
+return Navigation

@@ -449,6 +449,108 @@ Wroona System 67.1 (Out of Range)
     equal(destinations.destinations[2].reachable, false)
   end)
 
+  it("parses hyperlane status and planet resources", function()
+    local lanes = assert(parsers.parse(
+      "l hyp",
+      [[
+ .--------------------------------------------------.
+ |   Between Naboo and Bespin         : No Route    |
+ |   Between Corellia and Wroona      : Passable    |
+ *--------------------------------------------------*
+]]
+    ))
+    equal(lanes.lanes[1].from, "Naboo")
+    equal(lanes.lanes[1].to, "Bespin")
+    equal(lanes.lanes[1].status, "no_route")
+    equal(lanes.lanes[2].status, "passable")
+
+    local planet = assert(parsers.parse(
+      "showp",
+      [[
+--Planet Data: -----------------------------------------
+Planet: Bespin
+Starsystem: Anoat Sector
+Coordinates: 0 0 0
+Governed By: Confederacy of Independent Systems
+Tax Rate: 5.00
+Tibanna gas          ( Price per unit: 76.00)
+Common metals        ( Price per unit: 38.30)
+Food                 ( Price per unit: 23.97)
+]]
+    ))
+    equal(planet.planet, "Bespin")
+    equal(planet.system, "Anoat Sector")
+    equal(planet.governedBy, "Confederacy of Independent Systems")
+    equal(planet.taxRate, 5)
+    equal(planet.resources["Tibanna gas"], 76)
+
+    local catalogue = assert(parsers.parse(
+      "planets",
+      [[
+  Planet           Starsystem            Governed By               Notices
+  Ithor            Ottega System         A Neutral Government      [FP]
+  Lorrd            Kanz Sector           A Neutral Government      [FP]
+  ]]
+    ))
+    equal(catalogue.planets[1].name, "Ithor")
+    equal(catalogue.planets[1].system, "Ottega System")
+    equal(catalogue.planets[1].governedBy, "A Neutral Government")
+  end)
+
+  it("parses clans, cargo manifests, and transaction confirmations", function()
+    local clans = assert(parsers.parse(
+      "clans",
+      [[
+Major Organizations:
+Clan Name                                | Planets | Active Members
+A Neutral Government                     | 7       | (None)
+Confederacy of Independent Systems       | 3       | 30+
+Minor Organizations:
+Clan Name                                | Planets | Active Members
+Merr-Sonn Munitions                      | 0       | 20+
+]]
+    ))
+    equal(#clans.organizations, 3)
+    equal(clans.organizations[2].name, "Confederacy of Independent Systems")
+    equal(clans.organizations[3].category, "minor")
+
+    local cargo = assert(parsers.parse(
+      "listc",
+      [[
+Cargo Readout for YT-1000 Light Freighter 'BlueSkies':
+[ID:] [Contents:           ] [Amount:  ]
+[1  ] [Precious metals     ] [500/500  ]
+[2  ] [Textiles            ] [120/500  ]
+]]
+    ))
+    equal(cargo.shipName, "BlueSkies")
+    equal(cargo.items[1].resource, "Precious metals")
+    equal(cargo.items[2].current, 120)
+
+    local bought =
+      assert(parsers.parse("buycargo", "You purchased 4500 units of Textiles for 162162 credits."))
+    equal(bought.action, "buy")
+    equal(bought.amount, 4500)
+    equal(bought.cost, 162162)
+
+    local sold = assert(
+      parsers.parse("sellcargo", "You sell 4500 units of Precious metals for 307094 credits.")
+    )
+    equal(sold.action, "sell")
+    equal(sold.revenue, 307094)
+
+    local refueled = assert(parsers.parse("refuel", "You pay 3228 credits to refuel the ship."))
+    equal(refueled.action, "refuel")
+    equal(refueled.cost, 3228)
+    local full = assert(parsers.parse("refuel", "That ship is already fully fueled!"))
+    equal(full.action, "refuel")
+    equal(full.cost, 0)
+    equal(full.alreadyFull, true)
+    equal(assert(parsers.parse("credits", "You have 1097793 credits.")).balance, 1097793)
+    equal(assert(parsers.parse("credits", "You have 0 credits.")).balance, 0)
+    equal(parsers.parse("credits", "You pay 10 credits to refuel the ship."), nil)
+  end)
+
   it("rejects unsupported commands", function()
     local result, failure = parsers.parse("unknown", "anything")
     equal(result, nil)

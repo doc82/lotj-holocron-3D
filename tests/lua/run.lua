@@ -10,6 +10,7 @@ package.path = table.concat({
 }, ";")
 
 local specs = {
+  "navigation_spec",
   "parser_spec",
   "scraper_capture_spec",
   "scraper_polling_spec",
