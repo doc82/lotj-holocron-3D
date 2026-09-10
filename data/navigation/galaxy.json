@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "era": "2026-09",
-  "revision": 2,
+  "revision": 3,
   "notes": "Directional evidence from six origin scans. Missing edges are unverified, never implicitly open. Temporary controls are bidirectional; Core Worlds expansion follows the user supplied region definition.",
   "nodes": [
     {
@@ -132,6 +132,10 @@
     }
   },
   "permanentEdges": [
+    {
+      "from": "eeropha",
+      "to": "lorrd"
+    },
     {
       "from": "arkania",
       "to": "wroona"
@@ -290,10 +294,6 @@
     },
     {
       "from": "lorrd",
-      "to": "wroona"
-    },
-    {
-      "from": "lorrd",
       "to": "eeropha"
     },
     {
@@ -343,36 +343,42 @@
   ],
   "observations": [
     {
+      "from": "eeropha",
+      "to": "lorrd",
+      "status": "Available",
+      "evidence": "User-confirmed Ryloth to Lorrd itinerary via Eeropha and Lodestar refueling, 2026-09-10."
+    },
+    {
       "from": "arkania",
       "to": "kashyyyk",
       "status": "No Path",
       "parsecs": 63,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
       "to": "coruscant",
       "status": "Out of Range",
       "parsecs": 83.1,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
       "to": "alderaan",
       "status": "No Path",
       "parsecs": 87,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
       "to": "corellia",
       "status": "Out of Range",
       "parsecs": 64.7,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
@@ -403,32 +409,32 @@
       "to": "lorrd",
       "status": "No Path",
       "parsecs": 39.8,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
       "to": "nal-hutta",
       "status": "Out of Range",
       "parsecs": 71.2,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
       "to": "tatooine",
       "status": "Out of Range",
       "parsecs": 63.1,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
       "to": "mon-cala",
       "status": "No Path",
       "parsecs": 96.8,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "arkania",
@@ -467,8 +473,8 @@
       "to": "kashyyyk",
       "status": "Out of Range",
       "parsecs": 52.2,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "wroona",
@@ -483,8 +489,8 @@
       "to": "alderaan",
       "status": "Out of Range",
       "parsecs": 57.2,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "wroona",
@@ -539,16 +545,16 @@
       "to": "tatooine",
       "status": "No Path",
       "parsecs": 28.3,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "wroona",
       "to": "mon-cala",
       "status": "Out of Range",
       "parsecs": 61.7,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "wroona",
@@ -563,16 +569,16 @@
       "to": "bespin",
       "status": "Out of Range",
       "parsecs": 52.3,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "wroona",
       "to": "naboo",
       "status": "No Path",
       "parsecs": 62.7,
-      "time": "->",
-      "fuel": "->"
+      "time": "-\u003e",
+      "fuel": "-\u003e"
     },
     {
       "from": "wroona",
@@ -977,10 +983,10 @@
     {
       "from": "lorrd",
       "to": "wroona",
-      "status": "Available",
+      "status": "No Path",
       "parsecs": 33.6,
-      "time": "4m 04s",
-      "fuel": "67%"
+      "time": "-",
+      "fuel": "-"
     },
     {
       "from": "lorrd",
@@ -1196,7 +1202,10 @@
         "x": 9137,
         "y": 4521,
         "z": -18941
-      }
+      },
+      "landingTarget": "Lodestar",
+      "approachTarget": "Eeropha",
+      "landingPad": "1"
     }
   }
 }

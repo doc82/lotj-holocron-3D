@@ -5,7 +5,7 @@
 <defs><marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#509dff"/></marker><marker id="red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff626b"/></marker></defs>
 <g font-family="Segoe UI, Arial, sans-serif" fill="#eaf1f8">
 <text x="70" y="52" font-size="30" font-weight="700">Galaxy connections / current audit</text>
-<text x="70" y="84" font-size="17">15 destinations | Equal X/Y scale | Era 2026-09 / revision 2</text>
+<text x="70" y="84" font-size="17">15 destinations | Equal X/Y scale | Era 2026-09 / revision 3</text>
 <path d="M 70 118 h 50" stroke="#509dff" stroke-width="3" marker-end="url(#blue)"/><text x="135" y="124" font-size="16">Blue: permanent, observed direction</text>
 <path d="M 535 118 h 50" stroke="#ff626b" stroke-width="3"/><text x="600" y="124" font-size="16">Red: temporary (can open or close)</text>
 
@@ -33,6 +33,7 @@
 <path d="M 170 420 H 1380" stroke="#263340"/><text x="150" y="425" text-anchor="end" font-size="14">60</text>
 <path d="M 170 310 H 1380" stroke="#263340"/><text x="150" y="315" text-anchor="end" font-size="14">70</text>
 <path d="M 170 200 H 1380" stroke="#263340"/><text x="150" y="205" text-anchor="end" font-size="14">80</text>
+<path d="M 809.8393645755706 742.2486931024059 L 685.1606354244294 636.7513068975941" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" marker-start="url(#blue)"><title>Eeropha -> Lorrd; Lorrd -> Eeropha: permanent / observed available</title></path>
 <path d="M 1088.971301870459 507.89551261400544 L 901.028698129541 915.1044873859946" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" marker-start="url(#blue)"><title>Arkania -> Wroona; Wroona -> Arkania: permanent / observed available</title></path>
 <path d="M 1085.168827858858 505.1246783698506 L 827.8311721411419 741.8753216301494" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Arkania -> Eeropha: permanent / observed available</title></path>
 <path d="M 1092.1555159246175 508.85739762745857 L 1018.8444840753824 980.1426023725414" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Arkania -> Ithor: permanent / observed available</title></path>
@@ -42,7 +43,7 @@
 <path d="M 884.5199134348537 929.4939393893924 L 401.4800865651463 1076.5060606106076" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" marker-start="url(#blue)"><title>Wroona -> Coruscant; Coruscant -> Wroona: permanent / observed available</title></path>
 <path d="M 891.1901739917635 915.0061119811737 L 823.8098260082365 760.9938880188263" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Wroona -> Eeropha: permanent / observed available</title></path>
 <path d="M 906.5347468749726 931.7462255681669 L 1006.4652531250274 986.2537744318331" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Wroona -> Ithor: permanent / observed available</title></path>
-<path d="M 888.8572693924912 916.3573136798631 L 683.1427306075088 638.6426863201369" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" marker-start="url(#blue)"><title>Wroona -> Lorrd; Lorrd -> Wroona: permanent / observed available</title></path>
+<path d="M 888.8572693924912 916.3573136798631 L 683.1427306075088 638.6426863201369" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Wroona -> Lorrd: permanent / observed available</title></path>
 <path d="M 894.765210186974 937.9363015259186 L 864.234789813026 1233.0636984740813" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Wroona -> Nal Hutta: permanent / observed available</title></path>
 <path d="M 901.1592029647081 915.1656737741129 L 1000.8407970352919 705.8343262258871" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" marker-start="url(#blue)"><title>Wroona -> Ryloth; Ryloth -> Wroona: permanent / observed available</title></path>
 <path d="M 997.3851952785874 703.353750032885 L 651.6148047214126 1038.646249967115" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" marker-start="url(#blue)"><title>Ryloth -> Corellia; Corellia -> Ryloth: permanent / observed available</title></path>
@@ -64,7 +65,6 @@
 <path d="M 401.3304021773493 1083.9524658758196 L 851.6695978226506 1241.0475341241804" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Coruscant -> Nal Hutta: permanent / observed available</title></path>
 <path d="M 379.6346531892188 1086.046452306289 L 268.3653468107812 1150.953547693711" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Coruscant -> Mon Cala: permanent / observed available</title></path>
 <path d="M 664.0104031228918 628.5004334634539 L 423.9895968771082 618.4995665365461" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Lorrd -> Kashyyyk: permanent / observed available</title></path>
-<path d="M 685.1606354244294 636.7513068975941 L 809.8393645755706 742.2486931024059" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Lorrd -> Eeropha: permanent / observed available</title></path>
 <path d="M 684.2161055399686 637.7461768651278 L 1008.7838944600314 983.2538231348722" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Lorrd -> Ithor: permanent / observed available</title></path>
 <path d="M 1058.3968345061762 1178.2857552777925 L 1019.6031654938239 1003.7142447222075" fill="none" stroke="#509dff" stroke-width="2" opacity="0.7"  marker-end="url(#blue)" ><title>Tatooine -> Ithor: permanent / observed available</title></path>
 <path d="M 1251.794733192202 343.3841995766062 L 1310.205266807798 518.6158004233938" fill="none" stroke="#ff626b" stroke-width="3" opacity="0.95"   ><title>Naboo / Bespin: (T) can randomly open or close</title></path>

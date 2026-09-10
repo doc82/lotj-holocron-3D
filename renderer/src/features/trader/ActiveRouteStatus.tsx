@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CargoExecutionState } from "../../domain/cargoRouteExecution";
 import { cargoRouteTitle } from "../../domain/cargoRoutes";
 import { freighterStops } from "../../domain/freighterRoutes";
@@ -15,11 +15,16 @@ export function ActiveRouteStatus({
   execution: CargoExecutionState;
   connected: boolean;
   onPause(): void;
-  onResume(): void;
+  onResume(repeatUntilStopped?: boolean): void;
   onStop(): void;
   onClear(): void;
 }) {
   const route = execution.route;
+  const [repeat, setRepeat] = useState(execution.repeatUntilStopped === true);
+  useEffect(
+    () => setRepeat(execution.repeatUntilStopped === true),
+    [route, execution.repeatUntilStopped],
+  );
   const finished = ["completed", "aborted"].includes(execution.phase);
   const cancelDialog = useRef<HTMLDialogElement>(null);
   const cancelTitle = useId();
@@ -30,17 +35,52 @@ export function ActiveRouteStatus({
   if (!route) return null;
   const resumable = ["paused", "blocked", "armed"].includes(execution.phase);
   const descriptions = freighterStops(route);
+  const accounts = execution.accounts;
+  const expenses = (accounts?.cargo ?? 0) + (accounts?.fuel ?? 0) + (accounts?.tax ?? 0);
+  const revenue = accounts?.revenue ?? 0;
+  const profit = revenue - expenses;
+  const runningMs = execution.runningMs ?? 0;
+  const credits = (value: number) => `${Math.round(value).toLocaleString()} cr`;
   return (
     <>
       <div className={styles.sectionHeading}>
         <div>
           <p className={styles.kicker}>ACTIVE ROUTE</p>
           <h3>{cargoRouteTitle(route)}</h3>
-          <p>{execution.shipName ?? "Selected ship"} · One circuit</p>
+          <p>
+            {execution.shipName ?? "Selected ship"} · Circuit {execution.circuit ?? 1}
+            {execution.repeatUntilStopped ? " · Repeating until stopped" : ""}
+          </p>
         </div>
         <span className={styles.badge}>{execution.phase.replaceAll("_", " ")}</span>
       </div>
       <section className={styles.panel} aria-label="Run status">
+        <dl className={styles.sessionMetrics} aria-label="Session finances">
+          <div>
+            <dt>Total profit</dt>
+            <dd>{credits(profit)}</dd>
+          </div>
+          <div>
+            <dt>Total expenses</dt>
+            <dd>{credits(expenses)}</dd>
+          </div>
+          <div>
+            <dt>Total revenue</dt>
+            <dd>{credits(revenue)}</dd>
+          </div>
+          <div>
+            <dt>Credits per hour</dt>
+            <dd>{runningMs > 0 ? credits((profit * 3600000) / runningMs) : "—"}</dd>
+          </div>
+        </dl>
+        <p>
+          Running time: {Math.floor(runningMs / 3600000)}h {Math.floor(runningMs / 60000) % 60}m{" "}
+          {Math.floor(runningMs / 1000) % 60}s · Pauses excluded
+        </p>
+        <p>
+          Expenses: cargo {credits(accounts?.cargo ?? 0)} · fuel {credits(accounts?.fuel ?? 0)} ·
+          tax {credits(accounts?.tax ?? 0)}
+        </p>
         {execution.flightPhase && <p>Flight phase: {execution.flightPhase.replaceAll("_", " ")}</p>}
         <p role="status">
           {finished
@@ -70,7 +110,17 @@ export function ActiveRouteStatus({
             any unfinished transaction before resuming.
           </p>
         )}
-        <div className={styles.workflowActions}>
+        <div className={`${styles.workflowActions} ${styles.routeControls}`}>
+          {resumable && (
+            <label className={styles.repeatCircuit}>
+              <input
+                type="checkbox"
+                checked={repeat}
+                onChange={(event) => setRepeat(event.target.checked)}
+              />{" "}
+              Repeat circuit until stopped
+            </label>
+          )}
           {finished && (
             <button type="button" onClick={onClear}>
               Clear active route
@@ -81,9 +131,9 @@ export function ActiveRouteStatus({
               className={styles.primary}
               type="button"
               disabled={!connected}
-              onClick={onResume}
+              onClick={() => onResume(repeat)}
             >
-              Start / resume one circuit
+              {repeat ? "Start / resume repeating circuit" : "Start / resume circuit"}
             </button>
           ) : (
             <button type="button" disabled={finished} onClick={onPause}>

@@ -1,13 +1,63 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test from "node:test";
 import { calculateFreighterRoutes } from "../renderer/src/domain/freighterRoutes.ts";
-import { DEFAULT_CARGO_TIMING, cargoTravelLegs } from "../renderer/src/domain/cargoRoutes.ts";
+import {
+  DEFAULT_CARGO_TIMING,
+  cargoTravelLegs,
+  cargoTravelSeconds,
+} from "../renderer/src/domain/cargoRoutes.ts";
+import { manualCargoRoute } from "../renderer/src/domain/manualCargoRoute.ts";
 import { readTraderConfig, shipValidation } from "../renderer/src/features/trader/traderConfig.ts";
 const planets = [
   { name: "Corellia", galacticCoordinates: { x: 0, y: 0 }, resources: { Food: 1, Ore: 10 } },
   { name: "Coruscant", galacticCoordinates: { x: 35, y: 0 }, resources: { Food: 10, Ore: 1 } },
 ];
 const options = { cargoCapacity: 100, maxJumpsPerLeg: "unlimited", timing: DEFAULT_CARGO_TIMING };
+test("hyperspeed timing matches the calibration and scales travel without scaling stops", () => {
+  const timing = { ...DEFAULT_CARGO_TIMING, hyperspeed: 55 };
+  assert.ok(Math.abs(cargoTravelSeconds(38.2, timing) - 276) < 1e-9);
+  assert.ok(Math.abs(cargoTravelSeconds(38.2, { ...timing, hyperspeed: 110 }) - 138) < 1e-9);
+  const [route] = calculateFreighterRoutes(planets, [], { ...options, timing });
+  const expectedSeconds = cargoTravelSeconds(35, timing) * 2 + 6 * 60;
+  assert.ok(Math.abs(route.totalDurationSeconds - expectedSeconds) < 1e-9);
+  assert.ok(
+    Math.abs(route.expectedProfitPerHour - (route.expectedProfit * 3600) / expectedSeconds) < 1e-9,
+  );
+  const manual = manualCargoRoute(
+    [
+      { planet: "Corellia", action: "buy", resource: "Food" },
+      { planet: "Coruscant", action: "sell", resource: "Food" },
+    ],
+    planets,
+    100,
+    35,
+    timing,
+  );
+  assert.ok(Math.abs(manual.totalDurationSeconds - expectedSeconds) < 1e-9);
+});
+
+test("ship hyperspeed survives storage and rejects invalid ratings", () => {
+  const ship = {
+    id: "speed",
+    name: "Test Hauler",
+    capacity: 100,
+    enterPath: ["n"],
+    exitPath: ["s"],
+    timing: { ...DEFAULT_CARGO_TIMING, hyperspeed: 55 },
+  };
+  assert.equal(
+    readTraderConfig(JSON.parse(JSON.stringify({ ships: [ship], pads: [], routes: [] }))).ships[0]
+      .timing.hyperspeed,
+    55,
+  );
+  for (const hyperspeed of [0, -1, NaN, Infinity]) {
+    assert.match(
+      shipValidation({ ...ship, timing: { ...ship.timing, hyperspeed } }, []),
+      /Hyperspeed/,
+    );
+    assert.ok(Number.isNaN(cargoTravelSeconds(35, { ...ship.timing, hyperspeed })));
+  }
+});
 test("35-sector round trip takes 18 minutes, including two market turnarounds", () => {
   const [route] = calculateFreighterRoutes(planets, [], options);
   assert.equal(route.totalDurationSeconds, 18 * 60);
@@ -38,7 +88,7 @@ test("duration weights include overhead when choosing a path, and explicit trave
   const nodes = [
     planets[0],
     { ...planets[1], name: "Wroona" },
-    { name: "Lorrd", galacticCoordinates: { x: 17.5, y: 0 }, resources: {} },
+    { name: "Ryloth", galacticCoordinates: { x: 17.5, y: 0 }, resources: {} },
   ];
   const edges = [{ from: "Corellia", to: "Wroona", status: "passable", travelSeconds: 400 }];
   const direct = cargoTravelLegs(nodes, edges, options).find((leg) => leg.from === "Corellia");
@@ -48,7 +98,7 @@ test("duration weights include overhead when choosing a path, and explicit trave
     ...options,
     timing: { ...DEFAULT_CARGO_TIMING, transitStopMinutes: 0 },
   }).find((leg) => leg.from === "Corellia");
-  assert.deepEqual(via.path, ["Corellia", "Lorrd", "Wroona"]);
+  assert.deepEqual(via.path, ["Corellia", "Ryloth", "Wroona"]);
   assert.equal(via.durationSeconds, 540);
 });
 test("ship timing persists, old ships retain defaults, and invalid timing is rejected", () => {

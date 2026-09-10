@@ -271,6 +271,39 @@
 .workspace input::placeholder {
   color: #708995;
 }
+.routeControls {
+  align-items: center;
+  padding: 8px 0 0;
+}
+.sessionMetrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.sessionMetrics dt {
+  color: #90a6b0;
+  font-size: 12px;
+}
+.sessionMetrics dd {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.workspace .repeatCircuit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto 0 0;
+}
+.workspace .repeatCircuit input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--trader-accent);
+}
 .workspace label small {
   font-size: 11px;
   line-height: 1.5;

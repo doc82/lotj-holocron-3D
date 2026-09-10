@@ -78,6 +78,11 @@ export function shipValidation(
   ships: readonly TraderShipConfig[],
 ): string | null {
   if (!ship.name.trim()) return "Enter the ship's name.";
+  if (
+    ship.timing?.hyperspeed !== undefined &&
+    (!Number.isFinite(ship.timing.hyperspeed) || ship.timing.hyperspeed <= 0)
+  )
+    return "Hyperspeed must be greater than zero, or leave it blank for manual timing.";
   if (ship.timing && !validCargoTiming(ship.timing))
     return "Travel time must be greater than zero; stop times must be zero or greater.";
   if (!/^[\w\s'-]+$/.test(ship.name) || /[\r\n]/.test(ship.name))

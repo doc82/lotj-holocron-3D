@@ -75,6 +75,107 @@ function Navigation.new(io)
   local function now()
     return io.now and io.now() or os.time()
   end
+  function self:publishAccounts()
+    if io.accounts then
+      io.accounts(self.runId, self.accounts)
+    end
+  end
+  function self:recordTransaction(result)
+    if result.action ~= "refuel" or result.cost ~= 0 then
+      if self.evidence then
+        self.evidence.credits = nil
+      end
+    end
+    local accounts = self.accounts
+    if result.action == "buy" then
+      accounts.cargo = accounts.cargo + (result.cost or 0)
+    elseif result.action == "refuel" then
+      accounts.fuel = accounts.fuel + (result.cost or 0)
+    elseif result.action == "sell" then
+      accounts.revenue = accounts.revenue + (result.revenue or 0)
+      self.taxPendingUntil = result.tradeMode ~= "contraband" and now() + 10 or nil
+    end
+    accounts.revision = accounts.revision + 1
+    self:publishAccounts()
+    io.transaction(result)
+  end
+  function self:invalidateEvidence()
+    self.evidence = {}
+  end
+  function self:allowExternalCommand(command)
+    local active = self.active
+    if not active then
+      self.pendingCargo = nil -- Further external activity makes attribution uncertain.
+      return true
+    end
+    if active.flightReady or active.flightStarted then
+      return true
+    end
+    -- Once sent, cargo completes asynchronously. Chat and personal utility
+    -- commands must not discard its confirmation or make a retry ambiguous.
+    if
+      active.operation.kind ~= "stop_action"
+      or self.transactions[active.operation.id] ~= "uncertain"
+    then
+      return false
+    end
+    local harmless = {
+      say = true,
+      tell = true,
+      reply = true,
+      clan = true,
+      ooc = true,
+      chat = true,
+      emote = true,
+      look = true,
+      l = true,
+      inventory = true,
+      inv = true,
+      i = true,
+      score = true,
+      sc = true,
+      equipment = true,
+      eq = true,
+      wear = true,
+      remove = true,
+    }
+    local sawCommand = false
+    for part in tostring(command or ""):gmatch("[^;\n\r]+") do
+      local verb = part:lower():match("^%s*(%S+)")
+      if not harmless[verb] then
+        return false
+      end
+      sawCommand = true
+    end
+    if sawCommand then
+      active.concurrentCargoCommand = true
+    end
+    return sawCommand
+  end
+  local function remember(kind, ship, planet, value)
+    local room = io.evidenceRoom and io.evidenceRoom()
+    if not room then
+      return
+    end
+    self.evidence = self.evidence or {}
+    self.evidence[kind] =
+      { room = room, ship = key(ship.name), planet = key(planet), at = now(), value = value }
+  end
+  local function recalled(kind, ship, planet)
+    local saved = (self.evidence or {})[kind]
+    local room = io.evidenceRoom and io.evidenceRoom()
+    if
+      saved
+      and room
+      and saved.room == room
+      and saved.ship == key(ship.name)
+      and saved.planet == key(planet)
+      and now() >= saved.at
+      and now() - saved.at <= 60
+    then
+      return saved.value
+    end
+  end
   function self:clearanceDelay(active, seconds, callback)
     if active.timer then
       io.cancel(active.timer)
@@ -147,7 +248,11 @@ function Navigation.new(io)
     for _, entity in ipairs(result.entities or {}) do
       local distance = tonumber(entity.distance)
       if distance and distance >= 0 and distance < math.huge then
-        local namedBlocker = clearance.blocker and key(entity.name) == key(clearance.blocker)
+        -- Rejections use the full ship display label; prox parsing separates
+        -- its class from the quoted callsign.
+        local blockerName = clearance.blocker
+          and (clearance.blocker:match("^.-%s+'(.-)'$") or clearance.blocker)
+        local namedBlocker = blockerName and key(entity.name) == key(blockerName)
         if namedBlocker then
           blockerSeen = true
         end
@@ -213,13 +318,23 @@ function Navigation.new(io)
     self:clearanceFailed(active, string.format("%s at %.0f units", nearestName, nearest), delay)
   end
   function self:stop(reason, discard)
+    self:invalidateEvidence()
     local active = self.active
+    if
+      active
+      and active.operation.kind == "stop_action"
+      and self.transactions[active.operation.id] == "uncertain"
+      and not active.advancing
+    then
+      self.pendingCargo = { active = active, expires = now() + 180 }
+    end
     self.active = nil
     if active and active.navigation and not discard then
       self.suspended = active
     end
     if discard then
       self.suspended = nil
+      self.pendingCargo = nil
     end
     if active and active.timer then
       io.cancel(active.timer)
@@ -290,6 +405,7 @@ function Navigation.new(io)
     active.shipGmcpSequence = self.shipAccess and self.shipAccess.sequence or 0
     active.phase = step.phase or "ground"
     if step.label == "Open ship" then
+      self:invalidateEvidence()
       active.flightReady = true -- Departure, lane and destination checks have completed.
     end
     local ok, command = pcall(step.command)
@@ -365,6 +481,32 @@ function Navigation.new(io)
     end
   end
   function self:line(text)
+    if self.taxPendingUntil then
+      local tax =
+        text:match("^Total profit, accounting for purchase price: .- Tax paid: ([%d,]+)%.$")
+      if tax and now() <= self.taxPendingUntil then
+        self.accounts.tax = self.accounts.tax + tonumber((tax:gsub(",", "")))
+        self.accounts.revision = self.accounts.revision + 1
+        self:publishAccounts()
+        self.taxPendingUntil = nil
+      elseif now() > self.taxPendingUntil then
+        self.taxPendingUntil = nil
+      end
+    end
+    local pending = self.pendingCargo
+    if pending then
+      local waiting = pending.active
+      local step = waiting.steps[waiting.index]
+      if now() > pending.expires then
+        self.pendingCargo = nil
+      elseif step.match and step.match(text) then
+        self.pendingCargo = nil
+        local ok = pcall(step.confirm, { text })
+        if ok then
+          self.completed[waiting.operation.id] = true
+        end
+      end
+    end
     local active = self.active
     if not active then
       local paused = self.suspended
@@ -387,6 +529,12 @@ function Navigation.new(io)
     text = tostring(text):gsub("\r", "")
     table.insert(active.lines, text)
     local lower = key(text)
+    -- Some profiles display the final HUD without a Mudlet prompt event.
+    -- Use the same confirmation gates and deferred advancement as a real prompt.
+    if text:match("^%s*{Health:") and text:find("{Movement:", 1, true) then
+      self:prompt()
+      return
+    end
     -- Navigation milestones may be supplied by a manual command. Never skip ground checks.
     if active.flightReady or active.flightStarted then
       if
@@ -488,6 +636,11 @@ function Navigation.new(io)
     end
     if
       (not flightContext or flightFailure)
+      and (not active.concurrentCargoCommand or lower:find("cargo", 1, true) or lower:find(
+        "credits",
+        1,
+        true
+      ) or lower:find("ship", 1, true) or lower:find("smuggl", 1, true))
       and (
         lower == "you fail."
         or lower:find("you fail to", 1, true)
@@ -577,7 +730,16 @@ function Navigation.new(io)
       return false, "Invalid navigation operation."
     end
     if self.runId ~= op.runId then
+      self.pendingCargo = nil
+      self:invalidateEvidence()
       self.runId, self.completed, self.transactions, self.at = op.runId, {}, {}, nil
+      self.taxPendingUntil = nil
+      self.accounts = {}
+      for _, field in ipairs({ "revision", "cargo", "fuel", "tax", "revenue" }) do
+        local value = tonumber((payload.accounts or {})[field]) or 0
+        self.accounts[field] = value >= 0 and value < math.huge and value or 0
+      end
+      self:publishAccounts()
     end
     if
       op.kind == "reconcile"
@@ -590,7 +752,7 @@ function Navigation.new(io)
         previous.operation.runId == op.runId
         and key(previous.ship.name) == key(ship.name)
         and key(previous.operation.destination.name) == key(op.destination.name)
-        and previous.flightStarted
+        and (previous.flightReady or previous.flightStarted)
         and not previous.landed
       then
         self.suspended = nil
@@ -600,11 +762,10 @@ function Navigation.new(io)
         previous.advancing, previous.matched, previous.clearance = false, false, nil
         self.active = previous
         if previous.resumeEvent then
-          previous.index = previous.resumeEvent.index
-          previous.lines, previous.matched = { previous.resumeEvent.text }, true
+          local event = previous.resumeEvent.text
           previous.resumeEvent = nil
           previous.waitingForMilestone = nil
-          self:prompt()
+          self:line(event)
           return true, nil, true
         end
         if confirmedBeforePause then
@@ -627,6 +788,7 @@ function Navigation.new(io)
       end
     end
     if op.kind == "stop_action" then
+      self.pendingCargo = nil
       self.transactions[op.id] = self.transactions[op.id] or "not_started"
     end
     local active = {
@@ -661,9 +823,28 @@ function Navigation.new(io)
       if command == "showplanet" and io.groundLocation then
         active.steps[#active.steps].gmcp = io.groundLocation
       end
+      if
+        command == "showplanet"
+        and op.kind == "reconcile"
+        and op.destination.arrival
+        and op.destination.arrival.kind == "station"
+      then
+        active.steps[#active.steps].gmcp = function()
+          assert(
+            self.stationAt
+              and key(self.stationAt.name) == key(op.destination.name)
+              and key(self.stationAt.ship) == key(ship.name),
+            "Station arrival is unverified."
+          )
+          return { planet = op.destination.name }
+        end
+      end
     end
-    local function location(expected)
+    local function location(expected, force)
       expected = expected or op.destination.name
+      if not force and recalled("location", ship, expected) then
+        return
+      end
       query("Verify trading location", "showplanet", "showplanet", function(line)
         return line:match("^Planet:")
       end, function(result)
@@ -675,6 +856,18 @@ function Navigation.new(io)
         )
         self.at = result.planet
       end)
+      local place = key(expected) == key(op.destination.name) and op.destination or payload.from
+      if place and place.arrival and place.arrival.kind == "station" then
+        active.steps[#active.steps].gmcp = function()
+          assert(
+            self.stationAt
+              and key(self.stationAt.name) == key(expected)
+              and key(self.stationAt.ship) == key(ship.name),
+            "Station arrival is unverified. Complete a verified station landing before resuming."
+          )
+          return { planet = expected }
+        end
+      end
       step("Confirm ship on landing pad", "look", nil, function(lines)
         local found = false
         for _, line in ipairs(lines) do
@@ -691,33 +884,53 @@ function Navigation.new(io)
             .. ship.name
             .. ", stand outside the ship, then click Resume."
         )
+        remember("location", ship, expected, true)
       end)
     end
-    local function cargo()
+    local function cargo(force)
+      local saved = not force and recalled("cargo", ship, self.at)
+      if saved then
+        active.cargo = saved
+        return
+      end
       query("Inspect cargo", "listcargo " .. quote(ship.name), "listcargo", function(line)
         return line:find("Cargo Readout for", 1, true) ~= nil
       end, function(result)
         assert(key(result.shipName) == key(ship.name), "Cargo readout belongs to another ship.")
         active.cargo = result
+        remember("cargo", ship, self.at, result)
       end)
     end
     local function credits(confirm)
+      local saved = recalled("credits", ship, self.at)
+      if saved ~= nil then
+        active.credits = saved
+        if confirm then
+          confirm()
+        end
+        return
+      end
       query("Check available credits", "credits", "credits", function(line)
         return line:match("^You have [%d,]+ credits%.$")
       end, function(result)
         active.credits = result.balance
+        remember("credits", ship, self.at, result.balance)
         if confirm then
           confirm()
         end
       end)
     end
-    local function refuel()
+    local function refuel(force)
+      if not force and recalled("fuel", ship, self.at) then
+        return
+      end
       query("Refuel " .. ship.name, "refuel " .. quote(ship.name), "refuel", function(line)
         return line == "That ship is already fully fueled!"
           or line:match("^You pay .+ credits to refuel the ship%.$")
       end, function(result)
         assert(result.action == "refuel", "Unexpected refuel response.")
-        io.transaction(result)
+        self:recordTransaction(result)
+        remember("fuel", ship, self.at, true)
       end)
     end
     local ok, err = pcall(function()
@@ -742,6 +955,7 @@ function Navigation.new(io)
         "Invalid cockpit or exit path."
       )
       if op.kind == "reconcile" then
+        self:invalidateEvidence()
         if payload.itinerary then
           query("Verify circuit before commerce", "l hyp", "hyperlane", function(line)
             return line:find("Between ", 1, true) ~= nil
@@ -787,6 +1001,7 @@ function Navigation.new(io)
             found,
             "Stand outside " .. ship.name .. " on its landing pad before starting or resuming."
           )
+          remember("location", ship, op.destination.name, true)
         end)
         cargo()
         credits(function()
@@ -891,7 +1106,8 @@ function Navigation.new(io)
               or line:match("^You find a contact willing to pay .+ units of smuggled .+%.$")
           end,
           function(result)
-            io.transaction(result)
+            self.evidence = self.evidence or {}
+            self.evidence.cargo = nil
             assert(
               result.action == (buying and "buy" or "sell")
                 and (result.tradeMode or "cargo") == (data.tradeMode or "cargo")
@@ -899,6 +1115,7 @@ function Navigation.new(io)
                 and result.amount == data.quantity,
               "Cargo confirmation differs from the planned transaction; reconcile the hold."
             )
+            self:recordTransaction(result)
           end
         )
         -- Loading/unloading completes asynchronously and need not emit a prompt.
@@ -1000,6 +1217,7 @@ function Navigation.new(io)
           return line == "The ship leaves the platform far behind as it flies into space."
         end, function()
           self.at = nil
+          self.stationAt = nil
         end, 120)
         step("Calculate hyperspace", function()
           assert(
@@ -1042,10 +1260,47 @@ function Navigation.new(io)
           )
           active.arrivalVerified = true
         end)
-        step("Approach " .. target, "course " .. quote(target), function(line)
-          return key(line:match("^You begin orbiting (.-)%.$")) == key(target)
-        end, nil, 900)
-        if not destination.arrival.pad then
+        local approachTarget = destination.arrival.approachTarget or target
+        step("Approach " .. approachTarget, "course " .. quote(approachTarget), function(line)
+          return key(line:match("^You begin orbiting (.-)%.$")) == key(approachTarget)
+        end, function()
+          active.stationApproached = destination.arrival.kind == "station"
+        end, 900)
+        if destination.arrival.kind == "station" then
+          step(
+            "Check station hangar",
+            "land " .. quote(destination.arrival.landingTarget or target),
+            function(line)
+              return line:match("^Hangar %d+:") ~= nil
+            end,
+            function(lines)
+              local wanted = tostring(destination.arrival.pad or "")
+              assert(
+                wanted:match("^[1-9]%d*$"),
+                "Configure a numbered station hangar before landing."
+              )
+              for _, line in ipairs(lines) do
+                local number, status, used, capacity =
+                  line:match("^Hangar (%d+):%s*(%a+)%s+Slot%(s%):%s*(%d+)/(%d+)%s*$")
+                if number == wanted then
+                  assert(
+                    status:lower() == "open" and tonumber(used) < tonumber(capacity),
+                    "Station hangar "
+                      .. wanted
+                      .. " is closed or full. Choose an available hangar before resuming."
+                  )
+                  active.pad = wanted
+                  return
+                end
+              end
+              error(
+                "Configured station hangar "
+                  .. wanted
+                  .. " was not listed; no landing command sent."
+              )
+            end
+          )
+        elseif not destination.arrival.pad then
           step("Find landing pad", "land " .. quote(target), function(line)
             return line:match("^Possible choices for ")
           end, function(lines)
@@ -1060,10 +1315,21 @@ function Navigation.new(io)
           end)
         end
         step("Land", function()
-          return "land " .. quote(target) .. " " .. (destination.arrival.pad or active.pad)
+          return "land "
+            .. quote(destination.arrival.landingTarget or target)
+            .. " "
+            .. (destination.arrival.pad or active.pad)
         end, function(line)
           return line == "You feel a slight thud as the ship sets down on the ground."
-        end, nil, 120)
+        end, function()
+          if destination.arrival.kind == "station" then
+            assert(
+              active.arrivalVerified and active.stationApproached,
+              "Station approach and arrival system were not verified."
+            )
+            self.stationAt = { name = destination.name, ship = ship.name }
+          end
+        end, 120)
         step("Enable ship autopilot", "autopilot on")
         for _, direction in ipairs(ship.exitPath or {}) do
           assert(
@@ -1096,14 +1362,15 @@ function Navigation.new(io)
         step("Open hatch", "open")
         step("Leave ship", "leave")
         step("Close ship", "close " .. quote(ship.name))
-        location()
+        location(nil, true)
         -- A cargo readout outside the ship also verifies access before trading.
-        cargo()
-        refuel()
+        cargo(true)
+        refuel(true)
         active.steps[#active.steps].confirm = function(lines)
           local result = parsed("refuel", lines)
-          io.transaction(result)
+          self:recordTransaction(result)
           self.at = destination.name
+          remember("fuel", ship, self.at, true)
         end
       else
         error("Unsupported navigation operation.")

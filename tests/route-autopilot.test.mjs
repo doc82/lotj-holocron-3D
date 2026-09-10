@@ -38,6 +38,114 @@ const evidence = (op) => ({
   interruptedOutcome: "not_started",
 });
 
+test("continuous circuits reconcile each lap, preserve unique operations and restore paused", async () => {
+  const looping = { ...structuredClone(mission), repeatUntilStopped: true };
+  looping.stops.push(structuredClone(looping.stops[0]));
+  looping.stops[0].actions.push({
+    kind: "cargo.buy",
+    label: "Buy Food",
+    payload: { resource: "Food", quantity: 10 },
+  });
+  looping.stops[1].actions.push({
+    kind: "cargo.sell",
+    label: "Sell Food",
+    payload: { resource: "Food", quantity: 10 },
+  });
+  const operations = [];
+  let block = true;
+  let saved;
+  const runner = new RouteRunner(
+    prepareMission(looping, "continuous"),
+    {
+      execute: async (op) => {
+        operations.push(op);
+        if (block && op.lap === 100) throw new Error("Connection lost");
+        return evidence(op);
+      },
+    },
+    {
+      save: async (state) => {
+        saved = state;
+      },
+    },
+    () => {},
+  );
+  await runner.resume();
+  assert.equal(runner.state.status, "paused");
+  assert.equal(runner.state.lap, 100);
+  assert.equal(new Set(operations.map((op) => op.id)).size, operations.length);
+  assert.equal(operations.filter((op) => op.kind === "reconcile").length, 101);
+  assert.equal(operations.filter((op) => op.action?.kind === "cargo.buy").length, 100);
+  assert.equal(operations.filter((op) => op.action?.kind === "cargo.sell").length, 100);
+  assert.equal(restoreMission(JSON.parse(JSON.stringify(saved))).status, "paused");
+  assert.equal(saved.mission.repeatUntilStopped, true);
+  block = false;
+  await runner.resume(false);
+  assert.equal(runner.state.status, "completed");
+  assert.equal(runner.state.lap, 100);
+  assert.equal(runner.state.mission.repeatUntilStopped, false);
+});
+
+test("continuous missions must return to their origin", () => {
+  assert.throws(
+    () => prepareMission({ ...mission, repeatUntilStopped: true }, "open"),
+    /return to their origin/,
+  );
+});
+
+test("session accounting excludes pauses, deduplicates totals and survives restore", async () => {
+  let now = 0;
+  let dispatch;
+  const ready = () =>
+    new Promise((resolve) => {
+      dispatch = resolve;
+    });
+  let issued = ready();
+  let saved;
+  const runner = new RouteRunner(
+    prepareMission(mission, "finance"),
+    {
+      execute: () => {
+        dispatch();
+        return new Promise(() => {});
+      },
+    },
+    {
+      save: async (state) => {
+        saved = state;
+      },
+    },
+    () => {},
+    100000,
+    () => now,
+  );
+  const first = runner.resume();
+  await issued;
+  now = 60000;
+  await runner.track({ revision: 3, revenue: 2000, cargo: 1000, fuel: 100, tax: 50 });
+  await runner.track({ revision: 3, revenue: 2000, cargo: 1000, fuel: 100, tax: 50 });
+  await runner.pause();
+  await first;
+  assert.equal(saved.runningMs, 60000);
+  now += 3600000;
+  await runner.track();
+  assert.equal(saved.runningMs, 60000);
+  issued = ready();
+  const second = runner.resume();
+  await issued;
+  now += 30000;
+  await runner.abort();
+  await second;
+  assert.equal(saved.runningMs, 90000);
+  assert.equal(
+    saved.accounts.revenue - saved.accounts.cargo - saved.accounts.fuel - saved.accounts.tax,
+    850,
+  );
+  const restored = restoreMission(JSON.parse(JSON.stringify(saved)));
+  assert.equal(restored.runningMs, 90000);
+  assert.deepEqual(restored.accounts, saved.accounts);
+});
+
 test("autopilot requires both access paths or explicit direct cockpit access", () => {
   for (const access of [
     { enterPath: [], exitPath: [] },

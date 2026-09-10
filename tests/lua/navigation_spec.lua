@@ -7,6 +7,9 @@ local function fixture()
   local f = { commands = {}, timers = {}, results = {}, transactions = {}, clock = 0, speed = 20 }
   f.driver = Navigation.new({
     parse = parsers.parse,
+    evidenceRoom = function()
+      return f.room
+    end,
     groundLocation = function()
       return f.groundLocation
     end,
@@ -192,6 +195,354 @@ local function fly(f, id, from, to, pauseAtJump, pauseAtCalculation, pauseAtCont
 end
 
 describe("navigation transport", function()
+  it("starts a circuit through visible HUD boundaries without prompt callbacks", function()
+    local f = fixture()
+    local function response(text)
+      for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        f.driver:line(line)
+      end
+      f.driver:line("{Tone: none } {Time: day } {Ambience: average }")
+      f.driver:line("{Health: 1410/1410} {OOC:||||||} [ ] {Movement: 2680/2680} []")
+      f.driver:prompt() -- A real prompt following the HUD must not advance twice.
+      f:tick(0)
+    end
+    assert(f.driver:start({
+      operation = operation("start", "reconcile", "Corellia"),
+      ship = ship,
+      itinerary = { destination("Corellia"), destination("Lorrd") },
+    }, "start"))
+    equal(f.commands[#f.commands], "l hyp")
+    response("An unrelated message before the response.")
+    equal(f.commands[#f.commands], "l hyp")
+    -- No real prompt callback for the response that used to stall.
+    f.driver:line("| Between Naboo and Bespin : No Route |")
+    f.driver:line("| Between Corellia and Wroona : No Route |")
+    f.driver:line("| Between Kashyyyk and Core Worlds : No Route |")
+    f.driver:line("| Between Arkania and Lorrd : No Route |")
+    f.driver:line("| Between Hutt Space and Tatooine : Passable |")
+    f.driver:line("*--------------------------------------------------*")
+    f.driver:line("{Health: 1410/1410} {OOC:||||||} [ ] {Movement: 2680/2680} []")
+    f:tick(0)
+    equal(f.commands[#f.commands], "showplanet")
+    response("Planet: Corellia")
+    equal(f.commands[#f.commands], "look")
+    response("Landing Pad\nFreighter: Sunrise")
+    equal(f.commands[#f.commands], 'listcargo "Sunrise"')
+    response(cargo("(Empty)", 0))
+    equal(f.commands[#f.commands], "credits")
+    response("You have 1000 credits.")
+    equal(f.driver.active, nil)
+    equal(f.results[#f.results].result.outcome, "completed")
+    equal(#f.commands, 5)
+  end)
+
+  it("lands at Lodestar bay 1, refuels outside, and departs for Lorrd", function()
+    local f = fixture()
+    reconcile(f)
+    local station = {
+      name = "Eeropha",
+      system = "Eeropha System",
+      position = { x = 9137, y = 4521, z = -18941 },
+      arrival = {
+        kind = "station",
+        station = "Lodestar Utopia Refueling Station",
+        landingTarget = "Lodestar",
+        approachTarget = "Eeropha",
+        pad = "1",
+      },
+    }
+    local op = operation("station", "navigate", "Eeropha")
+    op.destination = station
+    assert(
+      f.driver:start({ operation = op, ship = ship, from = destination("Corellia") }, "station")
+    )
+    ground(f, "Corellia")
+    f:respond("| Between Corellia and Wroona : Passable |")
+    equal(f.commands[#f.commands], 'refuel "Sunrise"')
+    f:respond("That ship is already fully fueled!")
+    f:respond("You open the hatch on Freighter 'Sunrise'.")
+    for _ = 1, 4 do
+      f:respond("Done.")
+    end
+    f:respond("You grip the controls.")
+    f:respond("The ship leaves the platform far behind as it flies into space.")
+    equal(f.commands[#f.commands], 'calculate "Eeropha System" 9426 4810 -18652')
+    f:respond("[Status]: Hyperspace calculations have been completed.")
+    f:respond("Jump System: Eeropha System")
+    f:respond("The ship lurches slightly as it comes out of hyperspace.")
+    f:respond("Current System: Eeropha System")
+    equal(f.commands[#f.commands], 'course "Eeropha"')
+    f:respond("You begin orbiting Eeropha.")
+    equal(f.commands[#f.commands], 'land "Lodestar"')
+    local hangarStep = f.driver.active.steps[f.driver.active.index]
+    for _, invalid in ipairs({
+      "Hangar 1: Closed Slot(s): 2/40",
+      "Hangar 1: Open Slot(s): 40/40",
+      "Hangar 2: Open Slot(s): 0/40",
+    }) do
+      equal(pcall(hangarStep.confirm, { invalid }), false)
+    end
+    f:respond(
+      "Please type the hangar after the ship name.\nPossible choices for Freighter 'Sunrise':\n\nHangar 1: Open       Slot(s): 2/40\nHangar 2: Open       Slot(s): 15/40\nHangar 3: Open       Slot(s): 2/40\nHangar 4: Open       Slot(s): 0/40"
+    )
+    equal(f.commands[#f.commands], 'land "Lodestar" 1')
+    f:respond("You feel a slight thud as the ship sets down on the ground.")
+    for _ = 1, 5 do
+      f:respond("Done.")
+    end
+    f:tick(0) -- station evidence completes without showplanet
+    equal(f.commands[#f.commands], "look")
+    f:respond("Hangar Bay 1\nFreighter: Sunrise")
+    f:respond(cargo("Food", 10))
+    equal(f.commands[#f.commands], 'refuel "Sunrise"')
+    f:respond("You pay 10 credits to refuel the ship.")
+    equal(f.results[#f.results].result.location.destination, "Eeropha")
+    assert(
+      f.driver:start(
+        { operation = operation("depart", "navigate", "Lorrd"), ship = ship, from = station },
+        "depart"
+      )
+    )
+    f:tick(0)
+    equal(f.commands[#f.commands], "look")
+    f:respond("Hangar Bay 1\nFreighter: Sunrise")
+    f:respond("| Between Arkania and Lorrd : No Route |")
+    equal(f.commands[#f.commands], 'showplanet "Lorrd"')
+  end)
+
+  it("tracks actual session cargo, fuel, revenue and sale tax once", function()
+    local f = fixture()
+    reconcile(f)
+    trade(f, "buy", "buy", "Corellia", "Food")
+    equal(f.driver.accounts.cargo, 100)
+    trade(f, "sell", "sell", "Corellia", "Food")
+    f.driver:line("Total profit, accounting for purchase price: 20. Tax paid: 3.")
+    f.driver:line("Total profit, accounting for purchase price: 20. Tax paid: 3.")
+    assert(
+      f.driver:start({ operation = operation("fuel", "refuel", "Corellia"), ship = ship }, "fuel")
+    )
+    ground(f, "Corellia")
+    f:respond("You pay 10 credits to refuel the ship.")
+    equal(f.driver.accounts.revenue, 100)
+    equal(f.driver.accounts.tax, 3)
+    equal(f.driver.accounts.fuel, 10)
+    equal(f.driver.accounts.revision, 4)
+    local saved = f.driver.accounts
+    local other = fixture()
+    assert(
+      other.driver:start(
+        { operation = operation("restore", "reconcile", "Corellia"), ship = ship, accounts = saved },
+        "restore"
+      )
+    )
+    equal(other.driver.accounts.cargo, 100)
+    equal(other.driver.accounts.revision, 4)
+  end)
+
+  it("reconciles a sale confirmed after pause without sending it again", function()
+    local f = fixture()
+    reconcile(f)
+    local sale = operation("sale", "stop_action", "Corellia", {
+      kind = "cargo.sell",
+      payload = { resource = "Food", quantity = 10 },
+    })
+    assert(f.driver:start({ operation = sale, ship = ship }, "sale"))
+    ground(f, "Corellia")
+    f:respond(cargo("Food", 10))
+    f:respond("You have 1000 credits.")
+    f.driver:stop("Paused")
+    f.driver:line("You sell 10 units of Food for 100 credits.")
+    f.driver:line("You sell 10 units of Food for 100 credits.")
+    equal(#f.transactions, 1)
+    assert(f.driver:start({
+      operation = operation("resume", "reconcile", "Corellia"),
+      interrupted = sale,
+      ship = ship,
+    }, "resume"))
+    ground(f, "Corellia")
+    f:respond(cargo("(Empty)", 0))
+    f:respond("You have 1100 credits.")
+    equal(f.results[#f.results].result.interruptedOutcome, "completed")
+    local count = 0
+    for _, command in ipairs(f.commands) do
+      if command == 'sellcargo "Sunrise" "Food" 10' then
+        count = count + 1
+      end
+    end
+    equal(count, 1)
+  end)
+
+  it(
+    "reuses the startup balance after an already-full refuel, then invalidates it on purchase",
+    function()
+      local f = fixture()
+      f.room = 123
+      reconcile(f)
+      assert(
+        f.driver:start({ operation = operation("fuel", "refuel", "Corellia"), ship = ship }, "fuel")
+      )
+      f:respond("That ship is already fully fueled!")
+      assert(f.driver:start({
+        operation = operation("buy", "stop_action", "Corellia", {
+          kind = "cargo.buy",
+          payload = { resource = "Textiles", quantity = 10 },
+        }),
+        ship = ship,
+      }, "buy"))
+      equal(f.commands[#f.commands], 'showplanet "Corellia" resources')
+      f:respond("Planet: Corellia\nTextiles ( Price per unit: 10.00)")
+      equal(f.commands[#f.commands], 'buycargo "Sunrise" "Textiles" 10')
+      f:respond("You purchased 10 units of Textiles for 100 credits.")
+      equal(f.driver.evidence.credits, nil)
+      equal(f.results[#f.results].result.outcome, "completed")
+      local count = 0
+      for _, command in ipairs(f.commands) do
+        if command == "credits" then
+          count = count + 1
+        end
+      end
+      equal(count, 1)
+    end
+  )
+
+  for _, reason in ipairs({ "expired", "external command" }) do
+    it("rechecks credits before buying when startup evidence is " .. reason, function()
+      local f = fixture()
+      f.room = 123
+      reconcile(f)
+      if reason == "expired" then
+        f.clock = 61
+      else
+        f.driver:invalidateEvidence()
+      end
+      assert(f.driver:start({
+        operation = operation("buy", "stop_action", "Corellia", {
+          kind = "cargo.buy",
+          payload = { resource = "Textiles", quantity = 10 },
+        }),
+        ship = ship,
+      }, "buy"))
+      equal(f.commands[#f.commands], "showplanet")
+      ground(f, "Corellia")
+      f:respond(cargo("(Empty)", 0))
+      equal(f.commands[#f.commands], "credits")
+      f:respond("You have 0 credits.")
+      f:respond("Planet: Corellia\nTextiles ( Price per unit: 10.00)")
+      equal(f.driver.active, nil)
+      assert(f.results[#f.results].reason:find("Insufficient credits", 1, true))
+      for _, command in ipairs(f.commands) do
+        assert(not command:match("^buycargo"))
+      end
+    end)
+  end
+
+  it("reuses startup evidence across refueling, purchase and departure", function()
+    local f = fixture()
+    f.room = 123
+    reconcile(f)
+    assert(
+      f.driver:start({ operation = operation("fuel", "refuel", "Corellia"), ship = ship }, "fuel")
+    )
+    equal(f.commands[#f.commands], 'refuel "Sunrise"')
+    f:respond("You pay 10 credits to refuel the ship.")
+    assert(f.driver:start({
+      operation = operation("buy", "stop_action", "Corellia", {
+        kind = "cargo.buy",
+        payload = { resource = "Textiles", quantity = 10 },
+      }),
+      ship = ship,
+    }, "buy"))
+    equal(f.commands[#f.commands], "credits")
+    f:respond("You have 1097783 credits.")
+    f:respond("Planet: Corellia\nTextiles ( Price per unit: 10.00)")
+    equal(f.commands[#f.commands], 'buycargo "Sunrise" "Textiles" 10')
+    f:respond("You purchased 10 units of Textiles for 100 credits.")
+    equal(f.driver.evidence.cargo, nil)
+    assert(f.driver:start({
+      operation = operation("fly", "navigate", "Wroona"),
+      ship = ship,
+      from = destination("Corellia"),
+    }, "fly"))
+    equal(f.commands[#f.commands], "l hyp")
+    f:respond("| Between Corellia and Wroona : Passable |")
+    f:respond("Planet: Wroona\nStarsystem: Wroona System\nCoordinates: 100 200 300")
+    equal(f.commands[#f.commands], 'open "Sunrise"')
+    local counts = {}
+    for _, command in ipairs(f.commands) do
+      counts[command] = (counts[command] or 0) + 1
+    end
+    equal(counts.showplanet, 1)
+    equal(counts.look, 1)
+    equal(counts['listcargo "Sunrise"'], 1)
+    equal(counts['refuel "Sunrise"'], 1)
+    equal(counts.credits, 2)
+  end)
+
+  for _, reason in ipairs({
+    "expired",
+    "room",
+    "external command",
+    "stop",
+    "new run",
+    "ship",
+    "missing room",
+  }) do
+    it("rechecks startup evidence after " .. reason, function()
+      local f = fixture()
+      f.room = 123
+      reconcile(f)
+      local nextShip = ship
+      local op = operation("fuel", "refuel", "Corellia")
+      if reason == "expired" then
+        f.clock = 61
+      elseif reason == "room" then
+        f.room = 124
+      elseif reason == "external command" then
+        f.driver:invalidateEvidence()
+      elseif reason == "stop" then
+        f.driver:stop()
+      elseif reason == "new run" then
+        op = operation("again", "reconcile", "Corellia")
+        op.runId = "another-run"
+      elseif reason == "ship" then
+        nextShip = { name = "Other", enterPath = { "n" }, exitPath = { "s" } }
+      elseif reason == "missing room" then
+        f.room = nil
+      end
+      assert(f.driver:start({ operation = op, ship = nextShip }, "next"))
+      equal(f.commands[#f.commands], "showplanet")
+    end)
+  end
+
+  it(
+    "matches a class-qualified blocker and jumps when the tenth proximity scan clears it",
+    function()
+      local f = fixture()
+      f.speed = 0
+      reconcile(f)
+      fly(f, "out", "Corellia", "Wroona", true)
+      f:respond("You are too close to Test Cruiser 'Test Blocker' to make the jump to lightspeed!")
+      local distances = { 164, 206, 248, 276, 318, 360, 402, 430, 458, 500 }
+      for i, distance in ipairs(distances) do
+        equal(f.commands[#f.commands], "prox")
+        equal(f.driver.active.clearance.attempts, i)
+        f:respond(
+          "Test System:\nTest Cruiser 'Test Blocker' Prox: "
+            .. distance
+            .. "\nFreighter 'Another Test Ship' Prox: "
+            .. (distance + 10)
+            .. "\nYour Coordinates: 0 0 0"
+        )
+        if i < #distances then
+          equal(f.driver.active.clearance.phase, "wait")
+          f:tick(f.driver.active.timer.seconds)
+        end
+      end
+      equal(f.commands[#f.commands], "hyperspace")
+      equal(f.driver.active.clearance.attempts, 10)
+    end
+  )
+
   it("rescans using speed and retries only after fresh 500-unit clearance", function()
     local f = fixture()
     reconcile(f)
@@ -697,6 +1048,46 @@ describe("recoverable flight phases and commerce gates", function()
 end)
 
 describe("ground recovery", function()
+  for _, launchWhilePaused in ipairs({ false, true }) do
+    it(
+      "recovers cockpit correction with manual launch "
+        .. (launchWhilePaused and "before" or "after")
+        .. " resume",
+      function()
+        local f = fixture()
+        reconcile(f)
+        fly(f, "flight", "Corellia", "Wroona", false, false, true)
+        local interrupted = f.driver.active.operation
+        f:respond("You must be in the cockpit to pilot this ship.")
+        f.driver:stop("Paused to correct cockpit access")
+        local count = #f.commands
+        if launchWhilePaused then
+          f.driver:line("The ship leaves the platform far behind as it flies into space.")
+          f:tick(0)
+          equal(#f.commands, count)
+        end
+        assert(f.driver:start({
+          operation = operation("recovery", "reconcile", "Wroona"),
+          ship = ship,
+          interrupted = interrupted,
+        }, "recovery-intent"))
+        equal(#f.commands, count)
+        if not launchWhilePaused then
+          f.driver:line("The ship leaves the platform far behind as it flies into space.")
+        end
+        f:tick(0)
+        equal(#f.commands, count + 1)
+        equal(f.commands[#f.commands], 'calculate "Wroona System" 389 489 589')
+        f:respond("[Status]: Hyperspace calculations have been completed.")
+        equal(f.commands[#f.commands], "navstat")
+        f:respond("Jump System: Wroona System")
+        equal(f.commands[#f.commands], "hyperspace")
+        equal(f.driver.active.operation.id, "recovery")
+        equal(#f.results, 2) -- Initial reconciliation and pause, not a fabricated arrival.
+      end
+    )
+  end
+
   it("uses verified GMCP planet observations but still checks the ship on the pad", function()
     local f = fixture()
     f.groundLocation = { planet = "Corellia" }

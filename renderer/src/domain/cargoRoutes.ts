@@ -28,6 +28,7 @@ export interface CargoRouteConstraints {
 }
 
 export interface CargoTiming {
+  hyperspeed?: number;
   minutesPer35Sectors: number;
   tradeStopMinutes: number;
   transitStopMinutes: number;
@@ -41,12 +42,23 @@ export const DEFAULT_CARGO_TIMING: CargoTiming = {
 
 export function validCargoTiming(timing: CargoTiming): boolean {
   return (
+    (timing.hyperspeed === undefined ||
+      (Number.isFinite(timing.hyperspeed) && timing.hyperspeed > 0)) &&
     Number.isFinite(timing.minutesPer35Sectors) &&
     timing.minutesPer35Sectors > 0 &&
     [timing.tradeStopMinutes, timing.transitStopMinutes].every(
       (value) => Number.isFinite(value) && value >= 0,
     )
   );
+}
+
+// Calibrated from a reported jump: 38.2 parsecs, hyperspeed 55, 276 seconds.
+// Inverse time/speed scaling is an estimate, not a verified server formula.
+export function cargoTravelSeconds(distance: number, timing: CargoTiming): number {
+  if (!Number.isFinite(distance) || distance < 0 || !validCargoTiming(timing)) return NaN;
+  return timing.hyperspeed === undefined
+    ? (distance / 35) * timing.minutesPer35Sectors * 60
+    : (distance * ((276 * 55) / 38.2)) / timing.hyperspeed;
 }
 
 export interface CargoRouteLeg {
@@ -197,10 +209,10 @@ function buildAdjacency(
         const end = to.galacticCoordinates;
         if (measuredSeconds === undefined) {
           if (!start || !end) continue;
-          seconds =
-            (Math.hypot(end.x - start.x, end.y - start.y) / 35) *
-            constraints.timing.minutesPer35Sectors *
-            60;
+          seconds = cargoTravelSeconds(
+            Math.hypot(end.x - start.x, end.y - start.y),
+            constraints.timing,
+          );
         }
         if (!Number.isFinite(seconds) || seconds < 0) continue;
         seconds += constraints.timing.transitStopMinutes * 60;

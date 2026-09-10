@@ -38,6 +38,10 @@ export interface CargoRouteCheckpoint {
 }
 
 export interface CargoExecutionState {
+  runningMs?: number;
+  accounts?: import("./routeAutopilot").RouteAccounts;
+  repeatUntilStopped?: boolean;
+  circuit?: number;
   flightPhase?: string;
   shipName?: string;
   route: CargoRoute | null;

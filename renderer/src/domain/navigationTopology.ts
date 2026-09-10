@@ -19,6 +19,9 @@ export interface NavigationWaypoint {
   system: string;
   galacticCoordinates: { x: number; y: number };
   refuelStation: string;
+  landingTarget?: string;
+  approachTarget?: string;
+  landingPad?: string;
   refuelCoordinates: { x: number; y: number; z: number };
 }
 export const navigationWaypoints: NavigationWaypoint[] = Object.values(topology.waypoints);

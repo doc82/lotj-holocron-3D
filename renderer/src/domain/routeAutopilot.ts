@@ -6,7 +6,15 @@ export interface NavigationDestination {
   galaxy: { x: number; y: number };
   // Planet coordinates may be resolved with showplanet immediately before flight.
   position?: { x: number; y: number; z: number };
-  arrival: { kind: "planet"; pad?: string } | { kind: "station"; station: string; pad?: string };
+  arrival:
+    | { kind: "planet"; pad?: string }
+    | {
+        kind: "station";
+        station: string;
+        landingTarget?: string;
+        approachTarget?: string;
+        pad?: string;
+      };
 }
 
 export interface RouteStopAction {
@@ -34,6 +42,7 @@ export interface NavigationMission {
   };
   stops: NavigationStop[];
   repetitions: number;
+  repeatUntilStopped?: boolean;
 }
 
 export interface RouteOperation {
@@ -47,6 +56,8 @@ export interface RouteOperation {
 }
 
 export interface RouteCheckpoint {
+  runningMs?: number;
+  accounts?: RouteAccounts;
   version: 1;
   mission: NavigationMission;
   runId: string;
@@ -60,6 +71,14 @@ export interface RouteCheckpoint {
   interrupted?: RouteOperation;
   reason?: string;
   needsReconciliation: boolean;
+}
+
+export interface RouteAccounts {
+  revision: number;
+  revenue: number;
+  cargo: number;
+  fuel: number;
+  tax: number;
 }
 
 export interface RouteConfirmation {
@@ -98,6 +117,12 @@ const directions = new Set([
 ]);
 
 export function prepareMission(mission: NavigationMission, runId: string): RouteCheckpoint {
+  if (
+    mission.repeatUntilStopped &&
+    (mission.stops.length < 2 ||
+      !same(mission.stops[0].destination.name, mission.stops.at(-1)!.destination.name))
+  )
+    throw new Error("Repeating circuits must return to their origin.");
   if (
     !Array.isArray(mission.ship.enterPath) ||
     !Array.isArray(mission.ship.exitPath) ||
@@ -193,7 +218,7 @@ export function restoreMission(state: RouteCheckpoint): RouteCheckpoint {
     state.stop >= state.mission.stops.length ||
     !Number.isSafeInteger(state.lap) ||
     state.lap < 0 ||
-    state.lap >= state.mission.repetitions ||
+    (!state.mission.repeatUntilStopped && state.lap >= state.mission.repetitions) ||
     !Number.isSafeInteger(state.sequence) ||
     state.sequence < 0 ||
     !Number.isSafeInteger(state.action) ||
@@ -235,7 +260,7 @@ export function nextRouteOperation(state: RouteCheckpoint): {
     if (next.stage === "actions" && next.action >= next.mission.stops[next.stop].actions.length) {
       if (next.stop + 1 < next.mission.stops.length)
         next = { ...next, stop: next.stop + 1, action: 0, stage: "arrival" };
-      else if (next.lap + 1 < next.mission.repetitions)
+      else if (next.mission.repeatUntilStopped || next.lap + 1 < next.mission.repetitions)
         next = {
           ...next,
           stop: 0,

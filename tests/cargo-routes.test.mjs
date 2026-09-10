@@ -26,19 +26,21 @@ test("verified multi-jump profit loops respect tax, hop limits and transit exclu
   const markets = [
     { name: "Lorrd", resources: { Food: 10 } },
     { name: "Ryloth", resources: { Food: 40 }, taxRate: 5 },
-    { name: "Wroona", resources: {}, governedBy: "Transit Clan" },
+    { name: "Corellia", resources: {}, governedBy: "Transit Clan" },
   ];
   const c = { cargoCapacity: 100, maxJumpsPerLeg: "unlimited" };
   const [r] = calculateCargoRoutes(markets, [], c);
-  assert.deepEqual(r.outbound.path, ["Lorrd", "Wroona", "Ryloth"]);
-  assert.deepEqual(r.returnLeg.path, ["Ryloth", "Wroona", "Lorrd"]);
+  assert.deepEqual(r.outbound.path, ["Lorrd", "Corellia", "Ryloth"]);
+  assert.deepEqual(r.returnLeg.path, ["Ryloth", "Corellia", "Lorrd"]);
   assert.equal(r.expectedProfit, 2800);
   assert.equal(r.totalLoopJumps, 4);
-  assert.deepEqual(routePlanetNames(r), ["Lorrd", "Wroona", "Ryloth", "Wroona"]);
+  assert.deepEqual(routePlanetNames(r), ["Lorrd", "Corellia", "Ryloth", "Corellia"]);
   assert.equal(calculateCargoRoutes(markets, [], { ...c, maxJumpsPerLeg: 1 }).length, 0);
   assert.equal(
-    calculateCargoRoutes(markets, [], { ...c, avoidedPlanets: normalizeExcludedNames(["Wroona"]) })
-      .length,
+    calculateCargoRoutes(markets, [], {
+      ...c,
+      avoidedPlanets: normalizeExcludedNames(["Corellia"]),
+    }).length,
     0,
   );
   assert.equal(
@@ -53,14 +55,14 @@ test("weighted paths prefer a faster verified detour and respect hop limits", ()
   const markets = [
     { name: "Corellia", resources: { Food: 1 } },
     { name: "Wroona", resources: { Food: 10 } },
-    { name: "Lorrd", resources: {} },
+    { name: "Ryloth", resources: {} },
   ];
   const lanes = [{ from: "Corellia", to: "Wroona", status: "passable", travelSeconds: 10000 }];
   const [r] = calculateCargoRoutes(markets, lanes, {
     cargoCapacity: 1,
     maxJumpsPerLeg: "unlimited",
   });
-  assert.deepEqual(r.outbound.path, ["Corellia", "Lorrd", "Wroona"]);
+  assert.deepEqual(r.outbound.path, ["Corellia", "Ryloth", "Wroona"]);
   assert.equal(r.totalDurationSeconds, 14400);
   const [direct] = calculateCargoRoutes(markets, lanes, { cargoCapacity: 1, maxJumpsPerLeg: 1 });
   assert.deepEqual(direct.outbound.path, ["Corellia", "Wroona"]);
@@ -92,7 +94,7 @@ test("topology coordinates supply missing catalog positions; unknown planets rem
     calculateCargoRoutes(
       [
         { name: "Wroona", resources: { Food: 1 } },
-        { name: "Lorrd", resources: { Food: 10 } },
+        { name: "Ryloth", resources: { Food: 10 } },
       ],
       [],
       c,

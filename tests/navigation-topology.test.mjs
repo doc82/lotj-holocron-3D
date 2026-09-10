@@ -5,12 +5,24 @@ import {
   validateNavigationPath,
   navigationTopology,
   navigationNode,
+  navigationWaypoint,
 } from "../renderer/src/domain/navigationTopology.ts";
 import { cargoTravelLegs } from "../renderer/src/domain/cargoRoutes.ts";
+test("Ryloth to Lorrd uses the verified Lodestar refueling detour", () => {
+  assert.equal(navigationJump("Ryloth", "Lorrd", [], true).allowed, false);
+  assert.equal(navigationJump("Ryloth", "Eeropha", []).allowed, true);
+  assert.equal(navigationJump("Eeropha", "Lorrd", []).allowed, true);
+  const planets = ["Ryloth", "Lorrd"].map((name) => ({ name, resources: { Food: 1 } }));
+  const leg = cargoTravelLegs(planets, [], { cargoCapacity: 1, maxJumpsPerLeg: 2 }).find(
+    (leg) => leg.from === "Ryloth" && leg.to === "Lorrd",
+  );
+  assert.deepEqual(leg.path, ["Ryloth", "Eeropha", "Lorrd"]);
+  assert.equal(navigationWaypoint("Eeropha").refuelStation, "Lodestar Utopia Refueling Station");
+  assert.throws(() => validateNavigationPath(["Ryloth", "Lorrd"], true), /No Path/);
+});
 test("audited directions replace gateway assumptions without inventing returns", () => {
   for (const [a, b] of [
     ["Wroona", "Lorrd"],
-    ["Lorrd", "Wroona"],
     ["Corellia", "Alderaan"],
     ["Corellia", "Mon Cala"],
     ["Ryloth", "Bespin"],
@@ -18,6 +30,7 @@ test("audited directions replace gateway assumptions without inventing returns",
     assert.equal(navigationJump(a, b, []).allowed, true);
   for (const [a, b] of [
     ["Bespin", "Ryloth"],
+    ["Lorrd", "Wroona"],
     ["Lorrd", "Ryloth"],
     ["Wroona", "Tatooine"],
     ["Missing", "Corellia"],
@@ -68,12 +81,12 @@ test("aliases and systems resolve; non-control monitor entries cannot invent con
   );
 });
 test("planner uses verified transit and responds to changing lane states", () => {
-  const planets = ["Lorrd", "Ryloth", "Wroona"].map((name) => ({ name, resources: { Food: 1 } }));
+  const planets = ["Lorrd", "Ryloth", "Corellia"].map((name) => ({ name, resources: { Food: 1 } }));
   const constraints = { cargoCapacity: 1, maxJumpsPerLeg: "unlimited" };
   assert.deepEqual(
     cargoTravelLegs(planets, [], constraints).find((l) => l.from === "Lorrd" && l.to === "Ryloth")
       .path,
-    ["Lorrd", "Wroona", "Ryloth"],
+    ["Lorrd", "Corellia", "Ryloth"],
   );
   const pair = ["Corellia", "Wroona"].map((name) => ({ name, resources: { Food: 1 } }));
   assert.equal(cargoTravelLegs(pair, [], constraints).length, 0);

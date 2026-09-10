@@ -68,6 +68,11 @@ for (const [id, waypoint] of Object.entries(data.waypoints ?? {})) {
     node.x !== waypoint.galacticCoordinates.x ||
     node.y !== waypoint.galacticCoordinates.y ||
     !waypoint.refuelStation ||
+    (waypoint.landingTarget !== undefined &&
+      (typeof waypoint.landingTarget !== "string" ||
+        !/^[\w\s'-]+$/.test(waypoint.landingTarget))) ||
+    (waypoint.landingPad !== undefined &&
+      (typeof waypoint.landingPad !== "string" || !/^[1-9]\d*$/.test(waypoint.landingPad))) ||
     !["x", "y", "z"].every((axis) => Number.isFinite(waypoint.refuelCoordinates[axis]))
   )
     throw new Error(`Invalid or inconsistent refueling waypoint: ${id}`);

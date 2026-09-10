@@ -3,7 +3,7 @@
 See the [autoflight implementation review](AUTOFLIGHT_REVIEW.md) for outstanding
 station, prelaunch recovery and response-handling gaps found by automated review.
 
-The route cards now connect to the reusable navigation runner and the Mudlet transport. Automated tests cover a complete outbound/return cargo circuit, command cancellation, wrong-location rejection, audited topology restrictions, and renderer intent/confirmation handling. A live game circuit has not yet been validated.
+The route cards now connect to the reusable navigation runner and the Mudlet transport. Automated tests cover a complete outbound/return cargo circuit, command cancellation, wrong-location rejection, audited topology restrictions, and renderer intent/confirmation handling. The user has confirmed the first successful end-to-end live circuit; sustained repeating operation still needs a live soak.
 
 The first live attempt exposed a purchase completion arriving without a prompt.
 Cargo and contraband confirmations now advance the runner directly after validating
@@ -34,7 +34,7 @@ keeps the draft open instead of claiming success.
 
 In **Routes**, choose **Select route to run**. Successful preparation opens the
 **Active route** tab, showing the ship, operation, progress and itinerary. Use
-**Start / resume one circuit**, **Pause**, or **Stop route** there. Selecting a
+**Start / resume circuit**, **Pause**, or **Stop route** there. Selecting a
 route does not send flight commands. Offline start/resume is disabled. Existing
 runs must be stopped before another route can be selected.
 
@@ -66,15 +66,17 @@ Ship access is mandatory for autopilot. Configure both internal movement paths, 
 1. Stand **outside** the cargo ship on the route's originating landing pad. `look` must list that ship. This first implementation reconciles a landed, outside starting state; it does not automatically find the hatch from an arbitrary room inside a ship.
 2. In Trader / My ships, select the ship and verify its exact name, cockpit entry/exit directions and hatch code. Use a small planned cargo capacity for the first test (for example, 10 units); actual hold capacity is checked separately with `listcargo`.
 3. Set preferred landing pads for the planets in the test circuit. Without a preference, the transport selects the first listed pad and stops on a restriction rather than guessing another pad.
-4. Calculate a short circuit originating at your current planet using the stored markets. Review and save the desired route, choose **Select route to run** in Routes, then **Start / resume one circuit** in Active route.
+4. Calculate a short circuit originating at your current planet using the stored markets. Review and save the desired route, choose **Select route to run** in Routes, then **Start / resume circuit** in Active route.
 
 Preparing does not send game commands. Starting refreshes `l hyp` and validates the itinerary before any commerce, then checks `showplanet`, `look`, `listcargo` and `credits`. Before departure it checks hyperlanes and resolves planetary coordinates. Stations use the same course/landing sequence, with Lodestar's recorded coordinates. Before every purchase or sale it checks the current planet with bare `showplanet` and verifies the named ship on the pad with `look`. Purchases also check current price, funds and free hold space. A mismatch pauses before sending the trade command. Purchases and sales must confirm the expected resource and quantity.
 
-The Active route page shows the current command stage or blocked reason. One circuit includes return cargo when present in the selected route and the final sale at the origin. It does not repeat automatically.
+The Active route page shows the current command stage or blocked reason. One circuit includes return cargo when present in the selected route and the final sale at the origin. Select Repeat circuit until stopped to continue automatically after returning to the origin.
 
 ## Stop and recover
 
 If hyperspace is rejected for clearance, the transport runs `prox` and requires at least 500 units from non-exempt blocking objects. It uses fresh ship speed to estimate the next check, then prefers measured separation change from successive scans. Checks are 1–30 seconds apart (5 seconds when movement is unknown, stopped or closing). A fresh scan must confirm clearance before retrying `hyperspace`. After 10 unsuccessful checks/retries it stops and shows the reason. Missing proximity responses also consume this budget. Pause, Stop, reload and loss of the automation lease cancel pending checks.
+Clearance progress is echoed in Mudlet as well as shown in Active route, so checks
+remain visible even when another package suppresses proximity output.
 
 Pause cancels pending automation commands and timers. Cancel route requires confirmation and discards flight recovery; a maneuver already accepted by the game may still finish. After cancellation or completion, Clear active route removes the checkpoint and returns to saved Routes without deleting the saved itinerary. Escape dismisses the topmost modal only. Losing the desktop automation lease stops the transport.
 
@@ -99,3 +101,38 @@ While flight is active, manual calculate/calc, hyperspace, course, land, speed, 
 Test manual hyperspace entry after a failed calculation: the route should observe hyperspace, verify the arrival system and continue approach. Test a wrong-system arrival: no approach or cargo transaction should follow. Test a missing ship before buying: return to the named ship's pad and click Resume. A preflight failure before the trade command was sent is retryable in the same session; a trade already sent without confirmation remains uncertain and must not be repeated.
 
 Full App browser checks now cover preserving Active route through landed/space transitions, Escape dismissing confirmation without closing Trader, and Cancel followed by Clear preserving the saved route. No live game flight has been validated by these checks.
+
+# Continuous circuits
+
+In Active route, select **Repeat circuit until stopped**, then start/resume.
+The counter advances after the final stop's actions finish. Each lap verifies
+the origin and current circuit availability before commerce, with fresh cargo
+and credit checks. Pause and Stop retain their usual behavior; errors and
+disconnects pause instead of silently retrying uncertain transactions.
+
+To finish after the current circuit, pause, clear the repeat checkbox and resume.
+Reloaded checkpoints retain the repeat setting but require Resume. Keep both
+Holocron and Mudlet running and the computer awake. Automated tests cover 100
+consecutive laps, unique operation IDs, interrupted reconciliation, restoration
+and switching back to a final single lap; an hours-long live soak is still needed.
+
+# Session finances
+
+Active route shows confirmed gross sale revenue, expenses (cargo purchases, fuel
+and sale tax), net profit and net credits per running hour. Running time includes
+flight and cargo waits but excludes pauses, disconnect pauses and time while the
+app is closed. Totals span every lap of the session and persist with its checkpoint.
+Clearing the active route clears that checkpoint; this is not a historical ledger.
+Unsold cargo remains an expense until sold. Transactions predating this tracking
+update cannot be reconstructed from the old checkpoint.
+
+# Hyperspeed-based planning
+
+Under My ships / Travel and stop time estimates, enter the ship's Hyperspeed.
+Travel seconds are estimated as `distance * (276 * 55 / 38.2) / hyperspeed`,
+calibrated from a reported 38.2-parsec jump taking 4m36s at hyperspeed 55.
+Proportional speed scaling is an assumption, not a verified server formula.
+Automatic and manual route estimates add the configured stop allowances; explicit
+edge travel times still take precedence. Leaving hyperspeed blank preserves manual
+travel timing. Recalculate routes to update existing saved estimates. Live session
+credits/hour continues to use actual revenue, expenses and running time.

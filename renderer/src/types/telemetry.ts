@@ -464,6 +464,7 @@ export interface SystemSnapshot {
     combatEvent?: CombatEvent;
     combatEvents?: CombatEvent[];
     autoRechargeEnabled?: boolean;
+    routeAccounts?: import("../domain/routeAutopilot").RouteAccounts & { runId: string };
     routeNavigation?: {
       phase?: "ground" | "pre_hyperspace" | "hyperspace" | "post_hyperspace";
       operationId: string;

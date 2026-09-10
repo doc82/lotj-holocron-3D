@@ -31,7 +31,7 @@ interface Props {
   onRefresh(): void;
   onPauseRoute(): void;
   onArmRoute?(route: CargoRoute, shipId?: string): boolean;
-  onResumeRoute(): void;
+  onResumeRoute(repeatUntilStopped?: boolean): void;
   onAbortRoute(): void;
   onClearRoute(): void;
   onAddShip(ship: TraderShipConfig): void;

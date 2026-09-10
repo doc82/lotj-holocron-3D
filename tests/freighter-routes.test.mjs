@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test from "node:test";
 import {
   calculateFreighterRoutes,
@@ -12,30 +12,30 @@ import {
 } from "../renderer/src/domain/cargoRouteExecution.ts";
 const constraints = { cargoCapacity: 10, maxJumpsPerLeg: "unlimited", maxTradeStops: "unlimited" };
 
-test("Lorrd to Ryloth circuits use the verified Wroona transit in both directions", () => {
+test("Lorrd to Ryloth circuits use the verified Corellia transit in both directions", () => {
   const planets = [
     { name: "Lorrd", resources: { Food: 1, Ore: 10 } },
     { name: "Ryloth", resources: { Food: 10, Ore: 1 } },
-    { name: "Wroona", resources: {} },
+    { name: "Corellia", resources: {} },
   ];
   const [route] = calculateFreighterRoutes(planets, [], constraints);
   assert.deepEqual(
     route.legs.map((leg) => leg.path),
     [
-      ["Lorrd", "Wroona", "Ryloth"],
-      ["Ryloth", "Wroona", "Lorrd"],
+      ["Lorrd", "Corellia", "Ryloth"],
+      ["Ryloth", "Corellia", "Lorrd"],
     ],
   );
   assert.deepEqual(
     freighterStops(route).map((stop) => stop.planet),
-    ["Lorrd", "Wroona", "Ryloth", "Wroona"],
+    ["Lorrd", "Corellia", "Ryloth", "Corellia"],
   );
   assert.equal(
     calculateFreighterRoutes(planets, [], { ...constraints, maxJumpsPerLeg: 1 }).length,
     0,
   );
   assert.equal(
-    calculateFreighterRoutes(planets, [], { ...constraints, avoidedPlanets: new Set(["wroona"]) })
+    calculateFreighterRoutes(planets, [], { ...constraints, avoidedPlanets: new Set(["corellia"]) })
       .length,
     0,
   );

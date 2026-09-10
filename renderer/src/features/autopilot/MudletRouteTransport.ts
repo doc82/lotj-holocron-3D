@@ -60,6 +60,7 @@ export class MudletRouteTransport implements RouteTransport {
       void this.api
         .sendIntent("route_operation", {
           operation,
+          accounts: checkpoint.accounts,
           ship: checkpoint.mission.ship,
           manualRoute: checkpoint.mission.routingMode === "manual",
           maxDistance: checkpoint.mission.maxDistance,

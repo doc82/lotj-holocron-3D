@@ -1,10 +1,12 @@
 import {
   abortMission,
+  prepareMission,
   confirmRouteOperation,
   nextRouteOperation,
   pauseMission,
   resumeMission,
   type RouteCheckpoint,
+  type RouteAccounts,
   type RouteConfirmation,
   type RouteOperation,
 } from "../../domain/routeAutopilot.ts";
@@ -25,6 +27,8 @@ export interface RouteJournal {
 
 // Transport and journal are injected so navigation is reusable outside Trader.
 export class RouteRunner {
+  private runningSince?: number;
+  private now: () => number;
   private controller?: AbortController;
   private driving = false;
   private currentDrive: Promise<void> = Promise.resolve();
@@ -40,8 +44,10 @@ export class RouteRunner {
     journal: RouteJournal,
     changed: (state: RouteCheckpoint) => void,
     timeoutMs = 45 * 60 * 1000,
+    now: () => number = Date.now,
   ) {
     this.state = state;
+    this.now = now;
     this.transport = transport;
     this.journal = journal;
     this.changed = changed;
@@ -53,11 +59,33 @@ export class RouteRunner {
     await this.writes;
   }
 
-  async resume(): Promise<void> {
+  async track(accounts?: RouteAccounts): Promise<void> {
+    if (accounts) {
+      if (
+        !Object.values(accounts).every((value) => Number.isFinite(value) && value >= 0) ||
+        accounts.revision <= (this.state.accounts?.revision ?? 0)
+      )
+        return;
+      this.state = { ...this.state, accounts: { ...accounts } };
+    }
+    await this.persist();
+  }
+
+  async resume(repeatUntilStopped?: boolean): Promise<void> {
     if (["running"].includes(this.state.status)) return;
     await this.currentDrive;
     if (this.state.status === "running") return;
+    if (repeatUntilStopped !== undefined) {
+      const mission = {
+        ...this.state.mission,
+        repeatUntilStopped,
+        repetitions: Math.max(this.state.mission.repetitions, this.state.lap + 1),
+      };
+      prepareMission(mission, this.state.runId);
+      this.state = { ...this.state, mission };
+    }
     this.state = resumeMission(this.state);
+    if (this.state.status === "running") this.runningSince = this.now();
     this.changed(this.state);
     this.currentDrive = this.drive();
     await this.currentDrive;
@@ -76,6 +104,14 @@ export class RouteRunner {
   }
 
   private async persist(): Promise<boolean> {
+    if (this.runningSince !== undefined) {
+      const now = this.now();
+      this.state = {
+        ...this.state,
+        runningMs: (this.state.runningMs ?? 0) + Math.max(0, now - this.runningSince),
+      };
+      this.runningSince = this.state.status === "running" ? now : undefined;
+    }
     this.changed(this.state);
     try {
       const snapshot = structuredClone(this.state);

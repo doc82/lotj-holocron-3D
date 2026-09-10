@@ -1,4 +1,4 @@
-import { DEFAULT_CARGO_TIMING } from "../../domain/cargoRoutes";
+import { DEFAULT_CARGO_TIMING, cargoTravelSeconds } from "../../domain/cargoRoutes";
 import { useRef, useState } from "react";
 import {
   parsePath,
@@ -156,9 +156,35 @@ export function ShipSetup({
           </label>
           <details className={styles.details}>
             <summary>Travel and stop time estimates</summary>
+            <label>
+              Ship hyperspeed
+              <input
+                type="number"
+                min="0.01"
+                step="any"
+                value={timing.hyperspeed ?? ""}
+                onChange={(event) =>
+                  setTiming({
+                    ...timing,
+                    hyperspeed: event.target.value === "" ? undefined : Number(event.target.value),
+                  })
+                }
+                placeholder="e.g. 55"
+              />
+              <small>
+                Enter the Hyperspeed rating from your ship's info. Leave blank to use manual travel
+                timing.
+              </small>
+            </label>
+            {timing.hyperspeed !== undefined && timing.hyperspeed > 0 && (
+              <p>
+                Estimated travel: {(cargoTravelSeconds(35, timing) / 60).toFixed(2)} minutes per 35
+                parsecs. Calibrated from an observed jump; stop time is added separately.
+              </p>
+            )}
             <p>
-              Defaults assume 6 minutes per 35 sectors and 3 minutes per stop. Adjust these to match
-              this ship. Stop time includes approach, landing or docking, refueling, trading and
+              Without hyperspeed, travel defaults to 6 minutes per 35 sectors. Stops default to 3
+              minutes. Stop time includes approach, landing or docking, refueling, trading and
               departure as applicable.
             </p>
             {(
@@ -167,24 +193,28 @@ export function ShipSetup({
                 ["tradeStopMinutes", "Minutes at each market stop"],
                 ["transitStopMinutes", "Minutes at each transit/refuel stop"],
               ] as const
-            ).map(([field, label]) => (
-              <label key={field}>
-                {label}
-                <input
-                  type="number"
-                  required
-                  min={field === "minutesPer35Sectors" ? "0.01" : "0"}
-                  step="any"
-                  value={Number.isNaN(timing[field]) ? "" : timing[field]}
-                  onChange={(event) =>
-                    setTiming({
-                      ...timing,
-                      [field]: event.target.value === "" ? NaN : Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-            ))}
+            )
+              .filter(
+                ([field]) => field !== "minutesPer35Sectors" || timing.hyperspeed === undefined,
+              )
+              .map(([field, label]) => (
+                <label key={field}>
+                  {label}
+                  <input
+                    type="number"
+                    required
+                    min={field === "minutesPer35Sectors" ? "0.01" : "0"}
+                    step="any"
+                    value={Number.isNaN(timing[field]) ? "" : timing[field]}
+                    onChange={(event) =>
+                      setTiming({
+                        ...timing,
+                        [field]: event.target.value === "" ? NaN : Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+              ))}
           </details>
           <details className={styles.details} open={editing !== undefined || undefined}>
             <summary>Ship access · required for autopilot</summary>

@@ -8,23 +8,22 @@ Private flight logs and discovered locations are not included here.
 
 ## Remaining findings
 
-1. **High — station stops do not have a complete station arrival contract.**
-   `useRouteAutopilot` creates station destinations, and the Lua navigator can
-   calculate toward their coordinates. However, `location()` and reconciliation
-   require a `showplanet` result whose planet equals the destination name. The
-   final arrival checks also use this path. A station waypoint cannot be verified
-   as a planet. Station-specific docking, exterior-location and service evidence
-   need their own implementation and tests; station routes should be rejected
-   before commerce until that exists.
+1. **Station recovery after collector reload still requires arrival evidence.**
+   Lodestar now uses its configured bay 1, verified arrival system, named station
+   approach and touchdown, followed by an exterior ship check and refueling.
+   It no longer requires station names to parse as planets. The retained station
+   evidence supports onward travel and reconciliation in the same collector.
+   Reloading the collector loses that evidence; recovery from an arbitrary
+   station room still needs an independent station-location observation.
 
-2. **High — prelaunch recovery expects the future destination.**
-   A pending `navigate` operation already names the next stop. If navigation is
-   interrupted before `flightStarted`, the suspended-flight recovery branch does
-   not apply. Ordinary reconciliation then requires the next stop's planet, even
-   though the ship is still at the departure stop. This blocks safe retry from the
-   origin. Recovery needs explicit departure-versus-arrival evidence and a
-   corresponding renderer confirmation contract; it must not mark travel complete
-   merely because departure was verified.
+2. **High — recovery without retained departure evidence still expects arrival.**
+   Prepared prelaunch flights now survive Pause/Resume: once departure, lane and
+   destination checks are complete, a manual launch before or after Resume
+   continues calculation and hyperspace. No arrival is reported at departure.
+   If the collector was reloaded, or the flight stopped before those checks
+   completed, the retained flight context is unavailable and ordinary
+   reconciliation still expects the next planet. Reconstructing that flight from
+   fresh ship/location evidence remains a separate gap.
 
 3. **Medium — plotted arrival offsets can exceed coordinate limits.**
    The Lua calculation adds 289 to each destination axis without checking the
@@ -40,13 +39,28 @@ Private flight logs and discovered locations are not included here.
    paused flights still require Resume. Additional boarding/movement responses
    need tests with actual success/failure text rather than generic `Done.` replies.
 
-5. **Low — redundant service checks remain.**
-   Navigation refuels before departure and after arrival; cargo missions also
-   request refueling at every stop. Landing-pad and cargo inspections repeat
-   across operations. Some checks protect against external movement or trading;
-   reducing them safely needs short-lived evidence invalidated by those actions.
-
 ## Fixed during this review
+
+- Pending cargo loading/unloading now survives personal utility and chat commands,
+  including `sc`. Unrelated command errors cannot discard the cargo confirmation.
+  A matching confirmation received after Pause is retained for reconciliation;
+  it expires after three minutes and is discarded on conflicting external activity,
+  new commerce or a new run. Unknown ground commands still interrupt the operation.
+
+- Consecutive ground operations reuse confirmed landing-pad, cargo and refueling
+  evidence for up to 60 seconds, scoped to the run, ship, planet and GMCP room.
+  External commands, room changes, stopping/reconciliation and boarding invalidate
+  it; cargo transactions invalidate the hold snapshot. Arrival checks remain
+  fresh, and credits are reread after refueling before a purchase. Before the
+  first GMCP room update, freshly verified ground responses can also be reused;
+  that update invalidates them. Navigation normalizes the Mudlet clock to seconds
+  so the 60-second window does not accidentally expire after 60 milliseconds.
+
+- Restored proximity-based clearance after feedback: hyperspace is retried only
+  after a fresh scan verifies clearance. Clearance progress is echoed in Mudlet
+  so checks remain visible even if scan output is suppressed. Ship blockers now
+  match class-qualified rejection labels to the callsigns returned by the prox
+  parser. A regression covers ten scans ending at the 500-unit threshold.
 
 - Invalid movement directions now fail at mission preparation and Mudlet
   reconciliation, before purchases. Previously they were checked only while

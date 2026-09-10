@@ -11,13 +11,13 @@ function routeFixture() {
   return calculateCargoRoutes(
     [
       { name: "Lorrd", resources: { Textiles: 10 } },
-      { name: "Wroona", resources: { Textiles: 20 } },
+      { name: "Corellia", resources: { Textiles: 20 } },
       { name: "Ryloth", resources: { Textiles: 40 } },
     ],
     [
       { from: "Lorrd", to: "Ryloth", status: "no_route" },
-      { from: "Lorrd", to: "Wroona", status: "passable" },
-      { from: "Wroona", to: "Ryloth", status: "passable" },
+      { from: "Lorrd", to: "Corellia", status: "passable" },
+      { from: "Corellia", to: "Ryloth", status: "passable" },
     ],
     { maxJumpsPerLeg: 2, cargoCapacity: 100 },
   ).find((route) => route.buyPlanet === "Lorrd" && route.sellPlanet === "Ryloth");
@@ -34,7 +34,7 @@ test("requires arrival and both refuel checkpoints at a transit stop", () => {
   });
 
   assert.equal(state.phase, "armed");
-  assert.equal(state.stops[1].planet, "Wroona");
+  assert.equal(state.stops[1].planet, "Corellia");
   assert.equal(state.stops[1].purpose, "transit");
 
   state = cargoExecutionReducer(state, { type: "arrived", planet: "Lorrd", now: 2 });
@@ -48,7 +48,7 @@ test("requires arrival and both refuel checkpoints at a transit stop", () => {
   assert.equal(state.phase, "plotting");
   state = cargoExecutionReducer(state, { type: "leg_plotted", now: 8 });
   state = cargoExecutionReducer(state, { type: "leg_engaged", now: 9 });
-  state = cargoExecutionReducer(state, { type: "leg_arrived", planet: "Wroona", now: 10 });
+  state = cargoExecutionReducer(state, { type: "leg_arrived", planet: "Corellia", now: 10 });
   assert.equal(state.phase, "arrived");
 
   state = cargoExecutionReducer(state, { type: "refuel_on_exit", now: 11 });

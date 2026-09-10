@@ -73,6 +73,112 @@ describe("scraper capture lifecycle", function()
     equal(#fixture.commands, 1)
   end)
 
+  it("gives route refresh priority over a background startup scan", function()
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true, spaceProbe = true }))
+    local oldCapture = fixture.scraper.active
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "priority-refresh" }))
+    equal(fixture.scraper.active.parserCommand, "planets")
+    equal(oldCapture.timeoutTimerId, nil)
+    equal(fixture:lastCommand().command, "planets")
+  end)
+
+  it("clears refresh and command state even when shutdown notifications throw", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "broken-stop" }))
+    local capture = fixture.scraper.active
+    local lineId, timeoutId = capture.lineTriggerId, capture.timeoutTimerId
+    fixture.scraper.pendingCommandKind = "test command"
+    fixture.scraper.routeNavigation.stop = function()
+      error("test navigation notification failure")
+    end
+    fixture.proxy.publishIntentAck = function()
+      error("test bridge unavailable")
+    end
+    assert(fixture.scraper.teardown())
+    equal(fixture.scraper.active, nil)
+    equal(fixture.scraper.pendingCommandKind, nil)
+    equal(fixture.scraper.logistics.refreshing, false)
+    equal(fixture.scraper.logistics.refreshIntentId, nil)
+    equal(fixture.triggers[lineId], nil)
+    equal(fixture.timers[timeoutId], nil)
+    assert(fixture.scraper.setup(fixture.proxy, { polling = false }))
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "after-stop" }))
+    equal(fixture:lastCommand().command, "planets")
+  end)
+
+  it("advances planets on the visible HUD when no prompt callback arrives", function()
+    fixture:close()
+    fixture = Fixture.new({ outgoingEvents = true })
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "hud-refresh" }))
+    local function line(text)
+      _G.line = text
+      fixture.triggers[fixture.scraper.active.lineTriggerId].callback()
+    end
+    line("A passerby leaves east.")
+    line("{Health: 1410/1410} {Movement: 2680/2680} []")
+    fixture:tickTimersAt(0)
+    equal(fixture.scraper.active.parserCommand, "planets")
+    line("Planet           Starsystem            Governed By               Notices")
+    line("Ithor            Ottega System         A Neutral Government      [FP]")
+    line("Bespin           Anoat Sector          Confederacy of Independent Systems  []")
+    line("Legend: [FP: Freeport]")
+    line("Use PLANETS AI or PLANETS INCOME for other views of planet information.")
+    line("Use SHOWPLANET <planet> for more information.")
+    line("{Tone: none } {Time: day } {Ambience: average }")
+    equal(fixture.scraper.active.parserCommand, "planets")
+    local prompt = fixture.triggers[fixture.scraper.active.promptTriggerId].callback
+    line("{Health: 1410/1410} {OOC:||||||} [ ] {Movement: 2680/2680} []")
+    fixture:tickTimersAt(0)
+    prompt() -- A delayed prompt must not finish the next command.
+    fixture:tickTimersAt(0.05)
+    equal(fixture:lastCommand().command, "clans")
+    equal(fixture.scraper.active.parserCommand, "clans")
+    equal(fixture.scraper.state.metadata.logistics.refresh.completed, 1)
+    equal(#fixture.scraper.state.metadata.logistics.planets, 2)
+    local function complete(lines)
+      for _, value in ipairs(lines) do
+        line(value)
+      end
+      line("{Health: 1410/1410} {OOC:||||||} [ ] {Movement: 2680/2680} []")
+      fixture:tickTimersAt(0)
+      fixture:tickTimersAt(0.05)
+    end
+    complete({
+      "Major Organizations:",
+      "Clan Name | Planets | Active Members",
+      "A Neutral Government | 7 | (None)",
+      "Use SHOWCLAN for more information.",
+    })
+    equal(fixture:lastCommand().command, "l hyp")
+    complete({ "| Between Ithor and Naboo : Passable |", "*----------------------*" })
+    equal(fixture:lastCommand().command, "showp Ithor resources")
+    complete({ "Planet: Ithor", "Food ( Price per unit: 10.00)" })
+    equal(fixture:lastCommand().command, "showp Bespin resources")
+    complete({ "Planet: Bespin", "Food ( Price per unit: 11.00)" })
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "completed")
+    equal(fixture.scraper.state.metadata.logistics.refresh.completed, 5)
+  end)
+
+  it("reports a thrown planets parser error and releases refresh for retry", function()
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "throwing-refresh" }))
+    fixture.scraper.captureLine(
+      "  Planet           Starsystem            Governed By               Notices"
+    )
+    local parse = fixture.proxy.parseGameOutput
+    fixture.proxy.parseGameOutput = function()
+      error("test parser failure")
+    end
+    local result, reason = fixture.scraper.finishCapture("prompt")
+    equal(result, nil)
+    assert(reason:find("test parser failure", 1, true))
+    equal(fixture.scraper.active, nil)
+    equal(fixture.scraper.logistics.refreshing, false)
+    equal(fixture.scraper.state.metadata.logistics.refresh.phase, "failed")
+    equal(fixture.intentAcks[#fixture.intentAcks].status, "rejected")
+    fixture.proxy.parseGameOutput = parse
+    assert(fixture.intentHandlers.refresh_logistics({}, { id = "retry-refresh" }))
+    equal(fixture:lastCommand().command, "planets")
+  end)
+
   local function beginMonCalaRefresh()
     fixture.scraper.setInSpace(false, "landed")
     assert(fixture.intentHandlers.refresh_logistics({}, { id = "mon-cala" }))
@@ -426,6 +532,71 @@ Use SHOWCLAN for more information.
     assert(fixture.intentHandlers.route_stop({ runId = "run" }))
     equal(fixture.scraper.polling.paused, false)
   end)
+
+  it(
+    "keeps a pending cargo sale alive through chat, equipment commands and unrelated errors",
+    function()
+      fixture:close()
+      fixture = Fixture.new({ outgoingEvents = true })
+      local driver = fixture.scraper.routeNavigation
+      local function reply(text)
+        for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+          assert(fixture:trigger("^.*$", line))
+        end
+        fixture.triggers[fixture.scraper.stateTriggerIds[2]].callback()
+        fixture:tickTimersAt(0)
+      end
+      local ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } }
+      local function start(id, kind, action)
+        assert(fixture.intentHandlers.route_operation({
+          operation = {
+            id = id,
+            runId = "sale-run",
+            kind = kind,
+            destination = { name = "Corellia" },
+            action = action,
+          },
+          ship = ship,
+        }, { id = id }))
+        reply("Planet: Corellia")
+        reply("Landing Pad\nFreighter: Test Hauler")
+        reply("Cargo Readout for Freighter 'Test Hauler':\n[1 ] [Food] [10/500]")
+        reply("You have 1000 credits.")
+      end
+      start("reconcile", "reconcile")
+      start(
+        "sell",
+        "stop_action",
+        { kind = "cargo.sell", payload = { resource = "Food", quantity = 10 } }
+      )
+      equal(fixture:lastCommand().command, 'sellcargo "Test Hauler" "Food" 10')
+      local active = driver.active
+      for _, command in ipairs({
+        "sc",
+        "say Waiting for unloading",
+        "inventory",
+        "remove coat;wear suit",
+      }) do
+        send(command)
+        reply("You can't do that right now.")
+        equal(driver.active, active)
+      end
+      equal(driver:allowExternalCommand('sellcargo "Test Hauler" Food 10'), false)
+      equal(driver:allowExternalCommand("say hello;south"), false)
+      equal(driver:allowExternalCommand("south"), false)
+      reply("You sell 10 units of Food for 100 credits.")
+      equal(driver.active, nil)
+      equal(fixture.scraper.state.metadata.routeNavigation.status, "completed")
+      reply("You sell 10 units of Food for 100 credits.")
+      local count = 0
+      for _, entry in ipairs(fixture.commands) do
+        if entry.command == 'sellcargo "Test Hauler" "Food" 10' then
+          count = count + 1
+        end
+      end
+      equal(count, 1)
+    end
+  )
 
   it(
     "completes a planet flight through registered callbacks and outgoing command events",

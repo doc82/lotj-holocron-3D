@@ -2489,6 +2489,7 @@ local function clearCaptureHandles(capture)
   safeKill("killTrigger", capture.lineTriggerId)
   safeKill("killTrigger", capture.promptTriggerId)
   safeKill("killTimer", capture.timeoutTimerId)
+  safeKill("killTimer", capture.hudTimerId)
   capture.lineTriggerId = nil
   capture.promptTriggerId = nil
   capture.timeoutTimerId = nil
@@ -2778,7 +2779,7 @@ function Scraper.setInSpace(inSpace, reason)
   return true
 end
 
-function Scraper.finishCapture(reason)
+function Scraper.finishCaptureInternal(reason)
   local capture = Scraper.active
   if not capture then
     return nil, "no capture is active"
@@ -3076,6 +3077,28 @@ function Scraper.finishCapture(reason)
   return parsed
 end
 
+function Scraper.finishCapture(reason)
+  local capture = Scraper.active
+  if not capture or not capture.logisticsRefresh then
+    return Scraper.finishCaptureInternal(reason)
+  end
+  local ok, result, err = pcall(Scraper.finishCaptureInternal, reason)
+  if ok then
+    return result, err
+  end
+  if Scraper.active == capture then
+    Scraper.active = nil
+  end
+  clearCaptureHandles(capture)
+  local failure = "Logistics refresh failed after "
+    .. capture.sentCommand
+    .. ": "
+    .. tostring(result)
+  finishLogisticsRefresh("failed", failure)
+  diagnostic("warn", failure)
+  return nil, failure
+end
+
 function Scraper.captureLine(value)
   local profiling = Scraper.profiler.enabled == true
   local profileStarted = profiling and os.clock() or nil
@@ -3091,6 +3114,21 @@ function Scraper.captureLine(value)
   end
 
   value = tostring(value or ""):gsub("\r", "")
+  -- Some profiles render the HUD without firing Mudlet's prompt callback.
+  -- Wait for the full response and final HUD line, then defer past its handlers.
+  if
+    capture.logisticsRefresh
+    and capture.responseStarted
+    and value:match("^%s*{Health:")
+    and value:find("{Movement:", 1, true)
+    and not capture.hudTimerId
+  then
+    capture.hudTimerId = tempTimer(0, function()
+      if Scraper.active == capture then
+        Scraper.finishCapture("HUD prompt")
+      end
+    end)
+  end
   local owned, suppress = classifyCaptureLine(capture, value)
   if not owned then
     if profiling then
@@ -3422,8 +3460,29 @@ dispatchLogisticsRefreshNext = function()
 end
 
 local function dispatchLogisticsRefresh(payload, message)
-  if Scraper.logistics.refreshing or Scraper.active or Scraper.pendingCommandKind then
-    return false, "Another command is active; retry logistics refresh when it finishes"
+  if Scraper.routeNavigation and Scraper.routeNavigation.active then
+    return false, "Autoflight is active; pause it before refreshing routes."
+  end
+  if Scraper.logistics.refreshing then
+    return false,
+      "Route refresh is already waiting for " .. tostring(
+        Scraper.active and Scraper.active.sentCommand or "the next queued command"
+      ) .. "."
+  end
+  if Scraper.pendingCommandKind then
+    return false,
+      "Waiting for "
+        .. tostring(Scraper.pendingCommandKind)
+        .. " to finish before refreshing routes."
+  end
+  if Scraper.active and Scraper.active.polled then
+    abandonCapture("background scan superseded by route refresh")
+  end
+  if Scraper.active then
+    return false,
+      "Waiting for "
+        .. tostring(Scraper.active.sentCommand)
+        .. " to finish before refreshing routes."
   end
   -- Discover the current catalogue before constructing market commands.
   Scraper.logistics.refreshQueue = { "planets", "clans", "l hyp" }
@@ -6802,6 +6861,7 @@ function Scraper.handleGmcpDisconnect()
       true
     )
     Scraper.routeNavigation.at = nil
+    Scraper.routeNavigation.stationAt = nil
   end
   if Scraper.state then
     Scraper.state.metadata.room = nil
@@ -6837,6 +6897,9 @@ function Scraper.handleRoomGmcp()
   }
   -- Moving rooms invalidates cockpit/control evidence, even if Ship.Info is cached.
   if not previous or previous.vnum ~= metadata.room.vnum then
+    if Scraper.routeNavigation then
+      Scraper.routeNavigation:invalidateEvidence()
+    end
     for _, formation in pairs(metadata.formations or {}) do
       formation.unavailableReason = nil
     end
@@ -8772,13 +8835,19 @@ function Scraper.handleOutgoingCommand(eventName, command)
   then
     return
   end
+  if Scraper.routeNavigation then
+    Scraper.routeNavigation:invalidateEvidence()
+  end
   if Scraper.routeNavigation and Scraper.routeNavigation.ownsPolling then
-    local active = Scraper.routeNavigation.active
-    if active and (active.flightReady or active.flightStarted) then
-      return -- The player may act aboard; observed flight milestones, not command ownership, drive navigation.
+    if Scraper.routeNavigation:allowExternalCommand(command) then
+      return -- Keep ownership of an asynchronous completion while the player acts.
     end
     Scraper.routeNavigation.at = nil
     Scraper.routeNavigation:stop("Interrupted by an external Mudlet command.")
+    Scraper.routeNavigation.stationAt = nil
+    -- Unknown commands may start competing commerce; their confirmations cannot
+    -- safely be attributed to the suspended route transaction.
+    Scraper.routeNavigation.pendingCargo = nil
   end
   if Scraper.logistics.refreshing then
     finishLogisticsRefresh("failed", "Interrupted by an external Mudlet command")
@@ -8898,6 +8967,18 @@ function Scraper.setup(proxy, options)
   Scraper.proxy = proxy
   Scraper.routeNavigation = Navigation.new({
     parse = proxy.parseGameOutput,
+    accounts = function(runId, accounts)
+      Scraper.state.metadata.routeAccounts = copyTable(accounts)
+      Scraper.state.metadata.routeAccounts.runId = runId
+      Scraper.publish()
+    end,
+    evidenceRoom = function()
+      local room = Scraper.state and Scraper.state.metadata.room
+      -- A collector started while stationary may not receive Room.Info until
+      -- movement. Fresh showplanet/look confirmations still establish the pad;
+      -- outgoing commands, boarding and the first room update invalidate them.
+      return room and room.vnum or "room-not-yet-reported"
+    end,
     groundLocation = function()
       local metadata = Scraper.state and Scraper.state.metadata or {}
       local room, access = metadata.room, metadata.shipAccess
@@ -8914,7 +8995,7 @@ function Scraper.setup(proxy, options)
       end
     end,
     now = function()
-      return type(getEpoch) == "function" and getEpoch() or os.time()
+      return epochMilliseconds() / 1000
     end,
     clearanceInfo = function()
       local sources = Scraper.state.metadata.sources or {}
@@ -8942,6 +9023,11 @@ function Scraper.setup(proxy, options)
       end
     end,
     progress = function(active, label)
+      if label:match("^Checking jump clearance") or label:match("^Clearance ") then
+        if type(echo) == "function" then
+          pcall(echo, "\n[Holocron3D/autoflight] " .. label .. "\n")
+        end
+      end
       Scraper.state.metadata.routeNavigation = {
         operationId = active.operation.id,
         runId = active.operation.runId,
@@ -9502,12 +9588,18 @@ function Scraper.teardown()
   Scraper.shipRooms = {}
   Scraper.gmcpTrace = nil
   if Scraper.routeNavigation then
-    Scraper.routeNavigation:stop("Mudlet collector reloaded.")
+    pcall(Scraper.routeNavigation.stop, Scraper.routeNavigation, "Mudlet collector reloaded.")
+    Scraper.routeNavigation.ownsPolling = false
   end
   if Scraper.logistics.refreshing then
-    finishLogisticsRefresh("failed", "Scraper stopped")
+    pcall(finishLogisticsRefresh, "failed", "Scraper stopped")
   end
-  Scraper.stopPolling()
+  safeKill("killTimer", Scraper.logistics.refreshTimerId)
+  Scraper.logistics.refreshTimerId = nil
+  Scraper.logistics.refreshing = false
+  Scraper.logistics.refreshQueue = {}
+  Scraper.logistics.refreshIntentId = nil
+  pcall(Scraper.stopPolling)
   safeKill("killTimer", Scraper.hyperspace and Scraper.hyperspace.reentryRefreshTimerId)
   if Scraper.hyperspace then
     Scraper.hyperspace.reentryRefreshTimerId = nil

@@ -36,6 +36,77 @@ h.after_each(function()
 end)
 
 describe("scraper renderer commands", function()
+  it(
+    "reuses verified startup evidence before Room.Info arrives with a seconds-based expiry",
+    function()
+      local driver = fixture.scraper.routeNavigation
+      local ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } }
+      local function start(id, kind)
+        assert(
+          driver:start(
+            {
+              operation = {
+                id = id,
+                runId = "startup",
+                kind = kind,
+                destination = { name = "Corellia" },
+              },
+              ship = ship,
+            },
+            id
+          )
+        )
+      end
+      local function reply(text)
+        for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+          driver:line(line)
+        end
+        driver:prompt()
+        fixture:tickTimersAt(0)
+        fixture.epochMs = fixture.epochMs + 2000
+      end
+      equal(fixture.scraper.state.metadata.room, nil)
+      start("start", "reconcile")
+      reply("Planet: Corellia")
+      reply("Landing Pad\nFreighter: Test Hauler")
+      reply("Cargo Readout for Freighter 'Test Hauler':\n[1 ] [(Empty)] [0/500]")
+      reply("You have 1000 credits.")
+      start("fuel", "refuel")
+      equal(fixture:lastCommand().command, 'refuel "Test Hauler"')
+      reply("That ship is already fully fueled!")
+      local count = #fixture.commands
+      start("fuel-again", "refuel")
+      equal(#fixture.commands, count)
+      equal(driver.active, nil)
+      fixture.epochMs = fixture.epochMs + 61000
+      start("fuel-expired", "refuel")
+      equal(fixture:lastCommand().command, "showplanet")
+    end
+  )
+
+  it("invalidates route evidence on player commands but preserves it for internal sends", function()
+    local driver = fixture.scraper.routeNavigation
+    driver.evidence = { location = true }
+    driver.dispatching = true
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "credits")
+    equal(driver.evidence.location, true)
+    driver.dispatching = false
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "look")
+    equal(driver.evidence.location, nil)
+  end)
+
+  it("invalidates route evidence when GMCP reports a different room", function()
+    local driver = fixture.scraper.routeNavigation
+    _G.gmcp = { Room = { Info = { vnum = 100, name = "Test pad", planet = "Corellia" } } }
+    fixture.scraper.handleRoomGmcp()
+    driver.evidence = { location = true }
+    fixture.scraper.handleRoomGmcp()
+    equal(driver.evidence.location, true)
+    _G.gmcp.Room.Info.vnum = 101
+    fixture.scraper.handleRoomGmcp()
+    equal(driver.evidence.location, nil)
+  end)
+
   it("does not replace confirmed space telemetry with a redundant startup probe", function()
     local count = #fixture.commands
     local active = fixture.scraper.active

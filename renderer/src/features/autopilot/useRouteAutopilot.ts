@@ -33,6 +33,26 @@ export function useRouteAutopilot(
   const [route, setRoute] = useState<CargoRoute | null>(null);
   const [error, setError] = useState<string>();
   const runner = useRef<RouteRunner | undefined>(undefined);
+  useEffect(() => {
+    const off = window.holocron?.onSnapshot((snapshot) => {
+      const accounts = snapshot.metadata?.routeAccounts;
+      if (accounts && accounts.runId === runner.current?.state.runId)
+        void runner.current.track({
+          revision: accounts.revision,
+          revenue: accounts.revenue,
+          cargo: accounts.cargo,
+          fuel: accounts.fuel,
+          tax: accounts.tax,
+        });
+    });
+    const timer = setInterval(() => {
+      if (runner.current?.state.status === "running") void runner.current.track();
+    }, 1000);
+    return () => {
+      off?.();
+      clearInterval(timer);
+    };
+  }, []);
   const install = useCallback((state: RouteCheckpoint, route: CargoRoute) => {
     const api = window.holocron;
     if (!api) throw new Error("Mudlet connection is unavailable.");
@@ -91,7 +111,13 @@ export function useRouteAutopilot(
               system: waypoint.system,
               galaxy: waypoint.galacticCoordinates,
               position: waypoint.refuelCoordinates,
-              arrival: { kind: "station", station: waypoint.refuelStation, pad },
+              arrival: {
+                kind: "station",
+                station: waypoint.refuelStation,
+                landingTarget: waypoint.landingTarget,
+                approachTarget: waypoint.approachTarget,
+                pad: waypoint.landingPad ?? pad,
+              },
             };
           const market = Object.values(markets).find(
             (market) => market.planet?.toLowerCase() === name.toLowerCase(),
@@ -124,14 +150,19 @@ export function useRouteAutopilot(
     },
     [config, catalog, logistics, snapshot, install],
   );
-  const resumeRoute = useCallback(() => {
-    if (!connected) {
-      setError("Connect to Mudlet before starting.");
-      return;
-    }
-    setError(undefined);
-    void runner.current?.resume();
-  }, [connected]);
+  const resumeRoute = useCallback(
+    (repeatUntilStopped?: boolean) => {
+      if (!connected) {
+        setError("Connect to Mudlet before starting.");
+        return;
+      }
+      setError(undefined);
+      void runner.current?.resume(repeatUntilStopped).catch((error) => {
+        setError(error instanceof Error ? error.message : "Could not resume route.");
+      });
+    },
+    [connected],
+  );
   const pauseRoute = useCallback(() => {
     void runner.current?.pause();
   }, []);
@@ -163,6 +194,10 @@ export function useRouteAutopilot(
     ? {
         route,
         shipName: checkpoint.mission.ship.name,
+        repeatUntilStopped: checkpoint.mission.repeatUntilStopped === true,
+        circuit: checkpoint.lap + 1,
+        runningMs: checkpoint.runningMs ?? 0,
+        accounts: checkpoint.accounts,
         flightPhase:
           snapshot?.metadata?.routeNavigation?.runId === checkpoint.runId
             ? snapshot.metadata.routeNavigation.phase

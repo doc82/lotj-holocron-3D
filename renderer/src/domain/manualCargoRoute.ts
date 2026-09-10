@@ -1,5 +1,6 @@
 import {
   DEFAULT_CARGO_TIMING,
+  cargoTravelSeconds,
   validCargoTiming,
   type CargoRoute,
   type CargoTradeLeg,
@@ -92,9 +93,8 @@ export function manualCargoRoute(
       );
     const action = stops[i + 1]?.action ?? "sell";
     return (
-      ((distance / 35) * timing.minutesPer35Sectors +
-        (action === "transit" ? timing.transitStopMinutes : timing.tradeStopMinutes)) *
-      60
+      cargoTravelSeconds(distance, timing) +
+      (action === "transit" ? timing.transitStopMinutes : timing.tradeStopMinutes) * 60
     );
   });
   let estimateAvailable = true;

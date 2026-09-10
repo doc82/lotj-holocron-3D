@@ -10,6 +10,25 @@ This map uses the current roster and X/Y coordinates supplied in this conversati
 
 ## Updated connection map
 
+2026-09-10 correction: Ryloth cannot jump directly to Lorrd. Use **Ryloth →
+Eeropha System → Lorrd**, stopping at **Lodestar Utopia Refueling Station** in
+Eeropha to refuel. Ryloth → Lorrd remains recorded as No Path. Revision 3 adds
+the user-confirmed Eeropha → Lorrd direction; the Ryloth → Eeropha and
+Lorrd → Eeropha directions were already recorded. This does not imply other
+outbound connections from Eeropha.
+
+The same update includes a fresh Lorrd/Kanz Sector scan: Wroona is now **No
+Path**, superseding the older Available entry. Available directions are
+Mytaranor (24.0 pc, 2m56s, 48%), Corusca (48.5 pc, 5m48s, 97%), Corellian
+(38.1 pc, 4m36s, 76%), Eeropha (17.0 pc, 2m06s, 34%) and Ottega (45.3 pc,
+5m26s, 91%). Lodestar's confirmed landing command is `land lodestar 1`.
+
+The supplied Eeropha radar places both Eeropha and Lodestar at
+`9137 4521 -18941`. Approach Eeropha, then address Lodestar for landing.
+`land lode` lists numbered hangars beneath a heading naming the player's ship;
+this is not a planet landing-pad list. Autoflight checks that configured hangar 1
+is open and has spare slots before sending the numbered landing command.
+
 ![Current permanent and temporary connections](galaxy-hyperlane-map.svg)
 
 [Open the connection map and edge register](galaxy-hyperlane-map.md). Blue arrows show observed permanent connections. Solid red is reserved for the five monitor controls, which can randomly open or close. Current availability is not encoded in the map. Your latest clarification supersedes the earlier proposed Alderaan / Mon Cala temporary edge.
