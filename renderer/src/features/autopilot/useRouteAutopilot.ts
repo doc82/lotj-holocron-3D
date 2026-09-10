@@ -1,4 +1,8 @@
-import { navigationWaypoint, navigationNode } from "../../domain/navigationTopology";
+import {
+  navigationWaypoint,
+  navigationNode,
+  validateNavigationPath,
+} from "../../domain/navigationTopology";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cargoMission } from "../../domain/cargoAutopilot";
 import {
@@ -53,8 +57,7 @@ export function useRouteAutopilot(
   useEffect(() => {
     try {
       const stored = JSON.parse(window.localStorage.getItem(KEY) ?? "null");
-      if (stored?.checkpoint && !["completed", "aborted"].includes(stored.checkpoint.status))
-        install(restoreMission(stored.checkpoint), stored.route);
+      if (stored?.checkpoint) install(restoreMission(stored.checkpoint), stored.route);
     } catch {
       setError("The saved navigation checkpoint could not be restored. Prepare a new route.");
     }
@@ -105,6 +108,10 @@ export function useRouteAutopilot(
           if (!system || !galaxy) return undefined;
           return { name, system, galaxy, arrival: { kind: "planet", pad } };
         });
+        validateNavigationPath(
+          mission.stops.map((stop) => stop.destination.name),
+          mission.routingMode === "manual",
+        );
         const prepared = prepareMission(mission, crypto.randomUUID());
         if (!window.holocron) throw new Error("Mudlet connection is unavailable.");
         window.localStorage.setItem(KEY, JSON.stringify({ checkpoint: prepared, route }));
@@ -132,13 +139,34 @@ export function useRouteAutopilot(
     const current = runner.current;
     if (current) {
       void current.abort();
-      void window.holocron?.sendIntent("route_stop", { runId: current.state.runId });
+      void window.holocron
+        ?.sendIntent("route_stop", { runId: current.state.runId, cancel: true })
+        .catch(() => {});
+    }
+  }, []);
+  const clearRoute = useCallback(async () => {
+    const current = runner.current;
+    if (!current || !["completed", "aborted"].includes(current.state.status)) return;
+    await current.settled();
+    if (runner.current !== current) return;
+    try {
+      window.localStorage.removeItem(KEY);
+      runner.current = undefined;
+      setCheckpoint(undefined);
+      setRoute(null);
+      setError(undefined);
+    } catch {
+      setError("Could not clear the saved checkpoint. Try again.");
     }
   }, []);
   const execution: CargoExecutionState = checkpoint
     ? {
         route,
         shipName: checkpoint.mission.ship.name,
+        flightPhase:
+          snapshot?.metadata?.routeNavigation?.runId === checkpoint.runId
+            ? snapshot.metadata.routeNavigation.phase
+            : undefined,
         stops: checkpoint.mission.stops.map((stop) => ({
           planet: stop.destination.name,
           purpose: "transit",
@@ -153,5 +181,13 @@ export function useRouteAutopilot(
             : undefined,
       }
     : { ...initialCargoExecutionState, error };
-  return { execution, armRoute, resumeRoute, pauseRoute, abortRoute, autopilotError: error };
+  return {
+    execution,
+    armRoute,
+    resumeRoute,
+    pauseRoute,
+    abortRoute,
+    clearRoute,
+    autopilotError: error,
+  };
 }

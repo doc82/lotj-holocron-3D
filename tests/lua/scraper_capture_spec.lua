@@ -378,9 +378,9 @@ Use SHOWCLAN for more information.
   end)
 
   it("registers protocol listeners and intent handlers in a fresh fixture", function()
-    equal(#fixture.scraper.eventHandlerIds, 5)
+    equal(#fixture.scraper.eventHandlerIds, 8)
     equal(#fixture.scraper.stateTriggerIds, 26)
-    equal(fixture.gmcpRequests[1].command, "Core.Supports.Add")
+    equal(fixture.gmcpRequests[1].command, 'Core.Supports.Add ["Ship 1", "Galaxy 1", "Room 1"]')
     assert(type(fixture.intentHandlers.scan_ship) == "function")
     assert(type(fixture.intentHandlers.navigate_ship) == "function")
     assert(type(fixture.intentHandlers.route_operation) == "function")
@@ -400,6 +400,14 @@ Use SHOWCLAN for more information.
     }, { id = "navigation-intent" }))
     equal(fixture.scraper.polling.paused, true)
     equal(fixture.commands[#fixture.commands].command, "showplanet")
+    local active = fixture.scraper.routeNavigation.active
+    local sent = #fixture.commands
+    local accepted = fixture.intentHandlers.route_operation({}, { id = "duplicate" })
+    equal(accepted, false)
+    equal(fixture.scraper.routeNavigation.active, active)
+    equal(fixture.scraper.polling.paused, true)
+    equal(fixture.scraper.routeNavigation.ownsPolling, true)
+    equal(#fixture.commands, sent)
     local function reply(lines)
       for line in (lines .. "\n"):gmatch("([^\n]*)\n") do
         fixture.scraper.routeNavigation:line(line)
@@ -410,7 +418,6 @@ Use SHOWCLAN for more information.
     reply("Planet: Corellia\nStarsystem: Corellia System")
     reply("Landing Pad\nLethisk-Class Armed Freighter: Sunrise")
     reply("Cargo Readout for Freighter 'Sunrise':\n[1 ] [(Empty)] [0/500]")
-    reply("You have 1097793 credits.")
     reply("You have 1097793 credits.")
     equal(fixture.scraper.state.metadata.routeNavigation.confirmation.operationId, "run:1")
     equal(fixture.scraper.state.metadata.routeNavigation.confirmation.location.ship, "Sunrise")
@@ -909,18 +916,18 @@ Your Coordinates: -1 3 26
     assert(fixture:capture(
       "radar",
       [[
-Bala Trix Nebula
-Black Market Station 'Rust Ring' 0 0 0
+Fictional Test Nebula
+Test Research Station 'Test Beacon' 0 0 0
 Z-95 Headhunter 'Anger Flight Lead' (Ctr) 1 37 -1
 ]]
     ))
 
-    local station = assert(fixture:entity("Rust Ring"))
-    equal(station.class, "Black Market Station")
+    local station = assert(fixture:entity("Test Beacon"))
+    equal(station.class, "Test Research Station")
     equal(station.kind, "ship")
     equal(station.shipCategory, "battlestation")
     equal(fixture:entity("Anger Flight Lead").position, "Ctr")
-    equal(fixture.scraper.state.metadata.system, "Bala Trix Nebula")
+    equal(fixture.scraper.state.metadata.system, "Fictional Test Nebula")
   end)
 
   it("rejects malformed entities at the telemetry state boundary", function()

@@ -255,6 +255,34 @@ and whether the player is at the controls. This suppresses routine self-`status`
 polls while the feed is healthy; `status` remains the fallback for stale data
 and does not infer landed/in-space state from the `piloting` flag.
 
+A complete numeric speed/position/vitals report is required to refresh that
+health window. A heading-only or piloting-only report cannot hide stale vitals.
+Moving/combat telemetry retains the ten-second window. A complete zero-speed
+report outside combat tolerates up to 60 seconds of silence, matching the quiet
+periods observed in the replay without treating a lost feed as healthy forever.
+Automatic self-status fallbacks back off at 15, 30, 60, then 120 seconds until
+a complete GMCP report returns; combat uses a five-second fallback minimum.
+Explicit manual status requests are unaffected.
+
+Empty ship reports mean telemetry access was lost (for example, leaving the
+cockpit); they clear stale readings and suspend background cockpit commands
+without declaring a landing. A nonempty cockpit report establishes aboard;
+subsequent nonplanetary room transitions retain it. Visited interior room vnums
+can identify reboarding during that observer session. Unknown rooms remain
+unknown when entered from outside; room names do not establish ship identity.
+Room knowledge resets on disconnect, collector reload, or observer identity change.
+
+Full vitals reports without speed/position clear spatial eligibility and old
+motion tracks but retain vitals. This occurs both landed and in hyperspace, so
+missing fields never establish the flight phase. Fresh spatial reports or
+validated own-ship radar/status fixes restore position eligibility.
+Fresh `Room.Info` observations distinguish room changes from control changes;
+a planetary room after absent ship telemetry confirms outside and avoids a
+radar access probe. Disconnect clears room, location, and control observations.
+Routes can use fresh corroborated GMCP planet data for location-only checks and
+a new piloting event for the active take-controls step. Ship-on-pad checks and
+transaction/flight confirmations remain required.
+
 During galactic hyperspace travel, `gmcp.Ship.System` supplies the moving galaxy
 `x`/`y` position and `gmcp.Galaxy.Systems` supplies the known system catalog.
 Holocron3D relays both to the transparent transit map layered over the
@@ -287,10 +315,49 @@ replaced.
 
 Ships inside `500 + (10 × Sensor Array)` units are also queued for targeted
 `status <ship>` and `info <ship>` scans. Enemy status defaults to a four-second
-refresh; neutral/friendly status and all identity info default to ten seconds.
+refresh. First-contact discovery remains immediate; subsequent peaceful
+neutral/friendly non-target status scans wait at least 60 seconds. Other status
+and uncached identity info use the ten-second standard interval. Peaceful fleet
+radar defaults to 15 seconds; combat keeps its separate interval.
 These are best-effort intervals because Mudlet executes one captured command at
 a time. They can be adjusted with `hostileScanIntervalSeconds` and
 `standardScanIntervalSeconds` in the polling options.
+
+Failed automatic named scans back off from 30 seconds to at most five minutes.
+The observer is excluded from the contact scan queue. Known non-fighter
+squadron rejections suppress repeat routine probes until room/ship context
+changes. Explicit manual scans remain available.
+
+### GMCP transition validation
+
+After installing or reloading the package, run `h3d start` in Mudlet first.
+Installation leaves telemetry stopped; `lotjHolocron3D.scraper` is only attached
+after collector setup succeeds and is removed when telemetry stops. If startup
+reports an error, resolve that error before tracing. `h3d status` reports the
+current telemetry state.
+
+Start a bounded in-memory trace in Mudlet before a short boarding/flight test:
+
+```lua
+lua lotjHolocron3D.scraper.startGmcpTrace()
+```
+
+Walk outside → board → cockpit → pilot → launch → hyperspace → arrival → land
+→ release controls → cabin → leave. Include a passenger/station case and a
+reconnect. Stop and inspect the trace:
+
+```lua
+lua display(lotjHolocron3D.scraper.stopGmcpTrace())
+```
+
+The trace retains the most recent 300 `Ship.Info` and `Room.Info` events with
+timestamps and payloads; it excludes unrelated character and chat modules.
+It is off by default and resets on collector reload. Check whether ship data
+clears on cockpit exit or only ship exit, and whether reports are periodic or
+change-only. Verify that healthy ship vitals eliminate routine self-status
+commands, outside detection issues no radar probe, and landed pilots are never
+classified as flying just because they hold the controls. Command-stack and
+arbitrary aboard/cockpit recovery remain pending verified server semantics.
 
 ## Step 7: Open the 3D renderer
 

@@ -64,6 +64,9 @@ export class MudletRouteTransport implements RouteTransport {
           manualRoute: checkpoint.mission.routingMode === "manual",
           maxDistance: checkpoint.mission.maxDistance,
           interrupted: checkpoint.interrupted,
+          itinerary: checkpoint.mission.stops
+            .slice(Math.max(0, checkpoint.stop - 1))
+            .map((stop) => stop.destination),
           from: checkpoint.mission.stops[Math.max(0, checkpoint.stop - 1)].destination,
         })
         .then((sent) => {

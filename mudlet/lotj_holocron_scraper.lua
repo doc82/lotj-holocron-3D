@@ -15,9 +15,10 @@ local Scraper = {
   POLL_CYCLE_DELAY_SECONDS = 5,
   HOSTILE_SCAN_INTERVAL_SECONDS = 4,
   STANDARD_SCAN_INTERVAL_SECONDS = 10,
+  PASSIVE_SCAN_INTERVAL_SECONDS = 60,
   AUTOMATIC_COMMAND_DEDUP_SECONDS = 3,
   COMBAT_RADAR_INTERVAL_SECONDS = 3,
-  FLEETRADAR_INTERVAL_SECONDS = 6,
+  FLEETRADAR_INTERVAL_SECONDS = 15,
   COMBAT_FLEETRADAR_INTERVAL_SECONDS = 12,
   FLEET_STATUS_INTERVAL_SECONDS = 10,
   COMBAT_FLEET_STATUS_INTERVAL_SECONDS = 4,
@@ -32,6 +33,7 @@ local Scraper = {
   DESTRUCTION_TOMBSTONE_SECONDS = 10,
   USER_IDLE_POLL_DELAY_SECONDS = 2.5,
   SHIP_GMCP_STALE_SECONDS = 10,
+  SHIP_GMCP_STATIONARY_SECONDS = 60,
   SENSOR_TICK_FALLBACK_SECONDS = 4,
   REENTRY_RADAR_RETRY_SECONDS = 1,
   TARGET_RECONCILE_SECONDS = 20,
@@ -1089,6 +1091,16 @@ local function freshState()
 end
 
 local function resetObserverContext(name, reason)
+  if Scraper.routeNavigation then
+    local active = Scraper.routeNavigation.active
+    if active and trim(active.ship.name):lower() ~= trim(name):lower() then
+      Scraper.routeNavigation:stop(
+        "A different ship was observed; reconcile before resuming.",
+        true
+      )
+    end
+    Scraper.routeNavigation.shipAccess = nil
+  end
   local previous = Scraper.state or freshState()
   local previousMetadata = previous.metadata or {}
   local nextState = freshState()
@@ -1172,6 +1184,10 @@ local function resetObserverContext(name, reason)
   Scraper.projectileTracking = { nextId = 0, tracks = {} }
 
   Scraper.shipGmcp.lastAt = 0
+  Scraper.shipGmcp.statusAt = 0
+  Scraper.shipGmcp.stationary = false
+  Scraper.shipGmcp.fallbackAt, Scraper.shipGmcp.fallbackAttempts = nil, nil
+  Scraper.shipRooms = {}
   Scraper.shipGmcp.damageSequence = nil
   safeKill("killTimer", Scraper.autotrack.timeoutTimerId)
   Scraper.autotrack.timeoutTimerId = nil
@@ -2064,6 +2080,18 @@ function Scraper.applyResult(result, sentCommand, captureContext)
   local fullRadar = source == "radar" and normalizedCommand(sentCommand) == "radar"
   local radarRefreshSatisfied = false
   Scraper.state.metadata.sources[source] = os.time()
+  local spatialReport = (source == "radar" or source == "fleetradar") and result.observer
+    or source == "status" and normalizedCommand(sentCommand) == "status" and result
+  if
+    spatialReport
+    and spatialReport.x ~= nil
+    and spatialReport.y ~= nil
+    and spatialReport.z ~= nil
+    and not preserveNewerGmcpObserver
+  then
+    Scraper.state.metadata.shipSpatialAvailable = true
+    Scraper.state.metadata.sources.observer_position = os.time()
+  end
 
   if source == "radar" then
     Scraper.combat.lastRadarAt = os.time()
@@ -2417,7 +2445,20 @@ local function applyRemoteRadarResult(result, capture)
   return true
 end
 
+function Scraper.isShipGmcpHealthy(now)
+  now = tonumber(now) or os.time()
+  local at = tonumber(Scraper.shipGmcp.statusAt) or 0
+  local window = Scraper.shipGmcp.stationary == true
+      and not Scraper.isCombatPollingActive(now)
+      and Scraper.SHIP_GMCP_STATIONARY_SECONDS
+    or Scraper.SHIP_GMCP_STALE_SECONDS
+  return at > 0 and now - at <= window
+end
+
 function Scraper.publish()
+  if Scraper.state then
+    Scraper.state.metadata.shipGmcpHealthy = Scraper.isShipGmcpHealthy()
+  end
   local profiling = Scraper.profiler.enabled == true
   local profileStarted = profiling and os.clock() or nil
   if profiling then
@@ -2797,6 +2838,7 @@ function Scraper.finishCapture(reason)
     end
   end
   if commandFailure then
+    Scraper.recordScanOutcome(capture, false)
     if capture.logisticsRefresh then
       finishLogisticsRefresh("failed", commandFailure)
     end
@@ -2836,13 +2878,14 @@ function Scraper.finishCapture(reason)
   end
   profileTiming("parse", parseStarted)
   if not parsed then
+    Scraper.recordScanOutcome(capture, false)
     if capture.logisticsRefresh then
       finishLogisticsRefresh("failed", tostring(parseError))
     end
     profileCount("parseFailures")
-    if capture.spaceProbe then
-      Scraper.setInSpace(false, "startup radar did not return space data")
-    elseif capture.initializationSweep then
+    -- Missing radar output is not evidence of landing. Preserve the last
+    -- confirmed space state; explicit landing/not-launched events own that change.
+    if capture.initializationSweep then
       clearInitialStateSweep()
     end
     if
@@ -2895,6 +2938,7 @@ function Scraper.finishCapture(reason)
   end
   profileTiming("apply", applyStarted)
   if not applied then
+    Scraper.recordScanOutcome(capture, false)
     if capture.logisticsRefresh then
       finishLogisticsRefresh("failed", tostring(applyError))
     end
@@ -2923,6 +2967,7 @@ function Scraper.finishCapture(reason)
     end
     return nil, applyError
   end
+  Scraper.recordScanOutcome(capture, true)
   if capture.remoteViewMemberId and completeHyperspaceExitArrival then
     completeHyperspaceExitArrival(capture.remoteViewMemberName, parsed)
   end
@@ -4213,6 +4258,7 @@ function Scraper.publishGalaxyCatalog()
     systems = _G.lotj.galaxyMap.systems
   end
   local shipSystem = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.System or nil
+  -- Player-local discoveries are runtime inputs, never bundled map data.
   local custom = type(_G.lotj) == "table"
       and type(_G.lotj.galaxyMap) == "table"
       and _G.lotj.galaxyMap.recorded
@@ -5503,6 +5549,31 @@ local function scanKey(entity)
   return tostring(entity.id or entity.name):lower()
 end
 
+function Scraper.recordScanOutcome(capture, succeeded)
+  if not succeeded and (not capture.polled or capture.intentId) then
+    return
+  end
+  local name = capture.sentCommand:match("^status (.+)$")
+    or capture.sentCommand:match("^info (.+)$")
+  if not name then
+    return
+  end
+  local entity = findEntity({ name = name })
+  if not entity then
+    return
+  end
+  local key = scanKey(entity)
+  local state = Scraper.scanState[key] or {}
+  if succeeded then
+    state.failures, state.retryAfter = nil, nil
+    Scraper.scanState[key] = state
+    return
+  end
+  state.failures = (state.failures or 0) + 1
+  state.retryAfter = os.time() + math.min(300, 30 * 2 ^ math.min(state.failures - 1, 4))
+  Scraper.scanState[key] = state
+end
+
 local function scanCommandDue()
   if not Scraper.state then
     return nil
@@ -5513,7 +5584,15 @@ local function scanCommandDue()
   local now = os.time()
   local best, bestOverdue, bestIsDiscovery
   for _, entity in pairs(Scraper.state.entities) do
-    if entity.kind == "ship" and entity.name and entity.x and entity.y and entity.z then
+    if
+      entity.kind == "ship"
+      and entity.name
+      and entity.x
+      and entity.y
+      and entity.z
+      and entity.id ~= "player-ship"
+      and trim(entity.name):lower() ~= trim(observer.name):lower()
+    then
       local distance = math.sqrt(
         (entity.x - (observer.x or 0)) ^ 2
           + (entity.y - (observer.y or 0)) ^ 2
@@ -5530,6 +5609,15 @@ local function scanCommandDue()
                 and Scraper.polling.hostileScanIntervalSeconds
               or Scraper.polling.standardScanIntervalSeconds
             local lastAttempt = state[source .. "At"] or 0
+            if
+              source == "status"
+              and (state.statusAt or 0) > 0
+              and entity.disposition ~= "enemy"
+              and trim(entity.name):lower() ~= trim(Scraper.combat.targetName):lower()
+              and not Scraper.isCombatPollingActive(now)
+            then
+              interval = math.max(interval, Scraper.PASSIVE_SCAN_INTERVAL_SECONDS)
+            end
             local missingTelemetry = source == "status"
                 and entity.hull == nil
                 and entity.shields == nil
@@ -5539,6 +5627,7 @@ local function scanCommandDue()
             local overdue = now - lastAttempt - interval
             if
               overdue >= 0
+              and now >= (state.retryAfter or 0)
               and (
                 best == nil
                 or discovery and not bestIsDiscovery
@@ -5606,8 +5695,7 @@ local function updatePollingMetadata(command)
 end
 
 local function shipGmcpIsFresh(now)
-  local lastAt = tonumber(Scraper.shipGmcp and Scraper.shipGmcp.lastAt) or 0
-  return lastAt > 0 and (tonumber(now) or os.time()) - lastAt <= Scraper.SHIP_GMCP_STALE_SECONDS
+  return Scraper.isShipGmcpHealthy(now)
 end
 
 function Scraper.isCombatPollingActive(now)
@@ -5756,7 +5844,11 @@ local function fleetStatusCommandDue(now, combatActive)
   -- probes, without repeatedly leaking LotJ's incompatible-command warning.
   local candidates = {}
   for _, candidate in ipairs(allCandidates) do
-    if activeKind == nil or candidate.kind == activeKind then
+    local formation = formations[candidate.kind]
+    if
+      (activeKind == nil or candidate.kind == activeKind)
+      and not (formation and formation.unavailableReason == "fighter_cockpit_required")
+    then
       table.insert(candidates, candidate)
     end
   end
@@ -5788,6 +5880,12 @@ local function pollOnce()
     return
   end
   if not Scraper.polling.enabled or Scraper.polling.paused then
+    return
+  end
+  local access = Scraper.state and Scraper.state.metadata.shipAccess
+  if access and access.telemetryPresent == false then
+    updatePollingMetadata("waiting for ship telemetry access")
+    scheduleNextPoll(5)
     return
   end
   -- LOTJ rejects radar, fleet radar, status, and formation commands from
@@ -5981,9 +6079,20 @@ local function pollOnce()
   -- Ship.Info supplies live observer status. Keep the command as a fallback
   -- when GMCP has not arrived recently instead of polling it every cycle.
   if command == "status" and shipGmcpIsFresh(now) then
+    clearObserverHydration("status")
     updatePollingMetadata("gmcp.Ship.Info")
-    scheduleNextPoll(0.1)
+    scheduleNextPoll(delay)
     return
+  end
+  if command == "status" and Scraper.shipGmcp.fallbackAt then
+    local interval = combatActive and 5
+      or math.min(120, 15 * 2 ^ math.min(3, (Scraper.shipGmcp.fallbackAttempts or 1) - 1))
+    if now - Scraper.shipGmcp.fallbackAt < interval then
+      clearObserverHydration("status")
+      updatePollingMetadata("status fallback backoff")
+      scheduleNextPoll(delay)
+      return
+    end
   end
 
   local parserCommand = parserForCommand(command)
@@ -6015,6 +6124,10 @@ local function pollOnce()
     elseif command == "squadron status" then
       Scraper.polling.lastSquadronAt = now
     end
+  end
+  if command == "status" then
+    Scraper.shipGmcp.fallbackAt = now
+    Scraper.shipGmcp.fallbackAttempts = (Scraper.shipGmcp.fallbackAttempts or 0) + 1
   end
   Scraper.polling.dispatching = true
   markAutomaticCommandSent(command, now)
@@ -6626,14 +6739,180 @@ local function gmcpNumber(info, key)
   return tonumber(info[key])
 end
 
+-- Presence is independent of flight phase. Empty ship data may mean leaving
+-- the cockpit; only a subsequent planetary room observation establishes outside.
+function Scraper.invalidateShipGmcp()
+  Scraper.shipGmcp.sequence = (Scraper.shipGmcp.sequence or 0) + 1
+  if
+    Scraper.active
+    and Scraper.active.polled
+    and (
+      Scraper.active.parserCommand == "status"
+      or Scraper.active.parserCommand == "radar"
+      or Scraper.active.parserCommand == "fleetradar"
+      or Scraper.active.parserCommand == "info"
+    )
+  then
+    abandonCapture("ship telemetry access lost")
+  end
+  Scraper.shipGmcp.lastAt, Scraper.shipGmcp.statusAt = 0, 0
+  Scraper.shipGmcp.stationary = false
+  Scraper.shipGmcp.fallbackAt, Scraper.shipGmcp.fallbackAttempts = nil, nil
+  Scraper.shipGmcp.damageSequence = nil
+  if not Scraper.state then
+    return
+  end
+  local observer, metadata = Scraper.state.observer, Scraper.state.metadata
+  for _, key in ipairs({
+    "speed",
+    "energy",
+    "hull",
+    "shields",
+    "heading",
+    "piloting",
+    "x",
+    "y",
+    "z",
+  }) do
+    observer[key] = nil
+  end
+  metadata.sources.ship_gmcp = nil
+  metadata.shipGmcpHealthy = false
+  metadata.shipSpatialAvailable = false
+  metadata.sources.ship_gmcp_position = nil
+  metadata.sources.observer_position = nil
+  local room = metadata.room
+  metadata.shipAccess = {
+    sequence = (metadata.shipAccess and metadata.shipAccess.sequence or 0) + 1,
+    observedAt = os.time(),
+    source = "ship_gmcp",
+    telemetryPresent = false,
+    aboard = room and room.vnum and Scraper.shipRooms and Scraper.shipRooms[room.vnum] or nil,
+  }
+  if Scraper.routeNavigation then
+    Scraper.routeNavigation:shipGmcp(metadata.shipAccess)
+  end
+end
+
+function Scraper.handleGmcpDisconnect()
+  Scraper.shipRooms = {}
+  if Scraper.routeNavigation then
+    Scraper.routeNavigation:stop(
+      "Connection changed; reconcile ship and location before resuming.",
+      true
+    )
+    Scraper.routeNavigation.at = nil
+  end
+  if Scraper.state then
+    Scraper.state.metadata.room = nil
+  end
+  Scraper.invalidateShipGmcp()
+  if Scraper.state then
+    Scraper.state.metadata.room = nil
+    if Scraper.state.metadata.logistics then
+      Scraper.state.metadata.logistics.location = nil
+    end
+    Scraper.setInSpace(false, "connection changed")
+    Scraper.state.metadata.inSpace = nil
+    Scraper.publish()
+  end
+end
+
+function Scraper.handleRoomGmcp()
+  local info = _G.gmcp and _G.gmcp.Room and _G.gmcp.Room.Info
+  if type(info) ~= "table" then
+    return false
+  end
+  Scraper.state = Scraper.state or freshState()
+  local metadata = Scraper.state.metadata
+  local previous = metadata.room
+  Scraper.shipRooms = Scraper.shipRooms or {}
+  metadata.room = {
+    vnum = tonumber(info.vnum),
+    name = info.name,
+    planet = info.planet,
+    exits = copyTable(info.exits or {}),
+    observedAt = os.time(),
+    sequence = (previous and previous.sequence or 0) + 1,
+  }
+  -- Moving rooms invalidates cockpit/control evidence, even if Ship.Info is cached.
+  if not previous or previous.vnum ~= metadata.room.vnum then
+    for _, formation in pairs(metadata.formations or {}) do
+      formation.unavailableReason = nil
+    end
+    local access = metadata.shipAccess or {}
+    local wasAboard = access.aboard == true
+    access.aboard, access.piloting, access.telemetryPresent = nil, nil, nil
+    access.sequence = (access.sequence or 0) + 1
+    access.observedAt, access.source = os.time(), "room_gmcp"
+    Scraper.state.observer.piloting = nil
+    if metadata.room.vnum then
+      if trim(info.planet) ~= "" then
+        access.aboard, access.telemetryPresent = false, false
+        Scraper.shipRooms[metadata.room.vnum] = nil
+      elseif Scraper.shipRooms[metadata.room.vnum] or wasAboard then
+        access.aboard = true
+        Scraper.shipRooms[metadata.room.vnum] = true
+      end
+    end
+    metadata.shipAccess = access
+    if Scraper.routeNavigation then
+      Scraper.routeNavigation:shipGmcp(access)
+    end
+  end
+  if
+    metadata.shipAccess
+    and metadata.room.vnum
+    and metadata.shipAccess.telemetryPresent == false
+    and trim(info.planet) ~= ""
+  then
+    metadata.shipAccess.aboard = false
+    metadata.shipAccess.observedAt = os.time()
+    Scraper.setInSpace(false, "GMCP confirms a planetary room without ship telemetry")
+  end
+  profileCount("roomGmcpEvents")
+  Scraper.recordGmcpTrace("Room.Info", info)
+  Scraper.publish()
+  return true
+end
+
+-- Opt-in, bounded diagnostics; never capture unrelated character/communications data.
+function Scraper.startGmcpTrace()
+  Scraper.gmcpTrace = {}
+  return Scraper.gmcpTrace
+end
+
+function Scraper.recordGmcpTrace(module, info)
+  if not Scraper.gmcpTrace then
+    return
+  end
+  if #Scraper.gmcpTrace >= 300 then
+    table.remove(Scraper.gmcpTrace, 1)
+  end
+  table.insert(
+    Scraper.gmcpTrace,
+    { module = module, observedAt = os.time(), data = copyTable(info) }
+  )
+end
+
+function Scraper.stopGmcpTrace()
+  local trace = Scraper.gmcpTrace
+  Scraper.gmcpTrace = nil
+  return trace or {}
+end
+
 function Scraper.handleShipGmcp()
+  Scraper.state = Scraper.state or freshState()
   local profiling = Scraper.profiler.enabled == true
   local profileStarted = profiling and os.clock() or nil
   if profiling then
     profileCount("shipGmcpEvents")
   end
   local info = _G.gmcp and _G.gmcp.Ship and _G.gmcp.Ship.Info or nil
+  Scraper.recordGmcpTrace("Ship.Info", type(info) == "table" and info or {})
   if type(info) ~= "table" or next(info) == nil then
+    Scraper.invalidateShipGmcp()
+    Scraper.publish()
     if profiling then
       profileCount("emptyShipGmcpEvents")
       profileTiming("ship_gmcp", profileStarted)
@@ -6651,6 +6930,39 @@ function Scraper.handleShipGmcp()
     gmcpNumber(info, "posX"), gmcpNumber(info, "posY"), gmcpNumber(info, "posZ")
   local headX, headY, headZ =
     gmcpNumber(info, "headX"), gmcpNumber(info, "headY"), gmcpNumber(info, "headZ")
+  local completeVitals = energy and maxEnergy and hull and maxHull and shield and maxShield
+  -- The server omits spatial fields both while landed and in hyperspace.
+  -- Clear the fix without inferring a flight phase. Tiny partial updates do
+  -- not invalidate an otherwise complete report.
+  if completeVitals then
+    local spatial = speed ~= nil and posX ~= nil and posY ~= nil and posZ ~= nil
+    Scraper.state.metadata.shipSpatialAvailable = spatial
+    if not spatial then
+      local capture = Scraper.active
+      if
+        capture
+        and capture.polled
+        and (
+          capture.parserCommand == "status"
+          or capture.parserCommand == "radar"
+          or capture.parserCommand == "fleetradar"
+        )
+      then
+        abandonCapture("ship spatial telemetry became unavailable")
+      end
+      observer.x, observer.y, observer.z, observer.heading = nil, nil, nil, nil
+      observer.speed = nil
+      Scraper.shipGmcp.statusAt = 0
+      Scraper.state.metadata.sources.ship_gmcp_position = nil
+      Scraper.state.metadata.sources.observer_position = nil
+    else
+      Scraper.state.metadata.sources.ship_gmcp_position = os.time()
+      Scraper.state.metadata.sources.observer_position = os.time()
+    end
+    Scraper.shipGmcp.stationary = spatial and speed == 0
+  elseif speed ~= nil and speed ~= 0 then
+    Scraper.shipGmcp.stationary = false
+  end
 
   if speed ~= nil or maxSpeed ~= nil then
     observer.speed = observer.speed or {}
@@ -6706,9 +7018,13 @@ function Scraper.handleShipGmcp()
     observer.heading = { x = headX, y = headY, z = headZ }
   end
   if info.piloting ~= nil then
-    observer.piloting = info.piloting == true
-      or info.piloting == 1
-      or tostring(info.piloting):lower() == "true"
+    local value = tostring(info.piloting):lower()
+    observer.piloting = nil
+    if value == "true" or value == "1" then
+      observer.piloting = true
+    elseif value == "false" or value == "0" then
+      observer.piloting = false
+    end
   end
 
   Scraper.shipGmcp.sequence = (Scraper.shipGmcp.sequence or 0) + 1
@@ -6716,8 +7032,49 @@ function Scraper.handleShipGmcp()
   Scraper.state.metadata.sources.ship_gmcp = Scraper.shipGmcp.lastAt
   Scraper.state.metadata.lastSource = "ship_gmcp"
   Scraper.state.metadata.lastObservedAt = Scraper.shipGmcp.lastAt
-  Scraper.state.metadata.shipGmcpHealthy = true
-  clearObserverHydration("status")
+  -- Only a complete numeric vital/position report can replace self-status.
+  if
+    speed
+    and maxSpeed
+    and energy
+    and maxEnergy
+    and hull
+    and maxHull
+    and shield
+    and maxShield
+    and posX
+    and posY
+    and posZ
+  then
+    Scraper.shipGmcp.statusAt = Scraper.shipGmcp.lastAt
+    Scraper.shipGmcp.fallbackAt, Scraper.shipGmcp.fallbackAttempts = nil, nil
+  end
+  Scraper.state.metadata.shipGmcpHealthy = shipGmcpIsFresh(os.time())
+  if Scraper.state.metadata.shipGmcpHealthy then
+    clearObserverHydration("status")
+  end
+  local previousAccess = Scraper.state.metadata.shipAccess
+  local access = {
+    sequence = (previousAccess and previousAccess.sequence or 0) + 1,
+    observedAt = os.time(),
+    source = "ship_gmcp",
+    telemetryPresent = true,
+    aboard = true,
+    piloting = info.piloting ~= nil and observer.piloting or nil,
+  }
+  -- Lua's and/or idiom loses false; preserve an explicit released-controls value.
+  if info.piloting ~= nil then
+    access.piloting = observer.piloting
+  end
+  Scraper.state.metadata.shipAccess = access
+  local room = Scraper.state.metadata.room
+  if room and room.vnum and trim(room.planet) == "" then
+    Scraper.shipRooms = Scraper.shipRooms or {}
+    Scraper.shipRooms[room.vnum] = true
+  end
+  if Scraper.routeNavigation then
+    Scraper.routeNavigation:shipGmcp(access)
+  end
   refreshDerivedDistances()
   releasePendingSensorPoll("gmcp", Scraper.shipGmcp.sequence)
 
@@ -8321,6 +8678,20 @@ local function dispatchFleetOrder(payload, message)
 end
 
 dispatchSpaceProbe = function(_, message)
+  local access = Scraper.state and Scraper.state.metadata.shipAccess
+  if access and access.telemetryPresent == false then
+    return false, "Ship telemetry is unavailable here; return to the cockpit before probing space"
+  end
+  if
+    access
+    and access.aboard == false
+    and os.time() - access.observedAt <= Scraper.SHIP_GMCP_STALE_SECONDS
+  then
+    return false, "GMCP reports that you are outside the ship"
+  end
+  if Scraper.state and Scraper.state.metadata.inSpace == true then
+    return true -- Startup already obtained space evidence; keep its polling/capture intact.
+  end
   if Scraper.polling.paused then
     return false, "automatic polling is paused"
   end
@@ -8355,7 +8726,6 @@ dispatchSpaceProbe = function(_, message)
   Scraper.polling.dispatching = false
   if not sent or sendResult == false then
     abandonCapture("startup radar probe could not be sent")
-    Scraper.setInSpace(false, "startup radar could not be sent")
     return false, tostring(sent and sendError or sendResult)
   end
   return true
@@ -8401,6 +8771,24 @@ function Scraper.handleOutgoingCommand(eventName, command)
     return
   end
   if Scraper.routeNavigation and Scraper.routeNavigation.ownsPolling then
+    local active = Scraper.routeNavigation.active
+    local verb = trim(command):lower():match("^(%S+)")
+    if
+      active
+      and active.flightStarted
+      and ({
+        calculate = true,
+        calc = true,
+        hyperspace = true,
+        course = true,
+        land = true,
+        speed = true,
+        prox = true,
+        navstat = true,
+      })[verb]
+    then
+      return -- Manual flight assistance is reconciled by observed milestones, never by command text.
+    end
     Scraper.routeNavigation.at = nil
     Scraper.routeNavigation:stop("Interrupted by an external Mudlet command.")
   end
@@ -8501,9 +8889,8 @@ function Scraper.requestShipGmcpSupport(eventName, protocol)
   if type(sendGMCP) ~= "function" then
     return false
   end
-  local shipOk = pcall(sendGMCP, "Core.Supports.Add", '["Ship 1"]')
-  local galaxyOk = pcall(sendGMCP, "Core.Supports.Add", '["Galaxy 1"]')
-  return shipOk and galaxyOk
+  local ok, result = pcall(sendGMCP, 'Core.Supports.Add ["Ship 1", "Galaxy 1", "Room 1"]')
+  return ok and result ~= false
 end
 
 function Scraper.setup(proxy, options)
@@ -8526,6 +8913,21 @@ function Scraper.setup(proxy, options)
   Scraper.proxy = proxy
   Scraper.routeNavigation = Navigation.new({
     parse = proxy.parseGameOutput,
+    groundLocation = function()
+      local metadata = Scraper.state and Scraper.state.metadata or {}
+      local room, access = metadata.room, metadata.shipAccess
+      if
+        room
+        and room.vnum
+        and trim(room.planet) ~= ""
+        and access
+        and access.aboard == false
+        and os.time() - room.observedAt <= Scraper.SHIP_GMCP_STALE_SECONDS
+        and os.time() - access.observedAt <= Scraper.SHIP_GMCP_STALE_SECONDS
+      then
+        return { planet = room.planet }
+      end
+    end,
     now = function()
       return type(getEpoch) == "function" and getEpoch() or os.time()
     end,
@@ -8559,6 +8961,7 @@ function Scraper.setup(proxy, options)
         operationId = active.operation.id,
         runId = active.operation.runId,
         label = label,
+        phase = active.phase,
         status = "running",
       }
       Scraper.publish()
@@ -8576,6 +8979,10 @@ function Scraper.setup(proxy, options)
       }
       Scraper.publish()
       proxy.publishIntentAck(active.intentId, result and "completed" or "rejected", reason)
+      if not result and Scraper.routeNavigation.ownsPolling then
+        Scraper.setPollingPaused(Scraper.routeNavigation.previousPaused == true)
+        Scraper.routeNavigation.ownsPolling = false
+      end
     end,
   })
   configureInfoCache(options and options.infoCache or nil)
@@ -8678,6 +9085,9 @@ function Scraper.setup(proxy, options)
   Scraper.eventHandlerIds = {
     registerAnonymousEventHandler("sysDataSendRequest", Scraper.handleOutgoingCommand),
     registerAnonymousEventHandler("gmcp.Ship.Info", Scraper.handleShipGmcp),
+    registerAnonymousEventHandler("gmcp.Room.Info", Scraper.handleRoomGmcp),
+    registerAnonymousEventHandler("sysDisconnectionEvent", Scraper.handleGmcpDisconnect),
+    registerAnonymousEventHandler("sysConnectionEvent", Scraper.handleGmcpDisconnect),
     registerAnonymousEventHandler("gmcp.Galaxy.Systems", Scraper.publishGalaxyCatalog),
     registerAnonymousEventHandler("gmcp.Ship.System", Scraper.publishGalaxyCatalog),
     registerAnonymousEventHandler("sysProtocolEnabled", Scraper.requestShipGmcpSupport),
@@ -8855,6 +9265,9 @@ function Scraper.setup(proxy, options)
     proxy.registerIntentHandler("refresh_logistics", dispatchLogisticsRefresh)
     proxy.registerIntentHandler("logistics_action", dispatchLogisticsAction)
     proxy.registerIntentHandler("route_operation", function(payload, message)
+      if Scraper.routeNavigation.active then
+        return false, "Another navigation operation is active."
+      end
       if
         _G.autopilot
         and (
@@ -8872,13 +9285,18 @@ function Scraper.setup(proxy, options)
         Scraper.routeNavigation.ownsPolling = true
       end
       Scraper.setPollingPaused(true)
-      return Scraper.routeNavigation:start(payload, message.id)
+      local ok, reason, deferred = Scraper.routeNavigation:start(payload, message.id)
+      if not ok and Scraper.routeNavigation.ownsPolling then
+        Scraper.setPollingPaused(Scraper.routeNavigation.previousPaused == true)
+        Scraper.routeNavigation.ownsPolling = false
+      end
+      return ok, reason, deferred
     end)
     proxy.registerIntentHandler("route_stop", function(payload)
       if payload.runId and payload.runId ~= Scraper.routeNavigation.runId then
         return true
       end
-      Scraper.routeNavigation:stop("Stopped from Holocron.")
+      Scraper.routeNavigation:stop("Stopped from Holocron.", payload.cancel == true)
       if Scraper.routeNavigation.ownsPolling then
         Scraper.setPollingPaused(Scraper.routeNavigation.previousPaused == true)
         Scraper.routeNavigation.ownsPolling = false
@@ -9096,6 +9514,8 @@ function Scraper.setup(proxy, options)
 end
 
 function Scraper.teardown()
+  Scraper.shipRooms = {}
+  Scraper.gmcpTrace = nil
   if Scraper.routeNavigation then
     Scraper.routeNavigation:stop("Mudlet collector reloaded.")
   end

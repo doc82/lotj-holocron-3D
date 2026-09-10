@@ -1,4 +1,8 @@
-import { navigationWaypoints, navigationNode } from "../../domain/navigationTopology";
+import {
+  navigationWaypoints,
+  navigationNode,
+  validateNavigationPath,
+} from "../../domain/navigationTopology";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { manualCargoRoute, routeReviewStops, type ManualStop } from "../../domain/manualCargoRoute";
 import {
@@ -84,16 +88,19 @@ export function ManualRouteBuilder({
       if (!ship) throw new Error("Select a ship to prepare a manual circuit.");
       if (Number(quantity) > ship.capacity)
         throw new Error("Cargo quantity exceeds the selected ship's capacity.");
-      return {
-        route: manualCargoRoute(
-          stops,
-          markets,
-          Number(quantity),
-          Number(maxDistance),
-          ship.timing,
-          returnSettings,
-        ),
-      };
+      const route = manualCargoRoute(
+        stops,
+        markets,
+        Number(quantity),
+        Number(maxDistance),
+        ship.timing,
+        returnSettings,
+      );
+      validateNavigationPath(
+        [route.legs![0].from, ...route.legs!.flatMap((leg) => leg.path.slice(1))],
+        true,
+      );
+      return { route };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Check the route." };
     }

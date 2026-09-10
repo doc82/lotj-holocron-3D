@@ -10,12 +10,14 @@ export function ActiveRouteStatus({
   onPause,
   onResume,
   onStop,
+  onClear,
 }: {
   execution: CargoExecutionState;
   connected: boolean;
   onPause(): void;
   onResume(): void;
   onStop(): void;
+  onClear(): void;
 }) {
   const route = execution.route;
   const finished = ["completed", "aborted"].includes(execution.phase);
@@ -39,6 +41,7 @@ export function ActiveRouteStatus({
         <span className={styles.badge}>{execution.phase.replaceAll("_", " ")}</span>
       </div>
       <section className={styles.panel} aria-label="Run status">
+        {execution.flightPhase && <p>Flight phase: {execution.flightPhase.replaceAll("_", " ")}</p>}
         <p role="status">
           {finished
             ? execution.phase === "completed"
@@ -68,6 +71,11 @@ export function ActiveRouteStatus({
           </p>
         )}
         <div className={styles.workflowActions}>
+          {finished && (
+            <button type="button" onClick={onClear}>
+              Clear active route
+            </button>
+          )}
           {resumable ? (
             <button
               className={styles.primary}

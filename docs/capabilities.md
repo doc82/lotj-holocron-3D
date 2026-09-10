@@ -35,9 +35,10 @@ Jedi output. Its current capabilities include:
   including planets colocated with orbiting ships. Clicking it opens a member
   grid; hovering previews a contact and clicking pins its details.
 - Scanning in-range ships with targeted `status` and `info` requests. Enemy
-  status is prioritized every four seconds by default; other status and safe
-  identity info refresh every ten seconds, subject to Mudlet's serialized
-  command queue.
+  status is prioritized every four seconds by default; peaceful non-target
+  status repeats no faster than once a minute after initial discovery.
+  Other status and uncached identity info use the ten-second standard interval,
+  subject to Mudlet's serialized command queue. Failed named scans back off.
 - Providing `SCAN` and `INFO` controls for a selected ship so the player can
   immediately refresh its parsed telemetry without waiting for the automatic
   scan queue. Manual scans preempt only hidden polling and report range failures

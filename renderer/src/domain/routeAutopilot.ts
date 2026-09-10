@@ -74,6 +74,28 @@ export interface RouteConfirmation {
 }
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const directions = new Set([
+  "n",
+  "s",
+  "e",
+  "w",
+  "ne",
+  "nw",
+  "se",
+  "sw",
+  "u",
+  "d",
+  "north",
+  "south",
+  "east",
+  "west",
+  "northeast",
+  "northwest",
+  "southeast",
+  "southwest",
+  "up",
+  "down",
+]);
 
 export function prepareMission(mission: NavigationMission, runId: string): RouteCheckpoint {
   if (
@@ -109,6 +131,27 @@ export function prepareMission(mission: NavigationMission, runId: string): Route
       (stop.destination.arrival.kind === "station" && !stop.destination.position)
     )
       throw new Error("Every stop needs a resolved destination.");
+  }
+  if (![...mission.ship.enterPath, ...mission.ship.exitPath].every((step) => directions.has(step)))
+    throw new Error("Cockpit entry and exit paths must contain valid movement directions.");
+  for (const stop of mission.stops) {
+    for (const action of stop.actions) {
+      if (action.kind === "cargo.buy" || action.kind === "cargo.sell") {
+        if (!Number.isSafeInteger(action.payload.quantity) || Number(action.payload.quantity) <= 0)
+          throw new Error("Cargo quantities must be positive safe integers.");
+      }
+    }
+  }
+  if (mission.routingMode === "manual") {
+    const maximum = mission.maxDistance ?? 35;
+    if (!Number.isFinite(maximum) || maximum <= 0)
+      throw new Error("Manual routes need a finite positive maximum jump distance.");
+    for (let i = 1; i < mission.stops.length; i++) {
+      const from = mission.stops[i - 1].destination.galaxy;
+      const to = mission.stops[i].destination.galaxy;
+      if (Math.hypot(to.x - from.x, to.y - from.y) > maximum)
+        throw new Error("A manual route leg exceeds the maximum jump distance.");
+    }
   }
   return {
     version: 1,

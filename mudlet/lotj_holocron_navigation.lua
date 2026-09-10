@@ -14,6 +14,36 @@ local function key(value)
 end
 
 Navigation.canJump = require("lotj_holocron_topology").canJump
+local function validPath(path)
+  local directions = {
+    n = true,
+    s = true,
+    e = true,
+    w = true,
+    ne = true,
+    nw = true,
+    se = true,
+    sw = true,
+    u = true,
+    d = true,
+    north = true,
+    south = true,
+    east = true,
+    west = true,
+    northeast = true,
+    northwest = true,
+    southeast = true,
+    southwest = true,
+    up = true,
+    down = true,
+  }
+  for _, direction in ipairs(path) do
+    if not directions[direction] then
+      return false
+    end
+  end
+  return true
+end
 local function quote(value)
   assert(
     type(value) == "string" and value ~= "" and not value:find('[%c"]'),
@@ -22,8 +52,26 @@ local function quote(value)
   return '"' .. value .. '"'
 end
 
+local function checkJumpRange(from, to, maximum)
+  maximum = tonumber(maximum) or 35
+  local function finite(value)
+    local number = tonumber(value)
+    return number and number == number and math.abs(number) < math.huge and number
+  end
+  local a, b = from and from.galaxy, to and to.galaxy
+  local ax, ay, bx, by = finite(a and a.x), finite(a and a.y), finite(b and b.x), finite(b and b.y)
+  assert(
+    ax and ay and bx and by and finite(maximum) and maximum > 0,
+    "Sector coordinates and a finite maximum distance are required for a manual jump."
+  )
+  assert(
+    math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) <= maximum,
+    "A manual jump exceeds the maximum sector distance."
+  )
+end
+
 function Navigation.new(io)
-  local self = { io = io, active = nil, runId = nil, completed = {}, at = nil }
+  local self = { io = io, active = nil, runId = nil, completed = {}, transactions = {}, at = nil }
   local function now()
     return io.now and io.now() or os.time()
   end
@@ -164,9 +212,15 @@ function Navigation.new(io)
       or 5
     self:clearanceFailed(active, string.format("%s at %.0f units", nearestName, nearest), delay)
   end
-  function self:stop(reason)
+  function self:stop(reason, discard)
     local active = self.active
     self.active = nil
+    if active and active.navigation and not discard then
+      self.suspended = active
+    end
+    if discard then
+      self.suspended = nil
+    end
     if active and active.timer then
       io.cancel(active.timer)
     end
@@ -213,6 +267,9 @@ function Navigation.new(io)
       return
     end
     active.lines, active.matched = {}, false
+    active.gmcpResult = nil
+    active.shipGmcpSequence = self.shipAccess and self.shipAccess.sequence or 0
+    active.phase = step.phase or "ground"
     local ok, command = pcall(step.command)
     if not ok then
       self:stop(tostring(command))
@@ -224,16 +281,126 @@ function Navigation.new(io)
       end
     end)
     io.progress(active, step.label)
+    if step.gmcp then
+      local ok, result = pcall(step.gmcp)
+      if not ok then
+        self:stop(tostring(result))
+        return
+      end
+      if result then
+        active.gmcpResult, active.matched = result, true
+        self:prompt()
+        return
+      end
+    end
+    if
+      active.operation.kind == "stop_action"
+      and (
+        command:match("^buycargo ")
+        or command:match("^sellcargo ")
+        or command:match("^buycontraband ")
+        or command:match("^sellcontraband ")
+      )
+    then
+      self.transactions[active.operation.id] = "uncertain"
+    end
     io.send(command)
+  end
+  function self:shipGmcp(access)
+    self.shipAccess = access
+    local active = self.active
+    if not active then
+      return
+    end
+    local step = active.steps[active.index]
+    if
+      step
+      and step.label == "Take flight controls"
+      and (access.sequence or 0) > (active.shipGmcpSequence or 0)
+    then
+      if access.piloting ~= true then
+        if active.advancing then
+          self:stop("Flight controls changed before launch; reconcile before resuming.")
+        end
+        return
+      end
+      if active.advancing then
+        return
+      end
+      active.matched = true
+      self:prompt()
+    end
   end
   function self:line(text)
     local active = self.active
     if not active then
+      local paused = self.suspended
+      if paused and paused.flightStarted then
+        for i, candidate in ipairs(paused.steps) do
+          if
+            i >= paused.index
+            and candidate.event
+            and (candidate.label ~= "Land" or paused.orbitConfirmed)
+            and candidate.match(text)
+          then
+            paused.resumeEvent = { index = i, text = text }
+            if candidate.label:match("^Approach ") then
+              paused.orbitConfirmed = true
+            end
+            if candidate.label == "Land" then
+              paused.landed = true
+            end
+          end
+        end
+      end
       return
     end
     text = tostring(text):gsub("\r", "")
     table.insert(active.lines, text)
     local lower = key(text)
+    -- Navigation milestones may be supplied by a manual command. Never skip ground checks.
+    if active.flightStarted then
+      if
+        text == "The stars become streaks of light as you enter hyperspace"
+        or text == "The stars become streaks of light as you enter hyperspace."
+      then
+        for i, candidate in ipairs(active.steps) do
+          if candidate.clearanceRetry and i >= active.index then
+            if active.timer then
+              io.cancel(active.timer)
+            end
+            active.index, active.clearance, active.advancing = i, nil, false
+            active.phase = "hyperspace"
+            io.progress(active, "Hyperspace: waiting for confirmed arrival")
+            active.timer = io.timer(900, function()
+              if self.active == active then
+                self:stop("Hyperspace arrival not confirmed. Finish the jump, then resume.")
+              end
+            end)
+            return
+          end
+        end
+      end
+      for i, candidate in ipairs(active.steps) do
+        if
+          i >= active.index
+          and candidate.event
+          and (candidate.label ~= "Land" or active.orbitConfirmed)
+          and candidate.match(text)
+        then
+          if active.timer then
+            io.cancel(active.timer)
+          end
+          active.index, active.clearance, active.advancing = i, nil, false
+          if candidate.label:match("^Approach ") then
+            active.orbitConfirmed = true
+          end
+          active.lines, active.matched = { text }, true
+          self:prompt()
+          return
+        end
+      end
+    end
     local step = active.steps[active.index]
     local blocker = text:match("^You are too close to (.-) to make the jump to lightspeed!$")
     local cannotJumpYet = lower == "you can't jump yet."
@@ -257,7 +424,28 @@ function Navigation.new(io)
       or lower:find("could not locate", 1, true)
       or lower:find("jump not set", 1, true)
     then
-      self:stop(text)
+      if
+        active.flightStarted
+        and (step.label == "Calculate hyperspace" or step.label:match("^Approach "))
+      then
+        if active.timer then
+          io.cancel(active.timer)
+        end
+        active.matched, active.advancing = false, false
+        io.progress(
+          active,
+          "Waiting for manual assistance: "
+            .. text
+            .. " Correct the maneuver; confirmed flight events will continue the route, or Pause to reconcile."
+        )
+        active.timer = io.timer(900, function()
+          if self.active == active then
+            self:stop("Manual assistance timed out. Complete the maneuver and click Resume.")
+          end
+        end)
+      else
+        self:stop(text .. " Return to the expected ship/location and click Resume when ready.")
+      end
       return
     end
     if active.clearance and active.clearance.phase ~= "retry" then
@@ -265,9 +453,9 @@ function Navigation.new(io)
     end
     if step.match and step.match(text) then
       active.matched = true
-      if step.clearanceRetry then
+      if step.event then
         active.clearance = nil
-        self:prompt() -- Hyperspace completion is an event, not a prompt response.
+        self:prompt() -- Asynchronous completions may arrive without a prompt.
       end
     end
   end
@@ -323,9 +511,66 @@ function Navigation.new(io)
       return false, "Invalid navigation operation."
     end
     if self.runId ~= op.runId then
-      self.runId, self.completed, self.at = op.runId, {}, nil
+      self.runId, self.completed, self.transactions, self.at = op.runId, {}, {}, nil
     end
-    local active = { operation = op, ship = ship, intentId = intentId, steps = {}, index = 0 }
+    if
+      op.kind == "reconcile"
+      and payload.interrupted
+      and payload.interrupted.kind == "navigate"
+      and self.suspended
+    then
+      local previous = self.suspended
+      if
+        previous.operation.runId == op.runId
+        and key(previous.ship.name) == key(ship.name)
+        and key(previous.operation.destination.name) == key(op.destination.name)
+        and previous.flightStarted
+        and not previous.landed
+      then
+        self.suspended = nil
+        local confirmedBeforePause = previous.matched
+        previous.operation, previous.intentId = op, intentId
+        previous.interruptedOutcome = "completed"
+        previous.advancing, previous.matched, previous.clearance = false, false, nil
+        self.active = previous
+        if previous.resumeEvent then
+          previous.index = previous.resumeEvent.index
+          previous.lines, previous.matched = { previous.resumeEvent.text }, true
+          previous.resumeEvent = nil
+          self:prompt()
+          return true, nil, true
+        end
+        if confirmedBeforePause then
+          previous.matched = true
+          self:prompt()
+          return true, nil, true
+        end
+        io.progress(
+          previous,
+          "Resumed flight observation. Complete the pending maneuver manually if needed; arrival will be verified before trading."
+        )
+        previous.timer = io.timer(900, function()
+          if self.active == previous then
+            self:stop(
+              "No flight milestone observed. Complete travel to the expected destination and resume."
+            )
+          end
+        end)
+        return true, nil, true
+      end
+    end
+    if op.kind == "stop_action" then
+      self.transactions[op.id] = self.transactions[op.id] or "not_started"
+    end
+    local active = {
+      navigation = op.kind == "navigate",
+      operation = op,
+      ship = ship,
+      intentId = intentId,
+      steps = {},
+      index = 0,
+      phase = "ground",
+    }
     local function step(label, command, match, confirm, timeout)
       table.insert(active.steps, {
         label = label,
@@ -344,7 +589,41 @@ function Navigation.new(io)
     end
     local function query(label, command, parser, match, confirm)
       step(label, command, match, function(lines)
-        confirm(parsed(parser, lines))
+        confirm(active.gmcpResult or parsed(parser, lines))
+      end)
+      if command == "showplanet" and io.groundLocation then
+        active.steps[#active.steps].gmcp = io.groundLocation
+      end
+    end
+    local function location(expected)
+      expected = expected or op.destination.name
+      query("Verify trading location", "showplanet", "showplanet", function(line)
+        return line:match("^Planet:")
+      end, function(result)
+        assert(
+          key(result.planet) == key(expected),
+          "Wrong planet. Return to "
+            .. expected
+            .. " and its ship landing pad, then click Resume. No transaction was sent."
+        )
+        self.at = result.planet
+      end)
+      step("Confirm ship on landing pad", "look", nil, function(lines)
+        local found = false
+        for _, line in ipairs(lines) do
+          local names = line:match("^[^:]+:%s*(.+)$")
+          for name in tostring(names or ""):gmatch("[^,]+") do
+            if key(name) == key(ship.name) then
+              found = true
+            end
+          end
+        end
+        assert(
+          found,
+          "Return to the landing pad containing "
+            .. ship.name
+            .. ", stand outside the ship, then click Resume."
+        )
       end)
     end
     local function cargo()
@@ -355,11 +634,14 @@ function Navigation.new(io)
         active.cargo = result
       end)
     end
-    local function credits()
+    local function credits(confirm)
       query("Check available credits", "credits", "credits", function(line)
         return line:match("^You have [%d,]+ credits%.$")
       end, function(result)
         active.credits = result.balance
+        if confirm then
+          confirm()
+        end
       end)
     end
     local function refuel()
@@ -388,7 +670,31 @@ function Navigation.new(io)
           "Configure both ship entry and exit paths, or explicitly confirm direct cockpit access."
         )
       end
+      assert(
+        validPath(ship.enterPath) and validPath(ship.exitPath),
+        "Invalid cockpit or exit path."
+      )
       if op.kind == "reconcile" then
+        if payload.itinerary then
+          query("Verify circuit before commerce", "l hyp", "hyperlane", function(line)
+            return line:find("Between ", 1, true) ~= nil
+          end, function(result)
+            for i = 2, #payload.itinerary do
+              if payload.manualRoute == true then
+                checkJumpRange(payload.itinerary[i - 1], payload.itinerary[i], payload.maxDistance)
+              end
+              assert(
+                Navigation.canJump(
+                  payload.itinerary[i - 1],
+                  payload.itinerary[i],
+                  result.lanes,
+                  payload.manualRoute
+                ),
+                "Circuit contains a blocked connection. Edit the route before buying cargo."
+              )
+            end
+          end)
+        end
         query("Confirm current planet", "showplanet", "showplanet", function(line)
           return line:match("^Planet:")
         end, function(result)
@@ -416,15 +722,14 @@ function Navigation.new(io)
           )
         end)
         cargo()
-        credits()
-        step("Verify recovery checkpoint", "credits", function(line)
-          return line:match("^You have [%d,]+ credits%.$")
-        end, function()
+        credits(function()
           local interrupted = payload.interrupted
           if not interrupted then
             active.interruptedOutcome = "not_started"
           elseif self.completed[interrupted.id] or interrupted.kind == "navigate" then
             active.interruptedOutcome = "completed"
+          elseif self.transactions[interrupted.id] == "not_started" then
+            active.interruptedOutcome = "not_started"
           elseif interrupted.kind == "refuel" then
             active.interruptedOutcome = "not_started"
           else
@@ -434,9 +739,11 @@ function Navigation.new(io)
           end
         end)
       elseif op.kind == "refuel" then
+        location()
         assert(key(self.at) == key(op.destination.name), "Location must be reconciled first.")
         refuel()
       elseif op.kind == "stop_action" then
+        location()
         assert(key(self.at) == key(op.destination.name), "Location must be reconciled first.")
         local action = op.action
         assert(
@@ -449,7 +756,10 @@ function Navigation.new(io)
           "Invalid cargo trading mode."
         )
         assert(
-          type(data.quantity) == "number" and data.quantity > 0 and data.quantity % 1 == 0,
+          type(data.quantity) == "number"
+            and data.quantity > 0
+            and data.quantity <= 9007199254740991
+            and data.quantity % 1 == 0,
           "Invalid cargo quantity."
         )
         quote(data.resource)
@@ -524,7 +834,10 @@ function Navigation.new(io)
             )
           end
         )
+        -- Loading/unloading completes asynchronously and need not emit a prompt.
+        active.steps[#active.steps].event = true
       elseif op.kind == "navigate" then
+        location(payload.from and payload.from.name)
         assert(self.at, "Location must be reconciled first.")
         local destination = op.destination
         local target = destination.arrival.kind == "station" and destination.arrival.station
@@ -538,22 +851,7 @@ function Navigation.new(io)
         end
         local position, system
         if payload.manualRoute == true then
-          local from, to = payload.from and payload.from.galaxy, destination.galaxy
-          local maximum = tonumber(payload.maxDistance) or 35
-          assert(
-            from
-              and to
-              and tonumber(from.x)
-              and tonumber(from.y)
-              and tonumber(to.x)
-              and tonumber(to.y)
-              and maximum > 0,
-            "Sector coordinates and maximum distance are required for a manual jump."
-          )
-          assert(
-            math.sqrt((from.x - to.x) ^ 2 + (from.y - to.y) ^ 2) <= maximum,
-            "The next manual jump exceeds the maximum sector distance."
-          )
+          checkJumpRange(payload.from, destination, payload.maxDistance)
         end
         query("Verify hyperlane availability", "l hyp", "hyperlane", function(line)
           return line:find("Between ", 1, true) ~= nil
@@ -625,8 +923,13 @@ function Navigation.new(io)
           step("Move to cockpit: " .. direction, direction)
         end
         step("Disable ship autopilot", "autopilot off")
-        step("Take flight controls", "pilot")
-        step("Launch", "launch", function(line)
+        step("Take flight controls", "pilot", function(line)
+          return line == "You grip the controls."
+        end)
+        step("Launch", function()
+          active.flightStarted = true
+          return "launch"
+        end, function(line)
           return line == "The ship leaves the platform far behind as it flies into space."
         end, function()
           self.at = nil
@@ -647,10 +950,30 @@ function Navigation.new(io)
         end, function(line)
           return line:find("[Status]: Hyperspace calculations have been completed.", 1, true) ~= nil
         end, nil, 180)
+        query("Verify calculated destination", "navstat", "navstat", function(line)
+          return line:match("^Jump System:")
+        end, function(result)
+          assert(
+            key(result.jumpSystem) == key(destination.system),
+            "Calculated jump does not match "
+              .. destination.system
+              .. ". Correct the calculation before continuing."
+          )
+        end)
         step("Travel through hyperspace", "hyperspace", function(line)
           return line == "The ship lurches slightly as it comes out of hyperspace."
         end, nil, 900)
         active.steps[#active.steps].clearanceRetry = true
+        query("Verify arrival system", "navstat", "navstat", function(line)
+          return line:match("^Current System:")
+        end, function(result)
+          assert(
+            key(result.system) == key(destination.system),
+            "Arrived in a different system. Navigate to "
+              .. destination.system
+              .. " before continuing."
+          )
+        end)
         step("Approach " .. target, "course " .. quote(target), function(line)
           return key(line:match("^You begin orbiting (.-)%.$")) == key(target)
         end, nil, 900)
@@ -705,6 +1028,7 @@ function Navigation.new(io)
         step("Open hatch", "open")
         step("Leave ship", "leave")
         step("Close ship", "close " .. quote(ship.name))
+        location()
         -- A cargo readout outside the ship also verifies access before trading.
         cargo()
         refuel()
@@ -719,6 +1043,28 @@ function Navigation.new(io)
     end)
     if not ok then
       return false, tostring(err)
+    end
+    local phase = "ground"
+    for _, item in ipairs(active.steps) do
+      if item.label == "Open ship" then
+        phase = "pre_hyperspace"
+      end
+      if item.label == "Travel through hyperspace" then
+        phase = "hyperspace"
+      end
+      if item.label == "Verify arrival system" then
+        phase = "post_hyperspace"
+      end
+      if item.label == "Enable ship autopilot" then
+        phase = "ground"
+      end
+      item.phase = phase
+      item.event = item.event
+        or item.label == "Launch"
+        or item.label == "Calculate hyperspace"
+        or item.label == "Travel through hyperspace"
+        or item.label == "Land"
+        or item.label:match("^Approach ") ~= nil
     end
     self.active = active
     self:next()

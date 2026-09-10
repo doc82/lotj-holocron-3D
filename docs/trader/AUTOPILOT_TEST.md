@@ -1,6 +1,16 @@
 # First live cargo circuit
 
+See the [autoflight implementation review](AUTOFLIGHT_REVIEW.md) for outstanding
+station, prelaunch recovery and response-handling gaps found by automated review.
+
 The route cards now connect to the reusable navigation runner and the Mudlet transport. Automated tests cover a complete outbound/return cargo circuit, command cancellation, wrong-location rejection, audited topology restrictions, and renderer intent/confirmation handling. A live game circuit has not yet been validated.
+
+The first live attempt exposed a purchase completion arriving without a prompt.
+Cargo and contraband confirmations now advance the runner directly after validating
+the transaction. Regression coverage completes buys and sells without prompts and
+checks that duplicate confirmations do not record a second transaction. Startup
+reconciliation also uses one credit query for both balance and recovery checks.
+Landing-pad, cargo, and price checks remain in place.
 
 ## Load this version
 
@@ -58,22 +68,34 @@ Ship access is mandatory for autopilot. Configure both internal movement paths, 
 3. Set preferred landing pads for the planets in the test circuit. Without a preference, the transport selects the first listed pad and stops on a restriction rather than guessing another pad.
 4. Calculate a short circuit originating at your current planet using the stored markets. Review and save the desired route, choose **Select route to run** in Routes, then **Start / resume one circuit** in Active route.
 
-Preparing does not send game commands. Starting checks `showplanet`, `look`, `listcargo` and `credits`, then executes the circuit. Before departure it checks hyperlanes and resolves planetary coordinates. Stations use the same course/landing sequence, with Lodestar's recorded coordinates. Before a purchase it checks the current price, funds and free hold space. Purchases and sales must confirm the expected resource and quantity.
+Preparing does not send game commands. Starting refreshes `l hyp` and validates the itinerary before any commerce, then checks `showplanet`, `look`, `listcargo` and `credits`. Before departure it checks hyperlanes and resolves planetary coordinates. Stations use the same course/landing sequence, with Lodestar's recorded coordinates. Before every purchase or sale it checks the current planet with bare `showplanet` and verifies the named ship on the pad with `look`. Purchases also check current price, funds and free hold space. A mismatch pauses before sending the trade command. Purchases and sales must confirm the expected resource and quantity.
 
-The active-route bar shows the current command stage or blocked reason. One circuit includes return cargo when present in the selected route and the final sale at the origin. It does not repeat automatically.
+The Active route page shows the current command stage or blocked reason. One circuit includes return cargo when present in the selected route and the final sale at the origin. It does not repeat automatically.
 
 ## Stop and recover
 
 If hyperspace is rejected for clearance, the transport runs `prox` and requires at least 500 units from non-exempt blocking objects. It uses fresh ship speed to estimate the next check, then prefers measured separation change from successive scans. Checks are 1–30 seconds apart (5 seconds when movement is unknown, stopped or closing). A fresh scan must confirm clearance before retrying `hyperspace`. After 10 unsuccessful checks/retries it stops and shows the reason. Missing proximity responses also consume this budget. Pause, Stop, reload and loss of the automation lease cancel pending checks.
 
-Pause or Stop cancels future transport commands. A launch or hyperspace maneuver already accepted by the game may still finish. Typing another command in Mudlet interrupts the active operation, and losing the desktop automation lease stops the transport.
+Pause cancels pending automation commands and timers. Cancel route requires confirmation and discards flight recovery; a maneuver already accepted by the game may still finish. After cancellation or completion, Clear active route removes the checkpoint and returns to saved Routes without deleting the saved itinerary. Escape dismisses the topmost modal only. Losing the desktop automation lease stops the transport.
 
-Resume starts with reconciliation. After a mid-flight interruption, finish moving manually to the expected stop and stand outside the selected ship before resuming. If an interrupted cargo transaction cannot be proven complete from the current transport session, the run blocks rather than repeating it. Inspect the hold, stop the run and prepare an appropriate new route.
+Resume starts with reconciliation. In the same Mudlet session, an interrupted flight retains its phase and can resume observation of the pending maneuver. Flight events received while paused are retained without sending commands. After a reload, or if the flight state cannot be reconciled, finish moving manually to the expected stop and stand outside the selected ship before resuming. If an interrupted cargo transaction cannot be proven complete from the current transport session, the run blocks rather than repeating it. Inspect the hold, stop the run and prepare an appropriate new route.
 
-Unknown failures and missing confirmations stop or time out; there is no blind `!` retry. If the first live test blocks, retain the command and the game response shown in Mudlet so the missing response variant can be added.
+Calculation and approach failures wait for manual assistance with a bounded timeout; other failures pause for reconciliation. There is no blind `!` retry. If the first live test blocks, retain the command and the game response shown in Mudlet so the missing response variant can be added.
 
-Remaining work beyond this controlled test: arbitrary aboard/cockpit recovery using GMCP transitions, automatic replanning after a blocked lane, contraband execution, broader landing-pad fallback, and an in-app realized-profit report. Confirmed transaction costs/revenues are already recorded in logistics telemetry.
+Remaining work beyond this controlled test: arbitrary aboard/cockpit recovery using GMCP transitions, automatic replanning after a blocked lane, broader landing-pad fallback, and an in-app realized-profit report. Confirmed transaction costs/revenues are already recorded in logistics telemetry.
 
 ## Browser workflow regression checks
 
 Using isolated browser fixtures (no game commands), verify: proposal -> review -> editor -> save -> Routes; saved pad edits persist; selecting a route opens Active route; offline Start is disabled; Stop updates status; Manual route opens a blank workflow with validation; Back to tabs restores navigation. Saving must succeed before the workflow closes.
+
+## Recoverable leg phases
+
+Ground (location/ship, refuel and trade) -> pre-hyperspace (hatch, cockpit controls, launch, calculation and clearance) -> hyperspace -> post-hyperspace (system verification, approach and landing) -> ground.
+
+Launch, calculation completion, hyperspace exit, named orbit and touchdown advance from their completion events without waiting for another prompt. Cockpit control acquisition requires the actual "You grip the controls." response or a fresh true piloting GMCP event received during that step. Cached flags and unrelated GMCP events cannot advance it. Internal directions still use prompt boundaries; inability to acquire controls blocks launch, and fresh planet/ship checks gate commerce after exit. Fresh corroborated GMCP room/planet observations can replace location-only `showplanet`; the ship-on-pad check still runs. See [GMCP transition validation](../../mudlet/SETUP.md#gmcp-transition-validation) for the live test procedure.
+
+While flight is active, manual calculate/calc, hyperspace, course, land, speed, prox and navstat commands do not automatically stop the run. Their command text never counts as completion. Confirmed forward milestones advance the leg; the calculated jump and arrival system are checked with navstat, and the planet is checked again on the ground. Other manual commands interrupt automation.
+
+Test manual hyperspace entry after a failed calculation: the route should observe hyperspace, verify the arrival system and continue approach. Test a wrong-system arrival: no approach or cargo transaction should follow. Test a missing ship before buying: return to the named ship's pad and click Resume. A preflight failure before the trade command was sent is retryable in the same session; a trade already sent without confirmation remains uncertain and must not be repeated.
+
+Full App browser checks now cover preserving Active route through landed/space transitions, Escape dismissing confirmation without closing Trader, and Cancel followed by Clear preserving the saved route. No live game flight has been validated by these checks.

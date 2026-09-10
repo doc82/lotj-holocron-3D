@@ -117,8 +117,8 @@ Your Coordinates: 3510 3491 3402
 
   it("parses named stations and grouped ships in nebula radar output", function()
     local result = assert(parsers.parseRadar([[
-Bala Trix Nebula
-Black Market Station 'Rust Ring'                            0 0 0
+Fictional Test Nebula
+Test Research Station 'Test Beacon'                            0 0 0
 
 Z-95 Headhunter 'AngerTL's squadron:
 Z-95 Headhunter 'AngerTL'                             (Ctr) 1 37 -1
@@ -129,10 +129,10 @@ Z-95 Headhunter 'AngerT3'                             (Out) 1 37 -1
 Z-95 Headhunter 'AngerT6'                             (Out) 1 37 -1
 ]]))
 
-    equal(result.system, "Bala Trix Nebula")
+    equal(result.system, "Fictional Test Nebula")
     equal(#result.entities, 7)
-    equal(result.entities[1].name, "Rust Ring")
-    equal(result.entities[1].class, "Black Market Station")
+    equal(result.entities[1].name, "Test Beacon")
+    equal(result.entities[1].class, "Test Research Station")
     equal(result.entities[1].kind, "ship")
     equal(result.entities[1].shipCategory, "battlestation")
     equal(result.entities[2].name, "AngerTL")

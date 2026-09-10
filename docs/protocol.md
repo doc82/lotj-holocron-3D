@@ -114,6 +114,12 @@ snapshots. `systems` contains timeline-owned systems and planets;
 Mudlet UI's personal registry. `shipSystem` is the current GMCP galactic
 location. Clients must treat all three collections as dynamic.
 
+The personal registry is read from the current player's local
+`lotj.galaxyMap.recorded` table at runtime. It must not be copied into repository
+map data, generated maps, fixtures, or release assets. Tests must use fictional
+discoveries. Holocron reads this registry without modifying the player's GMAP
+records; discovered locations are specific to that player's catalog.
+
 ```json
 {
   "v": 1,

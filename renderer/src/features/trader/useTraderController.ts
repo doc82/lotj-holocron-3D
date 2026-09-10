@@ -61,7 +61,7 @@ export function useTraderController(
     [],
   );
 
-  const { execution, armRoute, pauseRoute, resumeRoute, abortRoute, autopilotError } =
+  const { execution, armRoute, pauseRoute, resumeRoute, abortRoute, clearRoute, autopilotError } =
     useRouteAutopilot(connected, snapshot, config, catalog, logistics);
 
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -162,6 +162,7 @@ export function useTraderController(
     pauseRoute,
     resumeRoute,
     abortRoute,
+    clearRoute,
     config,
     addShip,
     addPad,

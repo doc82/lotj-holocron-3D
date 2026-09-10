@@ -38,6 +38,7 @@ export interface CargoRouteCheckpoint {
 }
 
 export interface CargoExecutionState {
+  flightPhase?: string;
   shipName?: string;
   route: CargoRoute | null;
   stops: CargoExecutionStop[];

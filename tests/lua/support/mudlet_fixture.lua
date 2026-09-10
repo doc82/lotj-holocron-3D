@@ -106,8 +106,9 @@ function Fixture.new(options)
     table.insert(self.commands, { command = command, echo = echoInput })
     return true
   end
-  _G.sendGMCP = function(command, payload)
-    table.insert(self.gmcpRequests, { command = command, payload = payload })
+  _G.sendGMCP = function(command, ...)
+    assert(select("#", ...) == 0, "sendGMCP expects one combined command string")
+    table.insert(self.gmcpRequests, { command = command })
     return true
   end
   _G.deleteLine = function()

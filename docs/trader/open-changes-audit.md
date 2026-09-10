@@ -1,5 +1,7 @@
 # Open changes audit — 2026-09-07
 
+> Implementation follow-up: flight milestone progression/manual assistance, ground-location and ship checks, full-App Escape/workspace fixes, static itinerary validation plus live preflight, cancel/clear, polling failure cleanup, and a longer outer deadline have since been implemented. See [the current test guide](AUTOPILOT_TEST.md). Findings below preserve the audit baseline; arbitrary room/GMCP recovery and suitable-pad fallback remain limitations.
+
 ## Verdict
 
 The architecture is a useful foundation, but the current implementation is not ready to call a solid end-to-end autopilot. Correct the execution and integration findings below before the first cargo circuit. No production code was changed during this audit and no game commands were sent.

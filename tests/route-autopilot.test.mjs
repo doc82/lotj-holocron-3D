@@ -57,6 +57,39 @@ test("autopilot requires both access paths or explicit direct cockpit access", (
   );
 });
 
+test("preparation rejects invalid paths and cargo quantities before any commerce", () => {
+  for (const field of ["enterPath", "exitPath"]) {
+    assert.throws(
+      () => prepareMission({ ...mission, ship: { ...ship, [field]: ["typo"] } }, "run"),
+      /movement directions/,
+    );
+  }
+  for (const quantity of [NaN, Infinity, 0, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalid = structuredClone(mission);
+    invalid.stops[0].actions = [
+      { kind: "cargo.buy", label: "buy", payload: { resource: "Test Food", quantity } },
+    ];
+    assert.throws(() => prepareMission(invalid, "run"), /quantities/);
+  }
+});
+
+test("manual range is checked for every leg before the first purchase", () => {
+  const draft = structuredClone(mission);
+  draft.routingMode = "manual";
+  draft.maxDistance = 35;
+  draft.stops.push({
+    ...structuredClone(draft.stops[1]),
+    destination: { ...resolve("Far Test Planet"), galaxy: { x: 99, y: 99 } },
+  });
+  assert.throws(() => prepareMission(draft, "run"), /exceeds the maximum/);
+  draft.stops.pop();
+  assert.doesNotThrow(() => prepareMission(draft, "run"));
+  for (const maximum of [0, -1, NaN, Infinity]) {
+    draft.maxDistance = maximum;
+    assert.throws(() => prepareMission(draft, "run"), /finite positive/);
+  }
+});
+
 test("immediate resume waits for the cancelled driver before dispatching again", async () => {
   let issued;
   const started = new Promise((resolve) => {

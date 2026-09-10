@@ -19,7 +19,7 @@ test("automatic polling derives proximity instead of issuing prox commands", asy
   assert.match(scraper, /SENSOR_TICK_FALLBACK_SECONDS = 4/);
   assert.match(scraper, /releasePendingSensorPoll\("gmcp"/);
   assert.match(scraper, /COMBAT_RADAR_INTERVAL_SECONDS = 3/);
-  assert.match(scraper, /FLEETRADAR_INTERVAL_SECONDS = 6/);
+  assert.match(scraper, /FLEETRADAR_INTERVAL_SECONDS = 15/);
   assert.match(scraper, /COMBAT_FLEETRADAR_INTERVAL_SECONDS = 12/);
   assert.match(scraper, /RADAR_RECONCILE_INTERVAL_SECONDS = 60/);
 });

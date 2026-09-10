@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   navigationJump,
+  validateNavigationPath,
   navigationTopology,
   navigationNode,
 } from "../renderer/src/domain/navigationTopology.ts";
@@ -81,4 +82,14 @@ test("planner uses verified transit and responds to changing lane states", () =>
       .length,
     2,
   );
+});
+
+test("manual validation rejects known blocked hops before saving but preserves exploration", () => {
+  assert.throws(
+    () => validateNavigationPath(["Corellia", "Tatooine", "Corellia"], true),
+    /No Path/,
+  );
+  assert.doesNotThrow(() => validateNavigationPath(["Bespin", "Ryloth"], true));
+  assert.throws(() => validateNavigationPath(["Bespin", "Ryloth"], false), /not been verified/);
+  assert.doesNotThrow(() => validateNavigationPath(["Corellia", "Wroona", "Corellia"], true));
 });

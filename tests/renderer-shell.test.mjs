@@ -61,12 +61,9 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
     app,
     /const spaceTelemetryActive =\s*telemetry\.connected\s*&&\s*reportedInSpace === true\s*&&\s*telemetry\.snapshot\?\.metadata\?\.inSpace === true/,
   );
-  assert.match(app, /if \(!spaceTelemetryActive\)\s*return \(/);
-  const standbyReturn = app.search(/if \(!spaceTelemetryActive\)\s*return \(/);
-  assert.ok(
-    standbyReturn < app.indexOf("<TacticalCanvas", standbyReturn),
-    "paused space telemetry must return the standby page before mounting WebGL",
-  );
+  assert.match(app, /const spaceView = spaceTelemetryActive \? \(/);
+  assert.match(app, /\{spaceTelemetryActive \? spaceView : landedView\}\s*\{traderWorkspace\}/);
+  assert.equal((app.match(/\{traderWorkspace\}/g) ?? []).length, 1);
   assert.match(canvas, /engine\.dispose\(\)/);
   assert.match(telemetry, /function receiveSpaceState[\s\S]*snapshot: null/);
   assert.match(telemetry, /spaceState\?\.inSpace === false[\s\S]*snapshot: null/);

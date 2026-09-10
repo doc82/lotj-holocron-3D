@@ -113,6 +113,7 @@ export function App() {
     pauseRoute,
     resumeRoute,
     abortRoute,
+    clearRoute,
     config: traderConfig,
     addShip,
     addPad,
@@ -484,12 +485,7 @@ export function App() {
   useEffect(() => {
     const handleManagementKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (traderOpen) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        setTraderOpen(false);
-        return;
-      }
+      if (traderOpen) return; // Native dialogs own Escape, including nested confirmation.
       if (cinematicMode) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -596,6 +592,7 @@ export function App() {
       onArmRoute={armRoute}
       onResumeRoute={resumeRoute}
       onAbortRoute={abortRoute}
+      onClearRoute={() => void clearRoute()}
       onAddShip={addShip}
       onAddPad={addPad}
       onSaveRoute={(route, name) =>
@@ -610,24 +607,22 @@ export function App() {
     />
   ) : null;
 
-  if (!spaceTelemetryActive)
-    return (
-      <>
-        {starting && <StartupSequence onComplete={finishStartup} />}
-        <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
-          <div className={styles.scanlines} aria-hidden="true" />
-          <UplinkNotice
-            onOpenTrader={() => setTraderOpen(true)}
-            paused={telemetry.connected && landed}
-            reason={telemetry.spaceState?.reason}
-          />
-          {managementMenu}
-          {traderWorkspace}
-        </main>
-      </>
-    );
+  const landedView = (
+    <>
+      {starting && <StartupSequence onComplete={finishStartup} />}
+      <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
+        <div className={styles.scanlines} aria-hidden="true" />
+        <UplinkNotice
+          onOpenTrader={() => setTraderOpen(true)}
+          paused={telemetry.connected && landed}
+          reason={telemetry.spaceState?.reason}
+        />
+        {managementMenu}
+      </main>
+    </>
+  );
 
-  return (
+  const spaceView = spaceTelemetryActive ? (
     <>
       {starting && <StartupSequence onComplete={finishStartup} />}
       {!starting &&
@@ -715,8 +710,6 @@ export function App() {
               <kbd>ESC</kbd>
             </button>
           )}
-
-          {traderWorkspace}
 
           {telemetry.connected && !cinematicMode && (
             <CommandScopeRail
@@ -951,6 +944,12 @@ export function App() {
           )}
         </div>
       </main>
+    </>
+  ) : null;
+  return (
+    <>
+      {spaceTelemetryActive ? spaceView : landedView}
+      {traderWorkspace}
     </>
   );
 }

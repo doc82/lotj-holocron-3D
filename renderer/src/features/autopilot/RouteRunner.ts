@@ -39,13 +39,18 @@ export class RouteRunner {
     transport: RouteTransport,
     journal: RouteJournal,
     changed: (state: RouteCheckpoint) => void,
-    timeoutMs = 15 * 60 * 1000,
+    timeoutMs = 45 * 60 * 1000,
   ) {
     this.state = state;
     this.transport = transport;
     this.journal = journal;
     this.changed = changed;
     this.timeoutMs = timeoutMs;
+  }
+
+  async settled(): Promise<void> {
+    await this.currentDrive;
+    await this.writes;
   }
 
   async resume(): Promise<void> {

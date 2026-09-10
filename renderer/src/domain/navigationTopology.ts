@@ -91,3 +91,17 @@ export function navigationJump(
     reason: blocked ? "This direction reports No Path." : "This direction has not been verified.",
   };
 }
+
+// Static validation permits temporary edges pending a fresh runtime check.
+export function validateNavigationPath(names: readonly string[], manual = false): void {
+  const controls = topology.temporaryControls.map((c) => ({
+    from: c.monitor[0],
+    to: c.monitor[1],
+    status: "passable" as const,
+  }));
+  for (let i = 1; i < names.length; i++) {
+    const permission = navigationJump(names[i - 1], names[i], controls, manual);
+    if (!permission.allowed)
+      throw new Error(names[i - 1] + " -> " + names[i] + ": " + permission.reason);
+  }
+}

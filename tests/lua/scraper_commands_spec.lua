@@ -36,6 +36,21 @@ h.after_each(function()
 end)
 
 describe("scraper renderer commands", function()
+  it("does not replace confirmed space telemetry with a redundant startup probe", function()
+    local count = #fixture.commands
+    local active = fixture.scraper.active
+    assert(fixture.intentHandlers.probe_space({}, { id = "late-startup" }))
+    equal(#fixture.commands, count)
+    equal(fixture.scraper.active, active)
+    equal(fixture.scraper.state.metadata.inSpace, true)
+  end)
+
+  it("does not interpret an unanswered radar probe as landing", function()
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true, spaceProbe = true }))
+    fixture.scraper.finishCapture("timeout")
+    equal(fixture.scraper.state.metadata.inSpace, true)
+  end)
+
   it("refreshes local hyperspace radar without using the startup space probe", function()
     local ok, failure = fixture.intentHandlers.refresh_local_hyperspace_radar(
       {},

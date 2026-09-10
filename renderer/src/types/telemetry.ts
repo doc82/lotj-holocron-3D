@@ -72,6 +72,7 @@ export interface TelemetryEntity {
 }
 
 export interface Observer extends TelemetryEntity {
+  piloting?: boolean;
   coordinates?: { x?: number; y?: number; z?: number };
   sensorArray?: number;
   radarRange?: number;
@@ -434,6 +435,24 @@ export interface SystemSnapshot {
   metadata?: {
     system?: string;
     inSpace?: boolean;
+    shipGmcpHealthy?: boolean;
+    shipSpatialAvailable?: boolean;
+    shipAccess?: {
+      aboard?: boolean;
+      piloting?: boolean;
+      telemetryPresent?: boolean;
+      source: "ship_gmcp" | "room_gmcp";
+      observedAt: number;
+      sequence: number;
+    };
+    room?: {
+      vnum?: number;
+      name?: string;
+      planet?: string;
+      exits?: string[] | Record<string, unknown>;
+      observedAt: number;
+      sequence: number;
+    };
     polling?: PollingState;
     lastSensorCapture?: SensorCaptureState;
     autotrackDesired?: boolean;
@@ -446,6 +465,7 @@ export interface SystemSnapshot {
     combatEvents?: CombatEvent[];
     autoRechargeEnabled?: boolean;
     routeNavigation?: {
+      phase?: "ground" | "pre_hyperspace" | "hyperspace" | "post_hyperspace";
       operationId: string;
       runId: string;
       status: "running" | "completed" | "blocked";

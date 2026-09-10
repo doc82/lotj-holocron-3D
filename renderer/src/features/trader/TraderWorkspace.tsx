@@ -33,6 +33,7 @@ interface Props {
   onArmRoute?(route: CargoRoute, shipId?: string): boolean;
   onResumeRoute(): void;
   onAbortRoute(): void;
+  onClearRoute(): void;
   onAddShip(ship: TraderShipConfig): void;
   onDeleteShip(id: string): void;
   onSelectShip(id: string): void;
@@ -47,6 +48,9 @@ export function TraderWorkspace(props: Props) {
   const { connected, snapshot, config, execution, onClose, onRefresh, refreshError, storageError } =
     props;
   const [tab, setTab] = useState<Tab>("create");
+  useEffect(() => {
+    if (!execution.route && tab === "active") setTab("routes");
+  }, [execution.route, tab]);
   const [maxJumps, setMaxJumps] = useState<number | "unlimited">(3);
   const [maxTradeStops, setMaxTradeStops] = useState<number | "unlimited">(6);
   const [startingPlanet, setStartingPlanet] = useState("");
@@ -271,6 +275,7 @@ export function TraderWorkspace(props: Props) {
                 onPause={props.onPauseRoute}
                 onResume={props.onResumeRoute}
                 onStop={props.onAbortRoute}
+                onClear={props.onClearRoute}
               />
             </section>
           )}

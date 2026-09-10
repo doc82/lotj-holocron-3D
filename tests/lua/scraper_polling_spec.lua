@@ -26,6 +26,12 @@ local function emitShipGmcp(x)
       posZ = 0,
       speed = 0,
       maxSpeed = 100,
+      energy = 100,
+      maxEnergy = 100,
+      hull = 100,
+      maxHull = 100,
+      shield = 100,
+      maxShield = 100,
     },
   }
   assert(fixture.scraper.handleShipGmcp())
@@ -67,6 +73,104 @@ local function expectImmediateInitializationSweep()
 end
 
 describe("scraper polling scheduler", function()
+  it("suspends cockpit polling after an empty ship report without declaring landing", function()
+    emitShipGmcp(0)
+    local timer = beginPolling()
+    _G.gmcp.Ship.Info = {}
+    fixture.scraper.handleShipGmcp()
+    local count = #fixture.commands
+    fixture:tick(timer)
+    equal(#fixture.commands, count)
+    equal(fixture.scraper.state.metadata.inSpace, true)
+    equal(fixture.scraper.getPollingState().enabled, true)
+    local ok = fixture.intentHandlers.probe_space({}, { id = "cabin-probe" })
+    equal(ok, false)
+    equal(#fixture.commands, count)
+    emitShipGmcp(0)
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    emitShipGmcp(0)
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    assert(#fixture.commands > count)
+  end)
+  it("tolerates stationary silence but expires it and restores moving/combat freshness", function()
+    emitShipGmcp(0)
+    fixture.scraper.shipGmcp.statusAt = os.time() - 19
+    equal(fixture.scraper.isShipGmcpHealthy(), true)
+    fixture.scraper.combat.lastActivityAt = os.time()
+    equal(fixture.scraper.isShipGmcpHealthy(), false)
+    fixture.scraper.combat.lastActivityAt = 0
+    fixture.scraper.shipGmcp.statusAt = os.time() - 61
+    equal(fixture.scraper.isShipGmcpHealthy(), false)
+    _G.gmcp.Ship.Info.speed = 80
+    fixture.scraper.handleShipGmcp()
+    fixture.scraper.shipGmcp.statusAt = os.time() - 19
+    equal(fixture.scraper.isShipGmcpHealthy(), false)
+  end)
+
+  it("backs off repeated self-status fallbacks and resets on fresh GMCP", function()
+    fixture.scraper.state.observer.name = "Forrestal"
+    emitShipGmcp(0)
+    fixture.scraper.shipGmcp.statusAt = os.time() - 61
+    local timer = beginPolling()
+    local now = os.time()
+    fixture.scraper.polling.lastFleetRadarAt = now
+    fixture.scraper.polling.lastBattlegroupAt = now
+    fixture.scraper.polling.lastSquadronAt = now
+    fixture.scraper.combat.lastRadarAt = now
+    fixture:tick(timer)
+    equal(fixture:lastCommand().command, "status")
+    fixture.scraper.captureLine("Forrestal:")
+    fixture.scraper.captureLine("Current Coordinates: 0 0 0")
+    fixture.scraper.captureLine("Current Speed: 0/100")
+    fixture.scraper.finishCapture("prompt")
+    local count = #fixture.commands
+    fixture:tick(fixture.scraper.getPollingState().timerId)
+    equal(#fixture.commands, count)
+    equal(fixture.scraper.shipGmcp.fallbackAttempts, 1)
+    emitShipGmcp(0)
+    equal(fixture.scraper.shipGmcp.fallbackAt, nil)
+  end)
+  it("excludes the observer from contact scans and clears healthy status hydration", function()
+    fixture.scraper.state.observer.name = "Forrestal"
+    fixture.scraper.state.entities.self =
+      { id = "duplicate", name = "Forrestal", kind = "ship", x = 0, y = 0, z = 0 }
+    emitShipGmcp(0)
+    local timer = beginPolling()
+    local now = os.time()
+    fixture.scraper.polling.lastFleetRadarAt = now
+    fixture.scraper.polling.lastBattlegroupAt = now
+    fixture.scraper.polling.lastSquadronAt = now
+    fixture.scraper.combat.lastRadarAt = now
+    fixture.scraper.polling.hydrationQueue = { "status" }
+    local count = #fixture.commands
+    fixture:tick(timer)
+    equal(#fixture.commands, count)
+    equal(#fixture.scraper.polling.hydrationQueue, 0)
+    assert(fixture.timers[fixture.scraper.getPollingState().timerId].seconds >= 1)
+  end)
+
+  it("backs off failed automatic named scans with a bounded retry interval", function()
+    fixture.scraper.state.entities.contact =
+      { id = "contact", name = "Wayfarer", kind = "ship", x = 10, y = 0, z = 0 }
+    assert(fixture.scraper.startCapture("status", "status Wayfarer", { polled = true }))
+    fixture.scraper.captureLine("That target is too far away to scan.")
+    fixture.scraper.finishCapture("prompt")
+    local state = fixture.scraper.scanState.contact
+    assert(state.retryAfter >= os.time() + 29)
+    for _ = 1, 12 do
+      fixture.scraper.recordScanOutcome({ polled = true, sentCommand = "status Wayfarer" }, false)
+    end
+    assert(state.retryAfter <= os.time() + 300)
+    assert(
+      fixture:capture(
+        "status",
+        "Readout for YT-1300 'Wayfarer':\nHull: 90/100 Shields: 40/50",
+        "status Wayfarer"
+      )
+    )
+    equal(state.retryAfter, nil)
+  end)
+
   it("owns a co-pilot-only fleet radar response and backs off repeat probes", function()
     assert(fixture.scraper.startCapture("fleetradar", "fleetradar", { polled = true }))
     local deleted = fixture.deletedLines
