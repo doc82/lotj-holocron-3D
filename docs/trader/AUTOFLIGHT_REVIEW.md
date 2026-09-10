@@ -35,11 +35,10 @@ Private flight logs and discovered locations are not included here.
 
 4. **Medium — some failure and recovery paths depend on prompts or manual help.**
    Boarding, movement and autopilot-toggle steps advance on a prompt without a
-   positive success matcher. Several calculation rejection messages are handled
-   by the separate hyperspace controller but not immediately by the route driver,
-   which can wait until its timeout. Resuming a suspended flight without a new
-   milestone intentionally waits for manual assistance. These paths need tests
-   with actual success/failure responses rather than generic `Done.` replies.
+   positive success matcher. Recoverable maneuver failures now keep the flight
+   active for manual assistance, and later milestones advance it. Explicitly
+   paused flights still require Resume. Additional boarding/movement responses
+   need tests with actual success/failure text rather than generic `Done.` replies.
 
 5. **Low — redundant service checks remain.**
    Navigation refuels before departure and after arrival; cargo missions also
@@ -62,6 +61,26 @@ Private flight logs and discovered locations are not included here.
   to system verification without another arrival event or repeated jump.
 - Updated an old source assertion that still required six-second fleet radar
   polling after the earlier change to fifteen seconds.
+- Corrected outgoing-command classification so internally dispatched commands
+  are recognized before the external-command cancellation path. Added a
+  planet-flight integration test using registered line/prompt callbacks and
+  outgoing command events from reconciliation through landed arrival, including
+  an internal command while waiting for a navigation readout. Earlier fixtures
+  recorded sends without exercising that outgoing callback.
+- Compared the milestone behavior against the supplied AutoPilot launch,
+  calculate, hyperspace-exit, orbit and landing triggers. After departure checks,
+  a manual launch now advances to calculation even if the driver never issued
+  launch. Failed flight maneuvers remain recoverable in the active run; manual
+  controls and launch commands no longer cancel it. Orbit after a missed exit
+  requires system verification before landing, and observed landing can skip a
+  missed orbit event while retaining final planet/ship checks before commerce.
+  Duplicate milestones no longer cancel the queued continuation.
+- Normal player commands during the prepared flight no longer cancel navigation.
+  Chat, inventory, equipment, interior movement and manual maneuvers are allowed;
+  observed milestones still drive progress and final location checks gate trade.
+  Unrelated generic action failures do not put the flight into maneuver recovery,
+  and output arriving after a confirmed milestone cannot undo its continuation.
+  Ground commerce retains its interruption/reconciliation checks.
 
 ## Validation and limits
 

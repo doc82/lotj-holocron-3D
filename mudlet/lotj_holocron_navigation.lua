@@ -252,6 +252,24 @@ function Navigation.new(io)
     self.completed[op.id] = true
     io.finish(active, result)
   end
+  function self:waitForFlight(active, reason)
+    if active.timer then
+      io.cancel(active.timer)
+    end
+    active.matched, active.advancing = false, false
+    active.waitingForMilestone = true
+    io.progress(
+      active,
+      "Waiting for flight progress: "
+        .. reason
+        .. " Manual flight milestones will continue this route."
+    )
+    active.timer = io.timer(900, function()
+      if self.active == active then
+        self:stop("No flight progress observed for 15 minutes. Reconcile before resuming.")
+      end
+    end)
+  end
   function self:next()
     local active = self.active
     if not active then
@@ -267,9 +285,13 @@ function Navigation.new(io)
       return
     end
     active.lines, active.matched = {}, false
+    active.waitingForMilestone = nil
     active.gmcpResult = nil
     active.shipGmcpSequence = self.shipAccess and self.shipAccess.sequence or 0
     active.phase = step.phase or "ground"
+    if step.label == "Open ship" then
+      active.flightReady = true -- Departure, lane and destination checks have completed.
+    end
     local ok, command = pcall(step.command)
     if not ok then
       self:stop(tostring(command))
@@ -277,10 +299,20 @@ function Navigation.new(io)
     end
     active.timer = io.timer(step.timeout or 30, function()
       if self.active == active then
-        self:stop("No confirmation for " .. step.label .. "; inspect Mudlet before resuming.")
+        if active.flightReady and active.phase ~= "ground" then
+          self:waitForFlight(active, "No confirmation for " .. step.label .. ".")
+        else
+          self:stop("No confirmation for " .. step.label .. "; inspect Mudlet before resuming.")
+        end
       end
     end)
     io.progress(active, step.label)
+    if active.pendingOrbit and step.label:match("^Approach ") then
+      local event = active.pendingOrbit
+      active.pendingOrbit = nil
+      self:line(event)
+      return
+    end
     if step.gmcp then
       local ok, result = pcall(step.gmcp)
       if not ok then
@@ -328,6 +360,7 @@ function Navigation.new(io)
         return
       end
       active.matched = true
+      active.waitingForMilestone = nil
       self:prompt()
     end
   end
@@ -335,15 +368,11 @@ function Navigation.new(io)
     local active = self.active
     if not active then
       local paused = self.suspended
-      if paused and paused.flightStarted then
+      if paused and (paused.flightReady or paused.flightStarted) then
         for i, candidate in ipairs(paused.steps) do
-          if
-            i >= paused.index
-            and candidate.event
-            and (candidate.label ~= "Land" or paused.orbitConfirmed)
-            and candidate.match(text)
-          then
+          if i >= paused.index and candidate.event and candidate.match(text) then
             paused.resumeEvent = { index = i, text = text }
+            paused.flightStarted = true
             if candidate.label:match("^Approach ") then
               paused.orbitConfirmed = true
             end
@@ -359,7 +388,7 @@ function Navigation.new(io)
     table.insert(active.lines, text)
     local lower = key(text)
     -- Navigation milestones may be supplied by a manual command. Never skip ground checks.
-    if active.flightStarted then
+    if active.flightReady or active.flightStarted then
       if
         text == "The stars become streaks of light as you enter hyperspace"
         or text == "The stars become streaks of light as you enter hyperspace."
@@ -370,6 +399,7 @@ function Navigation.new(io)
               io.cancel(active.timer)
             end
             active.index, active.clearance, active.advancing = i, nil, false
+            active.flightStarted, active.waitingForMilestone = true, nil
             active.phase = "hyperspace"
             io.progress(active, "Hyperspace: waiting for confirmed arrival")
             active.timer = io.timer(900, function()
@@ -382,16 +412,37 @@ function Navigation.new(io)
         end
       end
       for i, candidate in ipairs(active.steps) do
-        if
-          i >= active.index
-          and candidate.event
-          and (candidate.label ~= "Land" or active.orbitConfirmed)
-          and candidate.match(text)
-        then
+        if i >= active.index and candidate.event and candidate.match(text) then
+          if i == active.index and active.advancing then
+            return
+          end
           if active.timer then
             io.cancel(active.timer)
           end
+          if candidate.label:match("^Approach ") and not active.arrivalVerified then
+            active.pendingOrbit = text
+            for checkIndex, check in ipairs(active.steps) do
+              if check.label == "Verify arrival system" then
+                active.index = checkIndex - 1
+                active.waitingForMilestone = nil
+                active.advancing = true
+                active.timer = io.timer(0, function()
+                  if self.active == active then
+                    active.advancing = false
+                    self:next()
+                  end
+                end)
+                return
+              end
+            end
+          end
           active.index, active.clearance, active.advancing = i, nil, false
+          active.flightStarted = true
+          active.waitingForMilestone = nil
+          active.phase = candidate.phase
+          if candidate.label == "Land" then
+            active.landed = true
+          end
           if candidate.label:match("^Approach ") then
             active.orbitConfirmed = true
           end
@@ -403,6 +454,9 @@ function Navigation.new(io)
     end
     local step = active.steps[active.index]
     local blocker = text:match("^You are too close to (.-) to make the jump to lightspeed!$")
+    if active.advancing then
+      return -- Unrelated output cannot undo an already confirmed milestone.
+    end
     local cannotJumpYet = lower == "you can't jump yet."
       or lower == "you can't jump yet!"
       or lower == "you cannot jump yet."
@@ -411,38 +465,46 @@ function Navigation.new(io)
       self:beginClearance(active, blocker)
       return
     end
+    local flightContext = active.flightReady or active.flightStarted
+    local flightFailure = false
+    for _, word in ipairs({
+      "ship",
+      "pilot",
+      "launch",
+      "hyperspace",
+      "navigation",
+      "course",
+      "land",
+      "maneuver",
+      "jump",
+      "stellar",
+      "fuel",
+      "controls",
+    }) do
+      if lower:find(word, 1, true) then
+        flightFailure = true
+        break
+      end
+    end
     if
-      lower == "you fail."
-      or lower:find("you fail to", 1, true)
-      or lower:find("you can't", 1, true) == 1
-      or lower:find("you aren't", 1, true) == 1
-      or lower:find("you must", 1, true) == 1
-      or lower:find("not enough", 1, true)
-      or lower:find("insufficient", 1, true)
-      or lower:find("restricted landing", 1, true)
-      or lower:find("too close to", 1, true)
-      or lower:find("could not locate", 1, true)
-      or lower:find("jump not set", 1, true)
+      (not flightContext or flightFailure)
+      and (
+        lower == "you fail."
+        or lower:find("you fail to", 1, true)
+        or lower:find("you can't", 1, true) == 1
+        or lower:find("you aren't", 1, true) == 1
+        or lower:find("you must", 1, true) == 1
+        or lower:find("not enough", 1, true)
+        or lower:find("insufficient", 1, true)
+        or lower:find("restricted landing", 1, true)
+        or lower:find("too close to", 1, true)
+        or lower:find("could not locate", 1, true)
+        or lower:find("jump not set", 1, true)
+        or lower:find("disengage the ship's autopilot", 1, true)
+      )
     then
-      if
-        active.flightStarted
-        and (step.label == "Calculate hyperspace" or step.label:match("^Approach "))
-      then
-        if active.timer then
-          io.cancel(active.timer)
-        end
-        active.matched, active.advancing = false, false
-        io.progress(
-          active,
-          "Waiting for manual assistance: "
-            .. text
-            .. " Correct the maneuver; confirmed flight events will continue the route, or Pause to reconcile."
-        )
-        active.timer = io.timer(900, function()
-          if self.active == active then
-            self:stop("Manual assistance timed out. Complete the maneuver and click Resume.")
-          end
-        end)
+      if (active.flightReady or active.flightStarted) and active.phase ~= "ground" then
+        self:waitForFlight(active, text)
       else
         self:stop(text .. " Return to the expected ship/location and click Resume when ready.")
       end
@@ -453,6 +515,7 @@ function Navigation.new(io)
     end
     if step.match and step.match(text) then
       active.matched = true
+      active.waitingForMilestone = nil
       if step.event then
         active.clearance = nil
         self:prompt() -- Asynchronous completions may arrive without a prompt.
@@ -462,6 +525,9 @@ function Navigation.new(io)
   function self:prompt()
     local active = self.active
     if not active then
+      return
+    end
+    if active.waitingForMilestone then
       return
     end
     if active.clearance and active.clearance.phase ~= "retry" then
@@ -537,6 +603,7 @@ function Navigation.new(io)
           previous.index = previous.resumeEvent.index
           previous.lines, previous.matched = { previous.resumeEvent.text }, true
           previous.resumeEvent = nil
+          previous.waitingForMilestone = nil
           self:prompt()
           return true, nil, true
         end
@@ -973,6 +1040,7 @@ function Navigation.new(io)
               .. destination.system
               .. " before continuing."
           )
+          active.arrivalVerified = true
         end)
         step("Approach " .. target, "course " .. quote(target), function(line)
           return key(line:match("^You begin orbiting (.-)%.$")) == key(target)

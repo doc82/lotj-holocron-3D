@@ -143,7 +143,7 @@ local function trade(f, id, kind, planet, resource)
   equal(#f.transactions, transactionCount + 1)
   equal(f.results[#f.results].result.outcome, "completed")
 end
-local function fly(f, id, from, to, pauseAtJump, pauseAtCalculation)
+local function fly(f, id, from, to, pauseAtJump, pauseAtCalculation, pauseAtControls)
   assert(
     f.driver:start(
       { operation = operation(id, "navigate", to), ship = ship, from = destination(from) },
@@ -158,6 +158,9 @@ local function fly(f, id, from, to, pauseAtJump, pauseAtCalculation)
   for _ = 1, 4 do
     f:respond("Done.")
   end -- enter, close, north, autopilot off
+  if pauseAtControls then
+    return
+  end
   f:respond("You grip the controls.")
   equal(f.commands[#f.commands], "launch")
   f.driver:line("The ship leaves the platform far behind as it flies into space.")
@@ -301,8 +304,12 @@ describe("navigation transport", function()
     reconcile(other)
     fly(other, "out", "Corellia", "Wroona", true)
     other:respond("You aren't in the pilots seat.")
-    equal(other.driver.active, nil)
+    equal(other.driver.active.waitingForMilestone, true)
     equal(other.commands[#other.commands], "hyperspace")
+    other.driver:line("The stars become streaks of light as you enter hyperspace.")
+    other.driver:line("The ship lurches slightly as it comes out of hyperspace.")
+    other:tick(0)
+    equal(other.commands[#other.commands], "navstat")
   end)
   it(
     "rejects invalid movement paths during reconciliation before any cargo can be bought",
@@ -503,6 +510,73 @@ describe("contraband confirmations from AutoPilot trigger definitions", function
 end)
 
 describe("recoverable flight phases and commerce gates", function()
+  it("adopts a manual launch after controls fail without replaying boarding or launch", function()
+    local f = fixture()
+    reconcile(f)
+    fly(f, "flight", "Corellia", "Wroona", false, false, true)
+    equal(f.commands[#f.commands], "pilot")
+    f:respond("You'll have to disengage the ship's autopilot first.")
+    local sent = #f.commands
+    f:respond("Autopilot OFF.")
+    equal(#f.commands, sent)
+    f.driver:line("The ship leaves the platform far behind as it flies into space.")
+    f.driver:line("The ship leaves the platform far behind as it flies into space.")
+    f:tick(0)
+    equal(#f.commands, sent + 1)
+    equal(f.commands[#f.commands], 'calculate "Wroona System" 389 489 589')
+  end)
+
+  it("keeps a timed-out controls step recoverable by the subsequent launch event", function()
+    local f = fixture()
+    reconcile(f)
+    fly(f, "flight", "Corellia", "Wroona", false, false, true)
+    f:tick(30)
+    equal(f.driver.active.waitingForMilestone, true)
+    f.driver:line("The ship leaves the platform far behind as it flies into space.")
+    f:tick(0)
+    equal(f.commands[#f.commands], 'calculate "Wroona System" 389 489 589')
+  end)
+
+  it(
+    "uses orbit evidence after a missed hyperspace exit but verifies the system before landing",
+    function()
+      local f = fixture()
+      reconcile(f)
+      fly(f, "flight", "Corellia", "Wroona", true)
+      local sent = #f.commands
+      f.driver:line("You begin orbiting Another Planet.")
+      f:tick(0)
+      equal(#f.commands, sent)
+      f.driver:line("You begin orbiting Wroona.")
+      f:tick(0)
+      equal(f.commands[#f.commands], "navstat")
+      f:respond("Current System: Wroona System")
+      f:tick(0)
+      equal(f.commands[#f.commands], 'land "Wroona" Main Pad')
+    end
+  )
+
+  it("adopts an observed landing when orbit output was missed", function()
+    local f = fixture()
+    reconcile(f)
+    fly(f, "flight", "Corellia", "Wroona", true)
+    f.driver:line("The ship lurches slightly as it comes out of hyperspace.")
+    f:tick(0)
+    f:respond("Current System: Wroona System")
+    equal(f.commands[#f.commands], 'course "Wroona"')
+    f:respond("You must wait for the current maneuver.")
+    f.driver:line("You feel a slight thud as the ship sets down on the ground.")
+    f:tick(0)
+    equal(f.commands[#f.commands], "autopilot on")
+    equal(f.driver.active.landed, true)
+    for _ = 1, 5 do
+      f:respond("Done.")
+    end
+    f:respond("Planet: Corellia")
+    equal(f.driver.active, nil)
+    assert(f.results[#f.results].reason:find("Wrong planet", 1, true))
+  end)
+
   it(
     "adopts manually initiated hyperspace after a failed calculation without replaying it",
     function()

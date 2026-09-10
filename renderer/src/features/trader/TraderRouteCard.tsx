@@ -56,6 +56,9 @@ export function TraderRouteCard({
           {armLabel}
         </button>
       )}
+      {saved && onDelete && !readOnly && (
+        <RemoveButton label={saved.name} onRemove={() => onDelete(saved.id)} />
+      )}
       <div className={styles.cardHeading}>
         <div>
           <p className={styles.kicker}>
@@ -202,9 +205,6 @@ export function TraderRouteCard({
         <p role="status" className={styles.hint}>
           {notice}
         </p>
-        {saved && onDelete && (
-          <RemoveButton label={saved.name} onRemove={() => onDelete(saved.id)} />
-        )}
       </details>
     </article>
   );

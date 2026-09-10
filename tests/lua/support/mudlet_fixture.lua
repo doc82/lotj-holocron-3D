@@ -104,7 +104,15 @@ function Fixture.new(options)
   end
   _G.send = function(command, echoInput)
     table.insert(self.commands, { command = command, echo = echoInput })
+    if options.outgoingEvents and self.scraper then
+      self.scraper.handleOutgoingCommand("sysDataSendRequest", command)
+    end
     return true
+  end
+  if options.outgoingEvents then
+    _G.getCurrentLine = function()
+      return _G.line
+    end
   end
   _G.sendGMCP = function(command, ...)
     assert(select("#", ...) == 0, "sendGMCP expects one combined command string")

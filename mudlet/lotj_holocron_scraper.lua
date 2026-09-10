@@ -8767,33 +8767,18 @@ local function dispatchLocalHyperspaceRadar(_, message)
 end
 
 function Scraper.handleOutgoingCommand(eventName, command)
-  if Scraper.routeNavigation and Scraper.routeNavigation.dispatching then
+  if
+    Scraper.polling.dispatching or (Scraper.routeNavigation and Scraper.routeNavigation.dispatching)
+  then
     return
   end
   if Scraper.routeNavigation and Scraper.routeNavigation.ownsPolling then
     local active = Scraper.routeNavigation.active
-    local verb = trim(command):lower():match("^(%S+)")
-    if
-      active
-      and active.flightStarted
-      and ({
-        calculate = true,
-        calc = true,
-        hyperspace = true,
-        course = true,
-        land = true,
-        speed = true,
-        prox = true,
-        navstat = true,
-      })[verb]
-    then
-      return -- Manual flight assistance is reconciled by observed milestones, never by command text.
+    if active and (active.flightReady or active.flightStarted) then
+      return -- The player may act aboard; observed flight milestones, not command ownership, drive navigation.
     end
     Scraper.routeNavigation.at = nil
     Scraper.routeNavigation:stop("Interrupted by an external Mudlet command.")
-  end
-  if Scraper.polling.dispatching then
-    return
   end
   if Scraper.logistics.refreshing then
     finishLogisticsRefresh("failed", "Interrupted by an external Mudlet command")

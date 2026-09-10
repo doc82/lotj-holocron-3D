@@ -427,6 +427,130 @@ Use SHOWCLAN for more information.
     equal(fixture.scraper.polling.paused, false)
   end)
 
+  it(
+    "completes a planet flight through registered callbacks and outgoing command events",
+    function()
+      fixture:close()
+      fixture = Fixture.new({ outgoingEvents = true })
+      local driver = fixture.scraper.routeNavigation
+      local function reply(text)
+        for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+          assert(fixture:trigger("^.*$", line))
+        end
+        fixture.triggers[fixture.scraper.stateTriggerIds[2]].callback()
+        fixture:tickTimersAt(0)
+      end
+      assert(fixture.intentHandlers.route_operation({
+        operation = {
+          id = "launch-run:0",
+          runId = "launch-run",
+          kind = "reconcile",
+          destination = { name = "Corellia" },
+        },
+        ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } },
+      }, { id = "reconcile-intent" }))
+      reply("Planet: Corellia")
+      reply("Landing Pad\nFreighter: Test Hauler")
+      reply("Cargo Readout for Freighter 'Test Hauler':\n[1 ] [(Empty)] [0/500]")
+      reply("You have 1000 credits.")
+      equal(driver.active, nil)
+      assert(fixture.intentHandlers.route_operation({
+        operation = {
+          id = "launch-run:1",
+          runId = "launch-run",
+          kind = "navigate",
+          destination = {
+            name = "Wroona",
+            system = "Wroona System",
+            arrival = { kind = "planet", pad = "Test Pad" },
+          },
+        },
+        from = { name = "Corellia" },
+        ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } },
+      }, { id = "launch-intent" }))
+      reply("Planet: Corellia")
+      reply("Landing Pad\nFreighter: Test Hauler")
+      reply("| Between Corellia and Wroona : Passable |")
+      reply("Planet: Wroona\nStarsystem: Wroona System\nCoordinates: 100 200 300")
+      reply("That ship is already fully fueled!")
+      reply("You open the hatch on Freighter 'Test Hauler'.")
+      for _ = 1, 4 do
+        reply("Done.")
+      end
+      reply("You grip the controls.")
+      equal(fixture:lastCommand().command, "launch")
+      local active = driver.active
+      reply("You'll have to disengage the ship's autopilot first.")
+      equal(driver.active, active)
+      fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "autopilot off")
+      reply("Autopilot OFF.")
+      equal(driver.active, active)
+      for _, command in ipairs({
+        "launch confirm",
+        "remove overcoat;wear env",
+        "shields on",
+        "l hyp",
+        "say Ready when you are",
+        "inventory",
+        "tell TestPilot checking supplies",
+        "look",
+        "n",
+      }) do
+        fixture.scraper.handleOutgoingCommand("sysDataSendRequest", command)
+        equal(driver.active, active)
+        reply("Launch sequence initiated.")
+        equal(fixture:lastCommand().command, "launch")
+      end
+      assert(
+        fixture:trigger("^.*$", "The ship leaves the platform far behind as it flies into space.")
+      )
+      assert(fixture:trigger("The ship leaves the platform far behind as it flies into space"))
+      fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "wear test coat")
+      assert(fixture:trigger("^.*$", "You can't wear that."))
+      fixture:tickTimersAt(0)
+      equal(fixture:lastCommand().command, 'calculate "Wroona System" 389 489 589')
+      equal(fixture.scraper.polling.paused, true)
+      fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "practice test skill")
+      reply("You fail.")
+      equal(driver.active, active)
+      equal(active.waitingForMilestone, nil)
+      reply("[Status]: Hyperspace calculations have been completed.")
+      equal(fixture:lastCommand().command, "navstat")
+      fixture.scraper.polling.dispatching = true
+      send("shields on", false)
+      fixture.scraper.polling.dispatching = false
+      equal(driver.active, active)
+      reply("Jump System: Wroona System")
+      equal(fixture:lastCommand().command, "hyperspace")
+      reply("The stars become streaks of light as you enter hyperspace.")
+      equal(fixture:lastCommand().command, "hyperspace")
+      reply("The ship lurches slightly as it comes out of hyperspace.")
+      equal(fixture:lastCommand().command, "navstat")
+      reply("Current System: Wroona System")
+      equal(fixture:lastCommand().command, 'course "Wroona"')
+      reply("You begin orbiting Wroona.")
+      equal(fixture:lastCommand().command, 'land "Wroona" Test Pad')
+      assert(fixture:trigger("^.*$", "You feel a slight thud as the ship sets down on the ground."))
+      assert(fixture:trigger("You feel a slight thud as the ship sets down on the ground."))
+      fixture:tickTimersAt(0)
+      equal(fixture:lastCommand().command, "autopilot on")
+      reply("Autopilot ON.")
+      reply("Ship hatch")
+      reply("You open the hatch.")
+      reply("Landing Pad\nFreighter: Test Hauler")
+      reply("You close the hatch.")
+      reply("Planet: Wroona")
+      reply("Landing Pad\nFreighter: Test Hauler")
+      reply("Cargo Readout for Freighter 'Test Hauler':\n[1 ] [(Empty)] [0/500]")
+      reply("That ship is already fully fueled!")
+      equal(fixture.scraper.state.metadata.routeNavigation.status, "completed")
+      equal(
+        fixture.scraper.state.metadata.routeNavigation.confirmation.location.destination,
+        "Wroona"
+      )
+    end
+  )
+
   it("applies observer status without depending on snapshot indexes", function()
     assert(fixture:capture(
       "status",
