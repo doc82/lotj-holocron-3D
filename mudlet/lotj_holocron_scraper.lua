@@ -377,39 +377,7 @@ local function radarSystemName(value)
   return nil
 end
 
-local function isCommunicationLine(value)
-  value = trim(value)
-  local parenthesizedChannel = value:match("^%(([%u]+)%)%s")
-  local knownParenthesizedChannel = parenthesizedChannel == "OOC"
-    or parenthesizedChannel == "IMM"
-    or parenthesizedChannel == "RPC"
-    or parenthesizedChannel == "NEWBIE"
-    or parenthesizedChannel == "OSAY"
-  local lower = value:lower()
-  return knownParenthesizedChannel
-    or value:match("^CommNet%s+%d+%s+%[") ~= nil
-    or value:match("^ImmNet%[") ~= nil
-    or value:match("^CouncilNet%[") ~= nil
-    or value:match("^%([^)]*R|P|C[^)]*%)%s") ~= nil
-    or value:match("^%b{}%s*%b<>%s*%[[^%]]+%].-:%s") ~= nil
-    or value:find("[Incoming Transmission from", 1, true) ~= nil
-    or value:find("[Outgoing Transmission to", 1, true) ~= nil
-    or value:find("[Hail from ", 1, true) == 1
-    or value:find("[Broadcasting Hail to ", 1, true) == 1
-    or value:find("[INTERCOM:", 1, true) ~= nil
-    or value:match("^Broadcasting Network%s+%[") ~= nil
-    or value:match("^'.-'%s+you%s+[%a]+") ~= nil
-    or value:match("^You%s+[%a]+.-'.-'$") ~= nil
-    or lower:match("^.- speaks in your mind ") ~= nil
-    or lower:match("^you speak through your mind ") ~= nil
-    or lower:find("you sign, in lorrdian", 1, true) ~= nil
-    or lower:match("^.-%s+says%s") ~= nil
-    or lower:match("^.-%s+whispers%s") ~= nil
-    or lower:match("^.-%s+exclaims%s") ~= nil
-    or lower:match("^.-%s+asks%s") ~= nil
-    or lower:match("^.-%s+yells%s") ~= nil
-    or lower:match("^.-%s+radios%s") ~= nil
-end
+local isCommunicationLine = Navigation.isCommunicationLine
 
 local function isCoordinateRow(value)
   return value:match("^.-%s+[+-]?[%d,]+%.?%d*%s+[+-]?[%d,]+%.?%d*%s+[+-]?[%d,]+%.?%d*%s*$") ~= nil
@@ -3285,15 +3253,14 @@ function Scraper.startCapture(parserCommand, sentCommand, options)
   end)
   local function capturePrompt()
     if Scraper.active == capture then
+      if not capture.responseStarted then
+        return
+      end
       Scraper.finishCapture("prompt")
     end
   end
-  if isLogisticsCommand(parserCommand) then
-    -- Keep the trigger alive when an unrelated early prompt is ignored.
-    capture.promptTriggerId = tempPromptTrigger(capturePrompt)
-  else
-    capture.promptTriggerId = tempPromptTrigger(capturePrompt, 1)
-  end
+  -- Chat can emit a prompt before any command response arrives.
+  capture.promptTriggerId = tempPromptTrigger(capturePrompt)
   capture.timeoutTimerId = tempTimer(Scraper.CAPTURE_TIMEOUT_SECONDS, function()
     if Scraper.active == capture then
       Scraper.finishCapture("timeout")
@@ -3648,6 +3615,9 @@ local function removeNamedEntityFromList(entities, shipName)
 end
 
 function Scraper.handleShipDestruction(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local shipName =
     trim(text):match("^.-'([^']+)'%s+explodes%s+in%s+a%s+blinding%s+flash%s+of%s+light!$")
   if not shipName then
@@ -4053,6 +4023,9 @@ completeOwnHyperspaceArrival = function(reason)
 end
 
 function Scraper.handleReentrySystemLine(text)
+  if isCommunicationLine(text) then
+    return
+  end
   if Scraper.hyperspace.phase ~= "reentry" then
     return false
   end
@@ -4070,6 +4043,9 @@ function Scraper.handleReentrySystemLine(text)
 end
 
 function Scraper.handleHyperspaceLine(text)
+  if isCommunicationLine(text) then
+    return
+  end
   if Scraper.routeNavigation and Scraper.routeNavigation.active then
     return false
   end
@@ -5308,6 +5284,9 @@ local function publishImpactEvent(weapon, targetName, outcome, sourceName, count
 end
 
 function Scraper.handleCombatLine(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local raw = trim(text)
   local repeated = tonumber(raw:match("%[x(%d+)%]%s*$")) or 1
   local value = raw:gsub("%s+%[x%d+%]%s*$", "")
@@ -5568,6 +5547,9 @@ local function rememberCombatFragment(value)
 end
 
 function Scraper.handleCombatFragment(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local value = trim(text):gsub("%s+", " ")
   if value == "" then
     return false
@@ -6229,6 +6211,9 @@ scheduleNextPoll = function(delay)
 end
 
 function Scraper.handleSectorArrival(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local message = trim(text)
   local shipName =
     message:match("'([^']+)'%s+enters the starsystem,%s+coming out of its hyperjump at")
@@ -6266,6 +6251,9 @@ requestProjectileRadarReconciliation = function()
 end
 
 function Scraper.handleProjectileSummary(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local total, incoming = trim(text):match("^(%d+)%s+projectiles?,%s+(%d+)%s+incoming")
   if not total then
     return false
@@ -6701,6 +6689,9 @@ handleShieldStatus = function(result)
 end
 
 function Scraper.handleRechargeResponse(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local response = trim(text)
   if response == "Recharging shields.." then
     if not Scraper.shields.recharging then
@@ -6735,6 +6726,9 @@ function Scraper.handleRechargeResponse(text)
 end
 
 function Scraper.handleShipHit(text, critical)
+  if isCommunicationLine(text) then
+    return
+  end
   local value = trim(text)
   local incomingWeapon, incomingSource
   if not critical then
@@ -7189,6 +7183,9 @@ ensureShieldsOn = function()
 end
 
 function Scraper.handleShieldPowerResponse(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local response = trim(text)
   if response == "Shields ON. Autorecharge ON." then
     Scraper.shields.activationPending = false
@@ -7397,6 +7394,9 @@ requestAutotrack = function(desired, intentId)
 end
 
 function Scraper.handleAutotrackResponse(value)
+  if isCommunicationLine(value) then
+    return
+  end
   local response = trim(value)
   local lower = response:lower()
   if not (lower:find("auto", 1, true) and lower:find("track", 1, true)) then
@@ -7629,6 +7629,9 @@ function Scraper.setDisposition(name, disposition)
 end
 
 function Scraper.handleIncomingTargeting(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local shipName = trim(text):match("^You are being targeted by .-'([^']+)'%.?$")
   if not shipName then
     return false
@@ -8233,6 +8236,9 @@ local function queueAutopilotVerification(orderId)
 end
 
 function Scraper.handleFleetCommandLine(text)
+  if isCommunicationLine(text) then
+    return
+  end
   local message = trim(text)
   local memberName = message:match("^Sending command to .-'([^']+)'%.%.%.$")
   local capture = Scraper.active
@@ -8835,11 +8841,19 @@ function Scraper.handleOutgoingCommand(eventName, command)
   then
     return
   end
+  if Navigation.isCommunicationCommand(command) then
+    if Scraper.routeNavigation then
+      Scraper.routeNavigation:allowExternalCommand(command)
+    end
+    return
+  end
+  local navigationAllowsCommand
   if Scraper.routeNavigation then
     Scraper.routeNavigation:invalidateEvidence()
+    navigationAllowsCommand = Scraper.routeNavigation:allowExternalCommand(command)
   end
   if Scraper.routeNavigation and Scraper.routeNavigation.ownsPolling then
-    if Scraper.routeNavigation:allowExternalCommand(command) then
+    if navigationAllowsCommand then
       return -- Keep ownership of an asynchronous completion while the player acts.
     end
     Scraper.routeNavigation.at = nil
@@ -9173,20 +9187,35 @@ function Scraper.setup(proxy, options)
       Scraper.routeNavigation:prompt()
     end),
     tempTrigger("Wait until after you launch!", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       Scraper.setInSpace(false, "LotJ reports that the ship has not launched")
     end),
     tempTrigger("You feel a slight thud as the ship sets down on the ground.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       Scraper.setInSpace(false, "landing sequence complete")
     end),
     tempTrigger("The ship leaves the platform far behind as it flies into space", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       Scraper.setInSpace(true, "launch sequence complete")
       queueInitialStateSweep("launch sequence complete", false)
       queueObserverInfo()
     end),
     tempTrigger("You grip the controls.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       queueObserverInfo()
     end),
     tempTrigger("Please wait until the ship has finished its current maneuver.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       if Scraper.pendingCommandKind ~= "target" then
         resolvePendingCommand(
           "rejected",
@@ -9196,29 +9225,47 @@ function Scraper.setup(proxy, options)
       end
     end),
     tempTrigger("Maneuver complete.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       if Scraper.pendingCommandKind ~= "target" then
         resolvePendingCommand("completed", "Maneuver complete.", 0.25)
       end
     end),
     tempTrigger("Target Locked.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       completeTargetLock("completed", "Target Locked.")
     end),
     tempTrigger("Your concentration is broken. You fail to lock on to your target.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       completeTargetLock(
         "rejected",
         "Your concentration is broken. You fail to lock on to your target."
       )
     end),
     tempTrigger("You must be in the gunners seat or turret of a ship to do that!", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       completeTargetLock(
         "rejected",
         "You must be in the gunners seat or turret of a ship to do that!"
       )
     end),
     tempTrigger("You fail to lock on to your target!", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       completeTargetLock("rejected", "You fail to lock on to your target!")
     end),
     tempTrigger("That ship is currently being protected by other ships.", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       completeTargetLock("rejected", "That ship is currently being protected by other ships.")
     end),
     tempRegexTrigger("^\\s*You are being targeted by .+'[^']+'\\.?\\s*$", function()
@@ -9234,6 +9281,9 @@ function Scraper.setup(proxy, options)
       end
     ),
     tempTrigger("[WARNING]: Critical power overload... Shields down!", function()
+      if isCommunicationLine(line or "") then
+        return
+      end
       Scraper.handleShipHit(line or "", true)
     end),
     tempRegexTrigger(

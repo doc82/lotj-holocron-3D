@@ -339,6 +339,34 @@ describe("navigation transport", function()
     equal(other.driver.accounts.revision, 4)
   end)
 
+  it("retains a validated purchase when paused before deferred completion", function()
+    local f = fixture()
+    reconcile(f)
+    local purchase = operation("purchase", "stop_action", "Corellia", {
+      kind = "cargo.buy",
+      payload = { resource = "Water", quantity = 10 },
+    })
+    assert(f.driver:start({ operation = purchase, ship = ship }, "purchase"))
+    ground(f, "Corellia")
+    f:respond(cargo("(Empty)", 0))
+    f:respond("You have 1000 credits.")
+    f:respond("Planet: Corellia\nWater ( Price per unit: 10.00)")
+    f.driver:line("You purchased 10 units of Water for 100 credits.")
+    f.driver:stop("Paused before deferred completion")
+    assert(f.driver:allowExternalCommand("ooc hello"))
+    assert(f.driver:start({
+      operation = operation("resume", "reconcile", "Corellia"),
+      interrupted = purchase,
+      ship = ship,
+    }, "resume"))
+    ground(f, "Corellia")
+    f:respond(cargo("Water", 10))
+    f:respond("You have 900 credits.")
+    equal(f.results[#f.results].result.interruptedOutcome, "completed")
+    equal(#f.transactions, 1)
+    equal(f.driver.accounts.cargo, 100)
+  end)
+
   it("reconciles a sale confirmed after pause without sending it again", function()
     local f = fixture()
     reconcile(f)
@@ -351,6 +379,8 @@ describe("navigation transport", function()
     f:respond(cargo("Food", 10))
     f:respond("You have 1000 credits.")
     f.driver:stop("Paused")
+    assert(f.driver:allowExternalCommand("ooc hello"))
+    assert(f.driver:allowExternalCommand("sc"))
     f.driver:line("You sell 10 units of Food for 100 credits.")
     f.driver:line("You sell 10 units of Food for 100 credits.")
     equal(#f.transactions, 1)

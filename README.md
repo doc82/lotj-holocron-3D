@@ -119,6 +119,12 @@ See the [documentation index](docs/README.md), including the current
 - [Electron migration notes](docs/electron-migration.md) preserve the desktop
   migration history and distribution considerations.
 
+## AutoPilot credits
+
+Thanks to [Xavious](https://github.com/Xavious/AutoPilot), author of AutoPilot for
+Legends of the Jedi. Its flight and cargo workflows provided a reference for
+Holocron’s autoflight implementation.
+
 ## Planet texture credits
 
 Packaged releases may include optimized planet textures created by

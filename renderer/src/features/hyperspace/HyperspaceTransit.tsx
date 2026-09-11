@@ -59,15 +59,13 @@ export function HyperspaceTransit({
     >
       <HyperspaceField engaged className={styles.field} />
       <div className={styles.vignette} aria-hidden="true" />
-      {route?.mode === "galactic" && (
-        <GalacticTransitMap
-          catalog={catalog}
-          current={galaxyPosition}
-          origin={route.galaxyOrigin}
-          destination={route.galaxy}
-          destinationName={route.systemName}
-        />
-      )}
+      <GalacticTransitMap
+        catalog={catalog}
+        current={galaxyPosition}
+        origin={route?.galaxyOrigin}
+        destination={route?.galaxy}
+        destinationName={route?.systemName}
+      />
       <div className={styles.readout} aria-live="polite">
         <span>{reentry ? "DESTINATION REACHED" : "HYPERSPACE TRANSIT"}</span>
         <strong>{reentry ? "REALSPACE REENTRY" : "NAVIGATION LOCKED"}</strong>

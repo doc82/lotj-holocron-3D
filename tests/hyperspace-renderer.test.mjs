@@ -183,9 +183,11 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(transit, /Escape hyperspace/);
   assert.match(transit, /EMERGENCY HYPERDRIVE CUTOFF/);
   assert.match(transit, /HyperspaceField engaged/);
-  assert.match(transit, /route\?\.mode === "galactic"/);
+  assert.doesNotMatch(transit, /route\?\.mode === "galactic"/);
   assert.match(transit, /GalacticTransitMap/);
-  assert.match(transit, /origin=\{route\.galaxyOrigin\}/);
+  assert.match(transit, /origin=\{route\?\.galaxyOrigin\}/);
+  assert.match(transit, /current=\{galaxyPosition\}/);
+  assert.match(transit, /destination=\{route\?\.galaxy\}/);
   assert.match(planner, /galaxyOrigin: mode === "galactic" \? currentGalaxy : undefined/);
   assert.match(app, /liveShipGalaxyPosition/);
   assert.match(app, /const transitRoute = hyperspaceState\.route \|\| activeRoute \|\| null/);

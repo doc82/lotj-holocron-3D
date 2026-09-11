@@ -831,7 +831,7 @@ Sensor Array: 1
     beginPolling()
     assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
     fixture.scraper.captureLine("YT-1300 'Incomplete' 1 2 3")
-    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "ooc hello")
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "south")
     equal(fixture.scraper.active, nil)
     local timer = fixture.scraper.getPollingState().timerId
     assert(timer and fixture.timers[timer])

@@ -40,6 +40,12 @@ describe("scraper capture lifecycle", function()
     fixture.scraper.setInSpace(false, "landed")
     assert(fixture.intentHandlers.refresh_logistics({}, { id = "refresh-1" }))
     equal(fixture:lastCommand().command, "planets")
+    local capture = fixture.scraper.active
+    for _, command in ipairs({ "ooc hello", "talk hello", "clan hello" }) do
+      fixture.scraper.handleOutgoingCommand("sysDataSendRequest", command)
+      equal(fixture.scraper.active, capture)
+      equal(fixture.scraper.logistics.refreshing, true)
+    end
     response(
       "  Planet           Starsystem            Governed By               Notices\n  Ithor            Ottega System         A Neutral Government      [FP]"
     )
@@ -548,6 +554,7 @@ Use SHOWCLAN for more information.
       end
       local ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } }
       local function start(id, kind, action)
+        driver:invalidateEvidence()
         assert(fixture.intentHandlers.route_operation({
           operation = {
             id = id,
@@ -558,7 +565,14 @@ Use SHOWCLAN for more information.
           },
           ship = ship,
         }, { id = id }))
+        send("ooc starting a route")
+        reply("(OOC) @Tester: not enough credits for cargo")
+        assert(driver.active)
         reply("Planet: Corellia")
+        send("ooc checking the pad")
+        reply("(OOC) @Tester: insufficient fuel")
+        equal(fixture:lastCommand().command, "ooc checking the pad")
+        assert(driver.active)
         reply("Landing Pad\nFreighter: Test Hauler")
         reply("Cargo Readout for Freighter 'Test Hauler':\n[1 ] [Food] [10/500]")
         reply("You have 1000 credits.")
@@ -573,6 +587,9 @@ Use SHOWCLAN for more information.
       local active = driver.active
       for _, command in ipairs({
         "sc",
+        "ooc unloading cargo",
+        "talk unloading cargo",
+        "clan unloading cargo",
         "say Waiting for unloading",
         "inventory",
         "remove coat;wear suit",
@@ -583,8 +600,16 @@ Use SHOWCLAN for more information.
       end
       equal(driver:allowExternalCommand('sellcargo "Test Hauler" Food 10'), false)
       equal(driver:allowExternalCommand("say hello;south"), false)
+      equal(driver:allowExternalCommand("ooc hello;south"), false)
       equal(driver:allowExternalCommand("south"), false)
-      reply("You sell 10 units of Food for 100 credits.")
+      reply("(OOC) @Tester: insufficient credits for cargo, not enough fuel")
+      reply("{clan}<member>[Clan] Tester: insufficient credits for cargo")
+      reply("A pilot says 'You purchased 10 units of Food for 100 credits.'")
+      equal(driver.active, active)
+      assert(fixture:trigger("^.*$", "You sell 10 units of Food for 100 credits."))
+      equal(driver.completed.sell, true)
+      send("ooc sale finished")
+      reply("(OOC) @Tester: sold")
       equal(driver.active, nil)
       equal(fixture.scraper.state.metadata.routeNavigation.status, "completed")
       reply("You sell 10 units of Food for 100 credits.")
@@ -1078,6 +1103,68 @@ YT-1300 'Wayfarer' |  | (Out) 200 30 40
     equal(fixture.deletedLines, before)
     equal(fixture:tickTimersAt(0), 1)
     equal(fixture.deletedLines, before + 1)
+  end)
+
+  it("preserves captures across outgoing chat and ignores quoted state changes", function()
+    fixture.scraper.setInSpace(true, "fixture")
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
+    local capture = fixture.scraper.active
+    for _, command in ipairs({ "ooc hello", "talk hello", "clan hello", "say hello;clan hello" }) do
+      fixture.scraper.handleOutgoingCommand("sysDataSendRequest", command)
+      equal(fixture.scraper.active, capture)
+      fixture.triggers[capture.promptTriggerId].callback()
+      equal(fixture.scraper.active, capture)
+    end
+    for _, line in ipairs({
+      "(OOC) @Tester: You feel a slight thud as the ship sets down on the ground.",
+      "{clan}<member>[Clan] Tester: Wait until after you launch!",
+      "A pilot says 'You feel a slight thud as the ship sets down on the ground.'",
+    }) do
+      equal(fixture.scraper.captureLine(line), false)
+      _G.line = line
+      fixture.triggers[fixture.scraper.stateTriggerIds[4]].callback()
+      equal(fixture.scraper.state.metadata.inSpace, true)
+    end
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "clan hello;south")
+    equal(fixture.scraper.active, nil)
+  end)
+
+  it("excludes chat from every command capture before and after its response starts", function()
+    fixture.scraper.setInSpace(true, "fixture")
+    for _, parser in ipairs({
+      "radar",
+      "status",
+      "info",
+      "prox",
+      "fleetradar",
+      "navstat",
+      "calc",
+      "planets",
+      "clans",
+      "hyperlane",
+      "showplanet",
+      "listcargo",
+      "credits",
+      "cargo_transaction",
+    }) do
+      assert(fixture.scraper.startCapture(parser, parser, { polled = true }))
+      local capture = fixture.scraper.active
+      for _, started in ipairs({ false, true }) do
+        capture.responseStarted = started
+        for _, line in ipairs({
+          "(OOC) @Tester: insufficient fuel, jump not set *",
+          "{clan}<member>[Clan] Tester: Planet: Coruscant",
+          "(CLAN) Tester: You have 999999 credits.",
+          "A pilot says 'You purchased 10 units of Food for 100 credits.'",
+          "CommNet 0 [Tester]: Your Coordinates: 100 200 300",
+        }) do
+          equal(fixture.scraper.captureLine(line), false, parser .. " must ignore chat")
+          equal(#capture.lines, 0)
+          equal(fixture.scraper.active, capture)
+        end
+      end
+      fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "south")
+    end
   end)
 
   it("leaves lotj-ui clan and local communication formats untouched", function()

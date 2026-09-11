@@ -70,6 +70,65 @@ local function checkJumpRange(from, to, maximum)
   )
 end
 
+function Navigation.isCommunicationLine(value)
+  value = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  local parenthesizedChannel = value:match("^%(([%u]+)%)%s")
+  local knownParenthesizedChannel = parenthesizedChannel == "OOC"
+    or parenthesizedChannel == "IMM"
+    or parenthesizedChannel == "RPC"
+    or parenthesizedChannel == "NEWBIE"
+    or parenthesizedChannel == "OSAY"
+    or parenthesizedChannel == "CLAN"
+  local lower = value:lower()
+  return knownParenthesizedChannel
+    or value:match("^CommNet%s+%d+%s+%[") ~= nil
+    or value:match("^ImmNet%[") ~= nil
+    or value:match("^CouncilNet%[") ~= nil
+    or value:match("^%([^)]*R|P|C[^)]*%)%s") ~= nil
+    or value:match("^%b{}%s*%b<>%s*%[[^%]]+%].-:%s") ~= nil
+    or value:find("[Incoming Transmission from", 1, true) ~= nil
+    or value:find("[Outgoing Transmission to", 1, true) ~= nil
+    or value:find("[Hail from ", 1, true) == 1
+    or value:find("[Broadcasting Hail to ", 1, true) == 1
+    or value:find("[INTERCOM:", 1, true) ~= nil
+    or value:match("^Broadcasting Network%s+%[") ~= nil
+    or value:match("^'.-'%s+you%s+[%a]+") ~= nil
+    or value:match("^You%s+[%a]+.-'.-'$") ~= nil
+    or lower:match("^.- speaks in your mind ") ~= nil
+    or lower:match("^you speak through your mind ") ~= nil
+    or lower:find("you sign, in lorrdian", 1, true) ~= nil
+    or lower:match("^.-%s+says%s") ~= nil
+    or lower:match("^.-%s+whispers%s") ~= nil
+    or lower:match("^.-%s+exclaims%s") ~= nil
+    or lower:match("^.-%s+asks%s") ~= nil
+    or lower:match("^.-%s+yells%s") ~= nil
+    or lower:match("^.-%s+radios%s") ~= nil
+end
+
+function Navigation.isCommunicationCommand(command)
+  local verbs = {
+    ooc = true,
+    say = true,
+    talk = true,
+    clan = true,
+    tell = true,
+    reply = true,
+    chat = true,
+    osay = true,
+    whisper = true,
+    yell = true,
+    shout = true,
+  }
+  local found = false
+  for part in tostring(command or ""):gmatch("[^;\n\r]+") do
+    if not verbs[part:lower():match("^%s*(%S+)")] then
+      return false
+    end
+    found = true
+  end
+  return found
+end
+
 function Navigation.new(io)
   local self = { io = io, active = nil, runId = nil, completed = {}, transactions = {}, at = nil }
   local function now()
@@ -104,18 +163,23 @@ function Navigation.new(io)
   end
   function self:allowExternalCommand(command)
     local active = self.active
-    if not active then
-      self.pendingCargo = nil -- Further external activity makes attribution uncertain.
+    if active and (active.flightReady or active.flightStarted) then
       return true
     end
-    if active.flightReady or active.flightStarted then
+    if Navigation.isCommunicationCommand(command) then
+      if active then
+        active.concurrentChatCommand = true
+      end
       return true
     end
     -- Once sent, cargo completes asynchronously. Chat and personal utility
     -- commands must not discard its confirmation or make a retry ambiguous.
     if
-      active.operation.kind ~= "stop_action"
-      or self.transactions[active.operation.id] ~= "uncertain"
+      active
+      and (
+        active.operation.kind ~= "stop_action"
+        or self.transactions[active.operation.id] ~= "uncertain"
+      )
     then
       return false
     end
@@ -143,11 +207,15 @@ function Navigation.new(io)
     for part in tostring(command or ""):gmatch("[^;\n\r]+") do
       local verb = part:lower():match("^%s*(%S+)")
       if not harmless[verb] then
+        if not active then
+          self.pendingCargo = nil
+          return true
+        end
         return false
       end
       sawCommand = true
     end
-    if sawCommand then
+    if sawCommand and active then
       active.concurrentCargoCommand = true
     end
     return sawCommand
@@ -481,6 +549,11 @@ function Navigation.new(io)
     end
   end
   function self:line(text)
+    -- Channel text is not a navigation or commerce response, even when it
+    -- quotes a failure or transaction confirmation.
+    if Navigation.isCommunicationLine(text) then
+      return
+    end
     if self.taxPendingUntil then
       local tax =
         text:match("^Total profit, accounting for purchase price: .- Tax paid: ([%d,]+)%.$")
@@ -690,6 +763,18 @@ function Navigation.new(io)
     local step = active.steps[active.index]
     if step.match and not active.matched then
       return
+    end
+    if active.concurrentChatCommand and not step.match then
+      local response = false
+      for _, line in ipairs(active.lines) do
+        if line:match("%S") and not line:match("^%s*{Tone:") and not line:match("^%s*{Health:") then
+          response = true
+          break
+        end
+      end
+      if not response then
+        return
+      end
     end
     if active.advancing then
       return
@@ -1116,6 +1201,8 @@ function Navigation.new(io)
               "Cargo confirmation differs from the planned transaction; reconcile the hold."
             )
             self:recordTransaction(result)
+            -- Persist the validated outcome before the deferred step completion.
+            self.completed[op.id] = true
           end
         )
         -- Loading/unloading completes asynchronously and need not emit a prompt.

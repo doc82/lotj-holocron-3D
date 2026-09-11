@@ -41,6 +41,20 @@ Private flight logs and discovered locations are not included here.
 
 ## Fixed during this review
 
+- Shared communication filtering now covers command captures, navigation, and
+  telemetry event handlers. Chat-only commands (including OOC, talk, and clan)
+  preserve captures and logistics refreshes; early prompts without response data
+  leave captures open. Regression coverage includes quoted failures, transaction
+  text, and landing messages across 15 capture types. Wrapped continuation lines
+  without a recognizable channel/speech prefix are not independently identified.
+
+- OOC commands are allowed during route setup as well as cargo handling. OOC
+  channel text is excluded from response parsing, so quoted failure messages do
+  not abort commerce. Chat-only prompts cannot acknowledge an otherwise empty
+  boarding/location response. Validated cargo outcomes are retained before the
+  deferred continuation, and harmless commands while paused preserve pending
+  late confirmations. These records still depend on the loaded collector.
+
 - Pending cargo loading/unloading now survives personal utility and chat commands,
   including `sc`. Unrelated command errors cannot discard the cargo confirmation.
   A matching confirmation received after Pause is retained for reconciliation;
