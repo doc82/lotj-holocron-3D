@@ -2,7 +2,7 @@
 -- Lua 5.1 / Mudlet with spawn() support
 
 local Proxy = {
-  VERSION = "0.1.12",
+  VERSION = "0.1.13",
   DESKTOP_LIFECYCLE_DECOUPLED = true,
   PROTOCOL_VERSION = 1,
   MAX_BUFFER_BYTES = 1024 * 1024,
