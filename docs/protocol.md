@@ -114,6 +114,12 @@ snapshots. `systems` contains timeline-owned systems and planets;
 Mudlet UI's personal registry. `shipSystem` is the current GMCP galactic
 location. Clients must treat all three collections as dynamic.
 
+The personal registry is read from the current player's local
+`lotj.galaxyMap.recorded` table at runtime. It must not be copied into repository
+map data, generated maps, fixtures, or release assets. Tests must use fictional
+discoveries. Holocron reads this registry without modifying the player's GMAP
+records; discovered locations are specific to that player's catalog.
+
 ```json
 {
   "v": 1,
@@ -308,13 +314,25 @@ only bounded system coordinates. A galactic route additionally contains the
 galactic X/Y location. Mudlet constructs `calculate` commands from those
 validated numbers and never accepts a command string from Electron.
 
+Routes may also contain an optional validated exit plan. An exit plan selects
+either a known object or bounded absolute sector coordinates and a speed from
+1–100 percent. For formation routes, Mudlet calculates one shared absolute
+speed from the slowest selected ship's maximum speed. After each recipient has
+returned to realspace and supplied fresh radar telemetry, Mudlet sends the
+scoped `speed N` command followed by `course X Y Z`. Moving object targets are
+resolved from that recipient's post-arrival radar rather than pre-jump
+coordinates. Per-recipient completion and failure state is published under
+`metadata.hyperspace.exitPlanResults`.
+
 `system_snapshot.metadata.hyperspace` reports calculation, fuel-warning,
 ready, engagement, transit, reentry, arrival, and failure states.
 `metadata.navigation` carries parsed `navstat` and `calculate` destination-list
 information. If an Electron-initiated route reports insufficient fuel, Mudlet
 sends `calc stop` unless the payload explicitly acknowledges that risk.
 During confirmed hyperspace transit, `escape_hyperspace` issues the explicit
-`hyper off` command. Mudlet rejects that intent outside the `hyperspace` phase.
+`hyper off` command. Mudlet rejects that intent outside the `hyperspace` phase
+and cancels every pending exit-plan speed and course command when the cutoff is
+accepted.
 
 ### `automation_lease`
 

@@ -24,6 +24,7 @@ Hull: 150/150 Shields: 150/150 Energy(fuel): 5000/5000
       [[
 Corellian System
 YT-1300 'Wayfarer' 600 0 0
+Planet 'Corellia' 5000 0 0
 Your Coordinates: 0 0 0
 ]]
     )),
@@ -35,6 +36,87 @@ h.after_each(function()
 end)
 
 describe("scraper renderer commands", function()
+  it(
+    "reuses verified startup evidence before Room.Info arrives with a seconds-based expiry",
+    function()
+      local driver = fixture.scraper.routeNavigation
+      local ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } }
+      local function start(id, kind)
+        assert(driver:start({
+          operation = {
+            id = id,
+            runId = "startup",
+            kind = kind,
+            destination = { name = "Corellia" },
+          },
+          ship = ship,
+        }, id))
+      end
+      local function reply(text)
+        for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+          driver:line(line)
+        end
+        driver:prompt()
+        fixture:tickTimersAt(0)
+        fixture.epochMs = fixture.epochMs + 2000
+      end
+      equal(fixture.scraper.state.metadata.room, nil)
+      start("start", "reconcile")
+      reply("Planet: Corellia")
+      reply("Landing Pad\nFreighter: Test Hauler")
+      reply("Cargo Readout for Freighter 'Test Hauler':\n[1 ] [(Empty)] [0/500]")
+      reply("You have 1000 credits.")
+      start("fuel", "refuel")
+      equal(fixture:lastCommand().command, 'refuel "Test Hauler"')
+      reply("That ship is already fully fueled!")
+      local count = #fixture.commands
+      start("fuel-again", "refuel")
+      equal(#fixture.commands, count)
+      equal(driver.active, nil)
+      fixture.epochMs = fixture.epochMs + 61000
+      start("fuel-expired", "refuel")
+      equal(fixture:lastCommand().command, "showplanet")
+    end
+  )
+
+  it("invalidates route evidence on player commands but preserves it for internal sends", function()
+    local driver = fixture.scraper.routeNavigation
+    driver.evidence = { location = true }
+    driver.dispatching = true
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "credits")
+    equal(driver.evidence.location, true)
+    driver.dispatching = false
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "look")
+    equal(driver.evidence.location, nil)
+  end)
+
+  it("invalidates route evidence when GMCP reports a different room", function()
+    local driver = fixture.scraper.routeNavigation
+    _G.gmcp = { Room = { Info = { vnum = 100, name = "Test pad", planet = "Corellia" } } }
+    fixture.scraper.handleRoomGmcp()
+    driver.evidence = { location = true }
+    fixture.scraper.handleRoomGmcp()
+    equal(driver.evidence.location, true)
+    _G.gmcp.Room.Info.vnum = 101
+    fixture.scraper.handleRoomGmcp()
+    equal(driver.evidence.location, nil)
+  end)
+
+  it("does not replace confirmed space telemetry with a redundant startup probe", function()
+    local count = #fixture.commands
+    local active = fixture.scraper.active
+    assert(fixture.intentHandlers.probe_space({}, { id = "late-startup" }))
+    equal(#fixture.commands, count)
+    equal(fixture.scraper.active, active)
+    equal(fixture.scraper.state.metadata.inSpace, true)
+  end)
+
+  it("does not interpret an unanswered radar probe as landing", function()
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true, spaceProbe = true }))
+    fixture.scraper.finishCapture("timeout")
+    equal(fixture.scraper.state.metadata.inSpace, true)
+  end)
+
   it("refreshes local hyperspace radar without using the startup space probe", function()
     local ok, failure = fixture.intentHandlers.refresh_local_hyperspace_radar(
       {},
@@ -77,7 +159,7 @@ describe("scraper renderer commands", function()
     assert(speedFailure:find("outside", 1, true))
   end)
 
-  it("navigates toward and away from known contacts", function()
+  it("navigates toward and away from known contacts and faces ships", function()
     local toward, towardFailure = fixture.intentHandlers.navigate_ship({
       mode = "target",
       targetId = "wayfarer",
@@ -91,19 +173,37 @@ describe("scraper renderer commands", function()
     }, { id = "away" })
     assert(away, awayFailure)
     equal(fixture:lastCommand().command, "course away Wayfarer")
+    fixture:trigger("Maneuver complete.")
+    local face, faceFailure = fixture.intentHandlers.navigate_ship({
+      mode = "face",
+      targetId = "wayfarer",
+    }, { id = "face" })
+    assert(face, faceFailure)
+    equal(fixture:lastCommand().command, "face Wayfarer")
+
+    fixture:trigger("Maneuver complete.")
+    local planetFace, planetFaceFailure = fixture.intentHandlers.navigate_ship({
+      mode = "face",
+      targetId = "corellia",
+    }, { id = "face-planet" })
+    equal(planetFace, false)
+    assert(planetFaceFailure:find("only ships", 1, true))
   end)
 
-  it("locks a target before enabling autotrack", function()
+  it("locks a target without automatically enabling autotrack", function()
     local ok, failure = fixture.intentHandlers.target_ship(
       { targetId = "wayfarer" },
       { id = "target" }
     )
     assert(ok, failure)
     equal(fixture:lastCommand().command, "target Wayfarer")
+    local commandCount = #fixture.commands
     equal(fixture.scraper.pendingCommandKind, "target")
     equal(fixture:entity("Wayfarer").disposition, nil)
     assert(fixture:trigger("Target Locked."))
-    equal(fixture:lastCommand().command, "autotrack")
+    equal(#fixture.commands, commandCount)
+    equal(fixture:lastCommand().command, "target Wayfarer")
+    equal(fixture.scraper.state.metadata.autotrackDesired, false)
     equal(fixture:entity("Wayfarer").disposition, "enemy")
     equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
   end)

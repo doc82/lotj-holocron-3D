@@ -50,6 +50,33 @@ export function AssetCredits() {
 
   return (
     <div className={styles.creditsContent}>
+      <section className={styles.creditSection}>
+        <div className={styles.creditSectionHeading}>
+          <div>
+            <small>COMMUNITY CONTRIBUTIONS</small>
+            <h3>AUTOPILOT</h3>
+          </div>
+        </div>
+        <article className={styles.creditCard}>
+          <div className={styles.creditHeading}>
+            <div>
+              <h4>Xavious</h4>
+              <p>
+                Author of AutoPilot for Legends of the Jedi. Its flight and cargo workflows provided
+                a reference for Holocron’s autoflight implementation. Thank you for sharing your
+                work with the community.
+              </p>
+            </div>
+          </div>
+          <div className={styles.creditLinks}>
+            <ExternalLink
+              label="AUTOPILOT ON GITHUB ↗"
+              url="https://github.com/Xavious/AutoPilot"
+            />
+          </div>
+        </article>
+      </section>
+
       <section className={styles.creditIntro}>
         <small>THIRD-PARTY ARTWORK</small>
         <h3>ASSET ATTRIBUTION</h3>

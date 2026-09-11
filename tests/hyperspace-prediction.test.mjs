@@ -15,6 +15,26 @@ test("the provisional estimator remains deterministic and isolated", () => {
   assert.equal(calculateHyperspaceTravelTime(100, 0), null);
 });
 
+test("missing ship spatial telemetry drops old motion and resumes with a fresh fix", () => {
+  const observer = { id: "player-ship", x: 100, y: 20, z: 30 };
+  const first = observeMotionTracks(new Map(), {
+    observer,
+    metadata: { shipSpatialAvailable: true, sources: { observer_position: 100, ship_gmcp: 101 } },
+  });
+  assert.equal(first.get("player-ship").current.observedAt, 100);
+  const missing = observeMotionTracks(first, {
+    observer,
+    metadata: { shipSpatialAvailable: false, sources: { ship_gmcp: 110 } },
+  });
+  assert.equal(missing.has("player-ship"), false);
+  const resumed = observeMotionTracks(missing, {
+    observer: { ...observer, x: 900 },
+    metadata: { shipSpatialAvailable: true, sources: { observer_position: 120 } },
+  });
+  assert.deepEqual(resumed.get("player-ship").current.position, [900, 20, 30]);
+  assert.equal(velocityForTrack(resumed.get("player-ship")), null);
+});
+
 test("motion history only advances on authoritative radar and GMCP fixes", () => {
   const first = observeMotionTracks(new Map(), {
     observedAt: 100,

@@ -35,9 +35,10 @@ Jedi output. Its current capabilities include:
   including planets colocated with orbiting ships. Clicking it opens a member
   grid; hovering previews a contact and clicking pins its details.
 - Scanning in-range ships with targeted `status` and `info` requests. Enemy
-  status is prioritized every four seconds by default; other status and safe
-  identity info refresh every ten seconds, subject to Mudlet's serialized
-  command queue.
+  status is prioritized every four seconds by default; peaceful non-target
+  status repeats no faster than once a minute after initial discovery.
+  Other status and uncached identity info use the ten-second standard interval,
+  subject to Mudlet's serialized command queue. Failed named scans back off.
 - Providing `SCAN` and `INFO` controls for a selected ship so the player can
   immediately refresh its parsed telemetry without waiting for the automatic
   scan queue. Manual scans preempt only hidden polling and report range failures
@@ -111,6 +112,10 @@ Jedi output. Its current capabilities include:
 - Distinguishing the player ship from formation hyperspace departures and
   rendering observed wing-ship jumps as tactical-map streak, flare, and fade
   effects.
+- Optionally arming an absolute post-hyperspace exit course toward a known
+  object or custom sector coordinates. Exit speed defaults to 50% of the
+  slowest selected formation member's maximum, applies through the original
+  command scope, and is cancelled by an emergency hyperspace cutoff.
 - Detecting named ships that explode in a blinding flash, immediately removing
   the destroyed contact and rendering its last known position as a white-hot
   fireball with expanding shockwaves, secondary bursts, and glowing debris.

@@ -77,29 +77,64 @@ local function slug(value)
   return result
 end
 
+local function isInstallationClass(value)
+  local lower = tostring(value or ""):lower()
+  return lower:find("station", 1, true) ~= nil
+    or lower:find("platform", 1, true) ~= nil
+    or lower:find("starbase", 1, true) ~= nil
+    or lower:find("shipyard", 1, true) ~= nil
+    or lower:find("installation", 1, true) ~= nil
+end
+
+local function installationCategory(value)
+  if not isInstallationClass(value) then
+    return nil
+  end
+  return tostring(value or ""):lower():find("platform", 1, true) and "platform" or "battlestation"
+end
+
+local function containsWord(value, word)
+  return tostring(value or ""):lower():find("%f[%a]" .. word .. "%f[%A]") ~= nil
+end
+
 local function classify(name, class)
-  local value = ((class or "") .. " " .. (name or "")):lower()
-  if value:find("planet", 1, true) then
+  local classValue = trim(tostring(class or "")):lower()
+  if classValue ~= "" then
+    if containsWord(classValue, "planet") then
+      return "planet"
+    end
+    if containsWord(classValue, "moon") then
+      return "moon"
+    end
+    if containsWord(classValue, "asteroid") then
+      return "asteroid"
+    end
+    if classValue == "star" or classValue == "sun" then
+      return "star"
+    end
+    -- A quoted display name is preceded by its object class. Once explicitly
+    -- celestial classes are handled above, that class is authoritative: words
+    -- such as "Planet" or "Missile" in a ship's callsign do not change it.
+    return "ship"
+  end
+
+  local value = tostring(name or ""):lower()
+  if containsWord(value, "planet") then
     return "planet"
   end
-  if value:find("moon", 1, true) then
+  if containsWord(value, "moon") then
     return "moon"
   end
-  if value:find("asteroid", 1, true) then
+  if containsWord(value, "asteroid") then
     return "asteroid"
   end
   if
-    value:find("missile", 1, true)
-    or value:find("torpedo", 1, true)
-    or value:find("rocket", 1, true)
-    or value:find("bomb", 1, true)
+    containsWord(value, "missile")
+    or containsWord(value, "torpedo")
+    or containsWord(value, "rocket")
+    or containsWord(value, "bomb")
   then
     return "projectile"
-  end
-  -- In current radar output, a quoted display name is preceded by its ship
-  -- class. Do not mistake "Star Destroyer" for a stellar object.
-  if class and class ~= "" then
-    return "ship"
   end
   if value == "star" or value == "sun" or value:match("%sstar$") or value:match("%ssun$") then
     return "star"
@@ -108,11 +143,7 @@ local function classify(name, class)
 end
 
 local function validShipName(name)
-  return type(name) == "string"
-    and name ~= ""
-    and #name <= 64
-    and name:find("%s") == nil
-    and name:find("'", 1, true) == nil
+  return type(name) == "string" and name ~= "" and #name <= 64 and name:find("'", 1, true) == nil
 end
 
 local function parseDisplayName(raw)
@@ -127,8 +158,6 @@ local function parseDisplayName(raw)
     if quoted == "" or #quoted > 160 then
       return nil, nil, false
     end
-    -- Player-assigned ship callsigns are one token. Celestial display names
-    -- may contain spaces, so apply this restriction only to ship classes.
     if classify(quoted, class) == "ship" and not validShipName(quoted) then
       return nil, nil, false
     end
@@ -173,7 +202,12 @@ local function radarSystemName(line)
   if lower == "uncharted space" or lower == "unknown space" then
     return line
   end
-  if lower:match("%ssector$") or lower:match("%ssystem$") then
+  if
+    lower:match("%ssector$")
+    or lower:match("%ssystem$")
+    or lower:match("%snebula$")
+    or lower:match("%sspace$")
+  then
     return line
   end
   return nil
@@ -187,6 +221,13 @@ local function resultOrError(result, recognized, command)
   return result
 end
 
+local RADAR_MARKED_KINDS = {
+  star = "star",
+  planet = "planet",
+  moon = "moon",
+  asteroid = "asteroid",
+}
+
 function Parsers.parseRadar(input)
   local lines, err = linesFrom(input)
   if not lines then
@@ -196,32 +237,64 @@ function Parsers.parseRadar(input)
   local result = { source = "radar", entities = {} }
   local recognized = 0
   local sawEntity = false
+  local afterEntityBreak = false
 
   for _, line in ipairs(lines) do
+    if line == "" and sawEntity then
+      afterEntityBreak = true
+    end
     local label, x, y, z =
       line:match("^(.-)%s+([+-]?[%d,]+%.?%d*)%s+([+-]?[%d,]+%.?%d*)%s+([+-]?[%d,]+%.?%d*)%s*$")
     if label then
       label = trim(label)
-      local position = { x = number(x), y = number(y), z = number(z) }
+      local coordinates = { x = number(x), y = number(y), z = number(z) }
       if label:lower():match("^your%s+coordinates%s*:") then
-        result.observer = position
-      else
-        local name, class, validName = parseDisplayName(label)
+        result.observer = coordinates
+      elseif not label:find(":", 1, true) and not label:find("%", 1, true) then
+        -- Hidden radar polling owns the complete response envelope through the
+        -- prompt, including LotJ's trailing character HUD. HUD summaries such
+        -- as `Speed: 80 Fuel Level: 97% Coords: -1 3 26` also end in three
+        -- numbers, but their colon/percentage labels are not radar contacts.
+        local displayLabel, tacticalPosition = label:match("^(.-)%s+%((%a+)%)$")
+        local normalizedPosition = tacticalPosition and tacticalPosition:lower() or nil
+        if
+          normalizedPosition == "ctr"
+          or normalizedPosition == "mid"
+          or normalizedPosition == "out"
+        then
+          label = trim(displayLabel)
+        else
+          tacticalPosition = nil
+        end
+        local markedKind
+        local marker, markedLabel = label:match("^%(([%a]+)%)%s+(.+)$")
+        if marker and RADAR_MARKED_KINDS[marker:lower()] then
+          markedKind = RADAR_MARKED_KINDS[marker:lower()]
+          label = trim(markedLabel)
+        end
+        local name, class, validName
+        if markedKind then
+          name, class, validName = label, nil, label ~= "" and #label <= 160
+        else
+          name, class, validName = parseDisplayName(label)
+        end
         if validName then
-          local kind = classify(name, class)
-          -- Current LotJ radar output gives ships as Class 'Name', while
-          -- unquoted rows are celestial contacts (for example Dromund Kaas).
-          -- Radar alone cannot reliably distinguish a planet from a star.
-          if not class and kind == "ship" then
-            kind = "celestial"
+          local kind = markedKind or classify(name, class)
+          -- LotJ separates the celestial and ship blocks with a blank line.
+          -- Quoted Class 'Name' rows remain authoritative, while this boundary
+          -- provides a fallback for otherwise ambiguous unquoted contacts.
+          if not class and not markedKind and kind == "ship" then
+            kind = afterEntityBreak and "ship" or "celestial"
           end
           table.insert(result.entities, {
             name = name,
             class = class,
             kind = kind,
-            x = position.x,
-            y = position.y,
-            z = position.z,
+            shipCategory = installationCategory(class),
+            position = tacticalPosition,
+            x = coordinates.x,
+            y = coordinates.y,
+            z = coordinates.z,
           })
           sawEntity = true
           recognized = recognized + 1
@@ -1012,8 +1085,11 @@ function Parsers.parseFleetRadar(input)
           local parsedName, parsedClass, validName = parseDisplayName(trim(entity.name))
           if validName then
             entity.name, entity.class = parsedName, parsedClass
-            entity.kind = classify(entity.name, entity.class)
-            if entity.kind == "ship" and not validShipName(entity.name) then
+            -- Fleet radar is itself a ship census. Do not infer object type
+            -- from callsign words such as "Planet", "Moon", or "Missile".
+            entity.kind = "ship"
+            entity.shipCategory = installationCategory(entity.class)
+            if not validShipName(entity.name) then
               entity.name = nil
             end
           else
@@ -1234,6 +1310,240 @@ function Parsers.parseSquadronStatus(input)
   return resultOrError(result, recognized, "squadron status")
 end
 
+function Parsers.parseHyperlane(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "hyperlane", lanes = {} }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local from, to, status = line:match("^|?%s*Between%s+(.+)%s+and%s+(.+)%s*:%s*(.-)%s*|?%s*$")
+    if from and to and status then
+      local normalized = status:lower():gsub("%s+", "_")
+      if normalized == "no_route" then
+        normalized = "no_route"
+      elseif normalized == "passable" then
+        normalized = "passable"
+      else
+        normalized = "unknown"
+      end
+      table.insert(result.lanes, {
+        from = trim(from),
+        to = trim(to),
+        status = normalized,
+      })
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "hyperlane")
+end
+
+function Parsers.parseClans(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "clans", organizations = {} }
+  local category = nil
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local heading = line:match("^(Major Organizations):$") or line:match("^(Minor Organizations):$")
+    if heading then
+      category = heading == "Major Organizations" and "major" or "minor"
+    elseif category and not line:match("^Clan Name%s+|%s*Planets") then
+      local name, planets, members = line:match("^(.-)%s*|%s*(%d+)%s*|%s*(.-)%s*$")
+      if name and planets and members then
+        table.insert(result.organizations, {
+          name = trim(name),
+          category = category,
+          planets = tonumber(planets),
+          activeMembers = trim(members),
+        })
+        recognized = recognized + 1
+      end
+    end
+  end
+  return resultOrError(result, recognized, "clans")
+end
+
+function Parsers.parsePlanets(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "planets", planets = {} }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local name, system, governedBy, notices = line:match("^(.-)%s%s+(.-)%s%s+(.-)%s+(%b[])%s*$")
+    if name and system and governedBy and notices and name ~= "Planet" then
+      table.insert(result.planets, {
+        name = trim(name),
+        system = trim(system),
+        governedBy = trim(governedBy),
+        notices = trim(notices),
+      })
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "planets")
+end
+
+function Parsers.parsePlanet(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "showplanet", resources = {} }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local planet = line:match("^Planet:%s*(.-)%s*$")
+    local system = line:match("^Starsystem:%s*(.-)%s*$")
+    local government = line:match("^Governed By:%s*(.-)%s*$")
+    local coordinates = line:match("^Coordinates:%s*(.-)%s*$")
+    local tax = line:match("^Tax Rate:%s*([%d,.]+)%s*%%?%s*$")
+    local resource, price = line:match("^(.-)%s+%(%s*Price per unit:%s*([%d,.]+)%s*%)%s*$")
+    if planet then
+      result.planet = trim(planet)
+      recognized = recognized + 1
+    elseif system then
+      result.system = trim(system)
+      recognized = recognized + 1
+    elseif government then
+      result.governedBy = trim(government)
+      recognized = recognized + 1
+    elseif coordinates then
+      result.coordinates = vector(coordinates)
+      recognized = result.coordinates and recognized + 1 or recognized
+    elseif tax then
+      result.taxRate = number(tax)
+      recognized = recognized + 1
+    elseif resource and price then
+      result.resources[trim(resource)] = number(price)
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "showplanet")
+end
+
+function Parsers.parseCargo(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "listcargo", items = {}, used = 0, capacity = 0 }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local ship = line:match("^Cargo Readout for .-'(.-)':$")
+    local slot, resource, amountValue = line:match("^%[(%d+)%s*%]%s*%[(.-)%]%s*%[(.-)%]%s*$")
+    if ship then
+      result.shipName = trim(ship)
+      recognized = recognized + 1
+    elseif slot and resource and amountValue then
+      local current, maximum = amountValue:match("([%d,]+)%s*/%s*([%d,]+)")
+      local currentValue = number(current or amountValue)
+      local maximumValue = number(maximum)
+      table.insert(result.items, {
+        slot = tonumber(slot),
+        resource = trim(resource),
+        current = currentValue,
+        maximum = maximumValue,
+      })
+      result.used = result.used + (currentValue or 0)
+      result.capacity = result.capacity + (maximumValue or 0)
+      recognized = recognized + 1
+    end
+  end
+  return resultOrError(result, recognized, "listcargo")
+end
+
+function Parsers.parseCredits(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+  for _, line in ipairs(lines) do
+    local balance = line:match("^You have ([%d,]+) credits%.$")
+    if balance then
+      return { source = "credits", balance = number(balance) }
+    end
+  end
+  return nil, "no credit balance was recognized"
+end
+
+function Parsers.parseCargoTransaction(input)
+  local lines, err = linesFrom(input)
+  if not lines then
+    return nil, err
+  end
+
+  local result = { source = "cargo_transaction" }
+  local recognized = 0
+  for _, line in ipairs(lines) do
+    local smuggledCost, smuggledAmount, smuggledResource = line:match(
+      "^You pay%s+([%d,]+)%s+credits to have%s+([%d,]+)%s+units of smuggled%s+(.+)%s+loaded on to your ship%.$"
+    )
+    if smuggledCost then
+      return {
+        source = "cargo_transaction",
+        action = "buy",
+        tradeMode = "contraband",
+        cost = number(smuggledCost),
+        amount = number(smuggledAmount),
+        resource = trim(smuggledResource),
+      }
+    end
+    smuggledCost, smuggledAmount, smuggledResource = line:match(
+      "^You find a contact willing to pay%s+([%d,]+)%s+credits to unload%s+([%d,]+)%s+units of smuggled%s+(.+)%.$"
+    )
+    if smuggledCost then
+      return {
+        source = "cargo_transaction",
+        action = "sell",
+        tradeMode = "contraband",
+        revenue = number(smuggledCost),
+        amount = number(smuggledAmount),
+        resource = trim(smuggledResource),
+      }
+    end
+    if line == "That ship is already fully fueled!" then
+      return { source = "cargo_transaction", action = "refuel", cost = 0, alreadyFull = true }
+    end
+    local amountValue, resource, cost =
+      line:match("^You purchased%s+([%d,]+)%s+units of%s+(.+)%s+for%s+([%d,]+)%s+credits%.$")
+    if amountValue then
+      result.action = "buy"
+      result.amount = number(amountValue)
+      result.resource = trim(resource)
+      result.cost = number(cost)
+      recognized = recognized + 1
+    else
+      amountValue, resource, cost =
+        line:match("^You sell%s+([%d,]+)%s+units of%s+(.+)%s+for%s+([%d,]+)%s+credits%.$")
+      if amountValue then
+        result.action = "sell"
+        result.amount = number(amountValue)
+        result.resource = trim(resource)
+        result.revenue = number(cost)
+        recognized = recognized + 1
+      else
+        cost = line:match("^You pay%s+([%d,]+)%s+credits to refuel the ship%.$")
+        if cost then
+          result.action = "refuel"
+          result.cost = number(cost)
+          recognized = recognized + 1
+        end
+      end
+    end
+  end
+  return resultOrError(result, recognized, "cargo_transaction")
+end
+
 function Parsers.parse(command, input)
   if type(command) ~= "string" then
     return nil, "command must be a string"
@@ -1259,6 +1569,22 @@ function Parsers.parse(command, input)
     battlegroup = Parsers.parseBattlegroup,
     bg = Parsers.parseBattlegroup,
     ["squadron status"] = Parsers.parseSquadronStatus,
+    clans = Parsers.parseClans,
+    planets = Parsers.parsePlanets,
+    showplanet = Parsers.parsePlanet,
+    showp = Parsers.parsePlanet,
+    listcargo = Parsers.parseCargo,
+    listc = Parsers.parseCargo,
+    hyperlane = Parsers.parseHyperlane,
+    ["look hyperlane"] = Parsers.parseHyperlane,
+    ["l hyp"] = Parsers.parseHyperlane,
+    buycargo = Parsers.parseCargoTransaction,
+    sellcargo = Parsers.parseCargoTransaction,
+    buyc = Parsers.parseCargoTransaction,
+    sellc = Parsers.parseCargoTransaction,
+    refuel = Parsers.parseCargoTransaction,
+    credits = Parsers.parseCredits,
+    cargo_transaction = Parsers.parseCargoTransaction,
   }
 
   local parser = dispatch[normalized]

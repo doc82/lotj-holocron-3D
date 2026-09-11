@@ -61,16 +61,16 @@ test("renderer includes the cinematic startup and disconnected uplink states", a
     app,
     /const spaceTelemetryActive =\s*telemetry\.connected\s*&&\s*reportedInSpace === true\s*&&\s*telemetry\.snapshot\?\.metadata\?\.inSpace === true/,
   );
-  assert.match(app, /if \(!spaceTelemetryActive\)\s*return \(/);
-  const standbyReturn = app.search(/if \(!spaceTelemetryActive\)\s*return \(/);
-  assert.ok(
-    standbyReturn < app.indexOf("<TacticalCanvas", standbyReturn),
-    "paused space telemetry must return the standby page before mounting WebGL",
-  );
+  assert.match(app, /const spaceView = spaceTelemetryActive \? \(/);
+  assert.match(app, /\{spaceTelemetryActive \? spaceView : landedView\}\s*\{traderWorkspace\}/);
+  assert.equal((app.match(/\{traderWorkspace\}/g) ?? []).length, 1);
   assert.match(canvas, /engine\.dispose\(\)/);
   assert.match(telemetry, /function receiveSpaceState[\s\S]*snapshot: null/);
   assert.match(telemetry, /spaceState\?\.inSpace === false[\s\S]*snapshot: null/);
-  assert.match(telemetry, /!connected \? \{ snapshot: null, spaceState: null \}/);
+  assert.match(
+    telemetry,
+    /!connected \? \{ snapshot: null, logisticsSnapshot: null, spaceState: null \}/,
+  );
   assert.match(hyperspaceField, /edgeActivation/);
   assert.doesNotMatch(startup, /dissolving/);
   assert.match(startup, /styles\.hyperspace/);
@@ -619,7 +619,7 @@ test("battlegroup members can open isolated remote tactical views", async () => 
   assert.match(scraper, /metadata\.tacticalViews\[memberKey\]/);
 });
 
-test("player navigation supports vector, target, away, and speed orders", async () => {
+test("player navigation supports vector, target, away, face, and speed orders", async () => {
   const [
     app,
     navigation,
@@ -647,6 +647,8 @@ test("player navigation supports vector, target, away, and speed orders", async 
   ]);
   assert.match(navigation, /event\.key\.toLowerCase\(\) === "m"/);
   assert.match(app, /Course away from selected contact/);
+  assert.match(app, /aria-label="Face selected ship"/);
+  assert.match(app, /onCourseTarget\("face"\)/);
   assert.match(app, /\{navigableTarget \? \(\s*<>/);
   assert.match(app, /SELECT TO OR AWAY \/\/ \{navigableTarget\.name\.toUpperCase\(\)\}/);
   assert.match(speedControl, /type="range"/);
@@ -655,7 +657,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(polling, /sendIntent\("probe_space"/);
   assert.match(
     navigation,
-    /if \(state\.fleetScope \|\| observerSpeed === 0\) payload\.departureSpeed = state\.requestedSpeed/,
+    /if \(departureSpeedRequired\) payload\.departureSpeed = state\.requestedSpeed/,
   );
   assert.match(
     navigation,
@@ -673,7 +675,7 @@ test("player navigation supports vector, target, away, and speed orders", async 
   assert.match(drawer, /const departureSpeedMissing = departureSpeedRequired && speed <= 0/);
   assert.match(
     app,
-    /departureSpeedRequired=\{Boolean\(navigation\.fleetScope\) \|\| observerSpeed === 0\}/,
+    /pendingNavigationMode !== "face"[\s\S]*?Boolean\(navigation\.fleetScope\) \|\| observerSpeed === 0/,
   );
   assert.match(
     drawer,
@@ -769,6 +771,8 @@ test("player navigation supports vector, target, away, and speed orders", async 
   );
   assert.match(scraper, /course relative %d %d %d/);
   assert.match(scraper, /"course away " \.\. name/);
+  assert.match(scraper, /command = "face " \.\. name/);
+  assert.match(scraper, /return "face " \.\. name/);
   assert.match(scraper, /send\("speed " \.\. tostring\(math\.floor\(requestedSpeed \+ 0\.5\)\)\)/);
 });
 
@@ -801,7 +805,8 @@ test("selected ships can be manually scanned without waiting for the poller", as
   assert.doesNotMatch(scraper, /denyCurrentSend/);
   assert.match(scraper, /You must be in the gunners seat or turret of a ship to do that!/);
   assert.match(scraper, /player-entered chat/);
-  assert.match(scraper, /target locked but autotrack could not be enabled/);
+  assert.doesNotMatch(scraper, /target locked but autotrack could not be enabled/);
+  assert.match(scraper, /Scraper\.autotrack\.desired = false/);
   assert.match(scraper, /"target " \.\. name/);
   assert.match(scraper, /target\.disposition = "enemy"/);
   assert.match(scraper, /observer\.hasWeapons == false/);

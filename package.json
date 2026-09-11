@@ -1,14 +1,14 @@
 {
   "name": "lotj-holocron-3d",
   "productName": "LotJ Holocron 3D",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "A real-time 3D tactical renderer for Legends of the Jedi space telemetry.",
   "author": "Veska",
   "private": true,
   "type": "module",
   "main": "electron/main/bootstrap.mjs",
   "scripts": {
-    "check": "pnpm format:check && pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check tools/electron-smoke.mjs && node --check tools/asset-build-cache.mjs && node --check tools/build-planet-textures.mjs && node --check tools/build-ship-models.mjs && node --check tools/fetch-planet-assets.mjs && node --check tools/fetch-ship-assets.mjs && node --check tools/preview-planet-textures.mjs && node --check tools/preview-ship-models.mjs && node --check tools/ship-asset-validation.mjs && node --check tools/verify-renderer-planet-assets.mjs && node --check tools/verify-renderer-ship-assets.mjs && node --check tools/verify-packaged-planet-assets.mjs && node --check tools/verify-packaged-ship-assets.mjs && node --check tools/verify-linux-archive.mjs && node --check tools/build-relay.mjs && node --check tools/build-mudlet-package.mjs && node --check tools/release-build.mjs && node --check tools/release-version.mjs && node --check tools/bump-version.mjs && node --check tools/run-lua-tests.mjs && node --check tools/build-macos-icon.mjs && node --check tools/build-dmg.mjs && node --check tools/build-linux-archive.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/app-paths.mjs && node --check forge.config.cjs",
+    "check": "pnpm navigation:check && pnpm format:check && pnpm renderer:typecheck && node --check poc/tools/mock-bridge.mjs && node --check poc/tools/network-bridge.mjs && node --check poc/tools/websocket-observer.mjs && node --check tools/electron-dev.mjs && node --check tools/electron-smoke.mjs && node --check tools/asset-build-cache.mjs && node --check tools/build-planet-textures.mjs && node --check tools/build-ship-models.mjs && node --check tools/fetch-planet-assets.mjs && node --check tools/fetch-ship-assets.mjs && node --check tools/preview-planet-textures.mjs && node --check tools/preview-ship-models.mjs && node --check tools/ship-asset-validation.mjs && node --check tools/verify-renderer-planet-assets.mjs && node --check tools/verify-renderer-ship-assets.mjs && node --check tools/verify-packaged-planet-assets.mjs && node --check tools/verify-packaged-ship-assets.mjs && node --check tools/verify-linux-archive.mjs && node --check tools/build-relay.mjs && node --check tools/build-mudlet-package.mjs && node --check tools/release-build.mjs && node --check tools/release-version.mjs && node --check tools/bump-version.mjs && node --check tools/run-lua-tests.mjs && node --check tools/build-macos-icon.mjs && node --check tools/build-dmg.mjs && node --check tools/build-linux-archive.mjs && node --check electron/main/bootstrap.mjs && node --check electron/main/main.mjs && node --check electron/shared/protocol.mjs && node --check electron/shared/relay-auth.mjs && node --check electron/shared/app-paths.mjs && node --check forge.config.cjs",
     "version:patch": "node tools/bump-version.mjs patch",
     "version:minor": "node tools/bump-version.mjs minor",
     "version:major": "node tools/bump-version.mjs major",
@@ -51,7 +51,9 @@
     "relay:test": "go -C relay test ./...",
     "test:lua": "node tools/run-lua-tests.mjs",
     "test:all": "pnpm check && pnpm test && pnpm relay:test && pnpm test:lua",
-    "test": "pnpm renderer:build && node --experimental-strip-types --test"
+    "test": "pnpm renderer:build && node --experimental-strip-types --test",
+    "navigation:build": "node tools/build-navigation-data.mjs && node tools/render-hyperlane-audit-map.mjs",
+    "navigation:check": "node tools/build-navigation-data.mjs --check"
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",

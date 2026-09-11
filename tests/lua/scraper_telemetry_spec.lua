@@ -35,6 +35,213 @@ h.after_each(function()
 end)
 
 describe("scraper authoritative telemetry", function()
+  it("retains aboard through cockpit exit and recognizes revisited interiors", function()
+    local function room(vnum, planet)
+      _G.gmcp.Room = { Info = { vnum = vnum, planet = planet } }
+      fixture.scraper.handleRoomGmcp()
+    end
+    room(70086)
+    _G.gmcp.Ship = {
+      Info = {
+        piloting = false,
+        hull = 120,
+        maxHull = 120,
+        energy = 6300,
+        maxEnergy = 6300,
+        shield = 100,
+        maxShield = 100,
+        maxSpeed = 80,
+      },
+    }
+    fixture.scraper.handleShipGmcp()
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, true)
+    room(70081)
+    _G.gmcp.Ship.Info = {}
+    fixture.scraper.handleShipGmcp()
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, true)
+    equal(fixture.scraper.state.metadata.shipAccess.telemetryPresent, false)
+    room(70080)
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, true)
+    room(170001, "Nal Hutta")
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, false)
+    room(70080)
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, true)
+    room(170001, "Nal Hutta")
+    room(71275)
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, nil)
+    fixture.scraper.handleGmcpDisconnect()
+    room(70080)
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, nil)
+  end)
+
+  it("clears missing spatial fields without inferring landed or hyperspace phase", function()
+    for _, inSpace in ipairs({ true, false }) do
+      fixture.scraper.setInSpace(inSpace, "fixture")
+      _G.gmcp.Ship = {
+        Info = {
+          speed = 80,
+          maxSpeed = 80,
+          posX = 100,
+          posY = 20,
+          posZ = 30,
+          energy = 6300,
+          maxEnergy = 6300,
+          hull = 120,
+          maxHull = 120,
+          shield = 100,
+          maxShield = 100,
+        },
+      }
+      fixture.scraper.handleShipGmcp()
+      equal(fixture.scraper.state.metadata.shipSpatialAvailable, true)
+      assert(fixture.scraper.startCapture("radar", "radar", { polled = true, allowLanded = true }))
+      _G.gmcp.Ship.Info = {
+        piloting = true,
+        maxSpeed = 80,
+        energy = 6200,
+        maxEnergy = 6300,
+        hull = 120,
+        maxHull = 120,
+        shield = 100,
+        maxShield = 100,
+      }
+      fixture.scraper.handleShipGmcp()
+      equal(fixture.scraper.state.metadata.shipSpatialAvailable, false)
+      equal(fixture.scraper.active, nil)
+      equal(fixture.scraper.state.observer.x, nil)
+      equal(fixture.scraper.state.observer.speed.current, nil)
+      equal(fixture.scraper.state.observer.energy.current, 6200)
+      equal(fixture.scraper.state.metadata.inSpace, inSpace)
+    end
+  end)
+  it(
+    "normalizes piloting representations without confusing released controls with outside",
+    function()
+      for _, value in ipairs({ true, 1, "1", "true", false, 0, "0", "false" }) do
+        _G.gmcp = { Ship = { Info = { piloting = value } } }
+        assert(fixture.scraper.handleShipGmcp())
+        local expected = value == true or value == 1 or value == "1" or value == "true"
+        equal(fixture.scraper.state.observer.piloting, expected)
+        equal(fixture.scraper.state.metadata.shipAccess.piloting, expected)
+        equal(fixture.scraper.state.metadata.shipAccess.aboard, true)
+        equal(fixture.scraper.state.metadata.inSpace, true)
+        equal(fixture.scraper.state.metadata.shipGmcpHealthy, false)
+      end
+    end
+  )
+
+  it("does not let partial packets refresh vital health or retain control confirmation", function()
+    _G.gmcp = {
+      Ship = {
+        Info = {
+          speed = 0,
+          maxSpeed = 100,
+          energy = 10,
+          maxEnergy = 20,
+          hull = 10,
+          maxHull = 20,
+          shield = 0,
+          maxShield = 20,
+          posX = 0,
+          posY = 0,
+          posZ = 0,
+          piloting = true,
+        },
+      },
+    }
+    fixture.scraper.handleShipGmcp()
+    equal(fixture.scraper.state.metadata.shipGmcpHealthy, true)
+    fixture.scraper.shipGmcp.statusAt = os.time() - 61
+    _G.gmcp.Ship.Info = { headX = 1, headY = 0, headZ = 0 }
+    fixture.scraper.handleShipGmcp()
+    equal(fixture.scraper.state.metadata.shipGmcpHealthy, false)
+    equal(fixture.scraper.state.metadata.shipAccess.piloting, nil)
+  end)
+
+  it("requires room evidence after empty ship telemetry before classifying outside", function()
+    _G.gmcp = { Ship = { Info = { piloting = true, posX = 10 } } }
+    fixture.scraper.handleShipGmcp()
+    _G.gmcp.Ship.Info = {}
+    fixture.scraper.handleShipGmcp()
+    equal(fixture.scraper.state.observer.x, nil)
+    equal(fixture.scraper.state.observer.piloting, nil)
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, nil)
+    equal(fixture.scraper.state.metadata.inSpace, true)
+    _G.gmcp.Room = { Info = { vnum = 42, name = "Cabin" } }
+    fixture.scraper.handleRoomGmcp()
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, nil)
+    _G.gmcp.Room.Info = { vnum = 43, name = "Landing pad", planet = "Corellia" }
+    fixture.scraper.handleRoomGmcp()
+    equal(fixture.scraper.state.metadata.shipAccess.aboard, false)
+    equal(fixture.scraper.state.metadata.inSpace, false)
+    local count = #fixture.commands
+    local ok = fixture.intentHandlers.probe_space({}, { id = "probe" })
+    equal(ok, false)
+    equal(#fixture.commands, count)
+  end)
+
+  it("invalidates room control evidence and clears location on disconnect", function()
+    _G.gmcp = { Ship = { Info = { piloting = true } }, Room = { Info = { vnum = 42 } } }
+    fixture.scraper.handleShipGmcp()
+    fixture.scraper.handleRoomGmcp()
+    equal(fixture.scraper.state.metadata.shipAccess.piloting, nil)
+    fixture.scraper.handleGmcpDisconnect()
+    equal(fixture.scraper.state.metadata.room, nil)
+    equal(fixture.scraper.state.metadata.inSpace, nil)
+    equal(fixture.scraper.shipGmcp.statusAt, 0)
+  end)
+
+  it("bounds opt-in GMCP traces and stops collecting when requested", function()
+    local trace = fixture.scraper.startGmcpTrace()
+    _G.gmcp = { Ship = { Info = { speed = 0 } } }
+    for _ = 1, 305 do
+      fixture.scraper.handleShipGmcp()
+    end
+    equal(#trace, 300)
+    equal(fixture.scraper.stopGmcpTrace(), trace)
+    fixture.scraper.handleShipGmcp()
+    equal(#trace, 300)
+  end)
+
+  it("publishes every live GMCP galactic position update", function()
+    _G.gmcp = {
+      Galaxy = { Systems = { Corellian = { x = 10, y = 20 } } },
+      Ship = { System = { name = "Corellian", x = 10, y = 20 } },
+    }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    local first = fixture.messages[#fixture.messages]
+    equal(first.type, "galaxy_catalog")
+    equal(first.shipSystem.x, 10)
+    equal(first.shipSystem.y, 20)
+
+    _G.gmcp.Ship.System = { name = "Hyperspace", x = 14, y = 23 }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    local moved = fixture.messages[#fixture.messages]
+    equal(moved.shipSystem.x, 14)
+    equal(moved.shipSystem.y, 23)
+  end)
+
+  it("reads personal discoveries from the current registry without changing it", function()
+    local recorded = { ["Fictional Discovery"] = { x = 17, y = 29 } }
+    _G.lotj.galaxyMap = { recorded = recorded }
+    _G.gmcp = { Galaxy = { Systems = { ["Test Public System"] = { x = 3, y = 4 } } } }
+
+    assert(fixture.scraper.publishGalaxyCatalog())
+    local first = fixture.messages[#fixture.messages]
+    equal(first.customSystems["Fictional Discovery"].x, 17)
+    equal(first.systems["Fictional Discovery"], nil)
+    first.customSystems["Fictional Discovery"].x = 99
+    equal(recorded["Fictional Discovery"].x, 17)
+
+    recorded["Later Test Discovery"] = { x = 31, y = 42 }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    equal(fixture.messages[#fixture.messages].customSystems["Later Test Discovery"].x, 31)
+
+    _G.lotj.galaxyMap.recorded = {}
+    assert(fixture.scraper.publishGalaxyCatalog())
+    equal(next(fixture.messages[#fixture.messages].customSystems), nil)
+  end)
+
   it("applies GMCP ship readings without treating piloting as space state", function()
     _G.gmcp = {
       Ship = {
@@ -123,6 +330,14 @@ describe("scraper authoritative telemetry", function()
     equal(fixture.scraper.handleAutotrackResponse("Autotracking off."), false)
     equal(fixture:lastSnapshot().observer.autotrack, false)
     equal(fixture.intentAcks[#fixture.intentAcks].status, "completed")
+  end)
+
+  it("respects autotrack changes made directly in Mudlet", function()
+    local commandCount = #fixture.commands
+    equal(fixture.scraper.handleAutotrackResponse("Autotracking on."), true)
+    equal(#fixture.commands, commandCount)
+    equal(fixture:lastSnapshot().observer.autotrack, true)
+    equal(fixture:lastSnapshot().metadata.autotrackDesired, true)
   end)
 
   it("consolidates ship damage into a delayed shield status check", function()

@@ -26,6 +26,16 @@ test("navigation reducer stages vector and targeted courses", () => {
   });
   assert.equal(intercept.mode, "target");
   assert.equal(intercept.targetId, "isd45");
+
+  const face = navigationReducer(initialNavigationState, {
+    type: "arm-target",
+    mode: "face",
+    targetId: "isd45",
+    fleetScope: "selected",
+  });
+  assert.equal(face.mode, "face");
+  assert.equal(face.commandMode, "face");
+  assert.equal(face.status, "CONFIRM FACE TARGET");
 });
 
 test("navigation reducer reconciles observed speed and resets transient state", () => {

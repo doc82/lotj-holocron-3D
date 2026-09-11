@@ -1,3 +1,4 @@
+import { useMarketArchive } from "../features/trader/useMarketArchive";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { buildScene, findScenePoint } from "../domain/scene";
@@ -33,6 +34,8 @@ import { StartupSequence } from "../features/startup/StartupSequence";
 import { TacticalCanvas, type TacticalCanvasHandle } from "../features/tactical/TacticalCanvas";
 import type { TacticalCameraMode, TacticalScaleMode } from "../features/tactical/TacticalEngine";
 import { TargetShortcutRail } from "../features/tactical/TargetShortcutRail";
+import { TraderWorkspace } from "../features/trader/TraderWorkspace";
+import { useTraderController } from "../features/trader/useTraderController";
 import { useTacticalInteractionController } from "../features/tactical/useTacticalInteractionController";
 import type { RangeReading } from "../features/telemetry/RangeMeter";
 import { ShipDossierPanel } from "../features/telemetry/ShipDossierPanel";
@@ -66,6 +69,7 @@ export function App() {
   const [cinematicMode, setCinematicMode] = useState(false);
   const [commandLocked, setCommandLocked] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
+  const [traderOpen, setTraderOpen] = useState(false);
   const tacticalRef = useRef<TacticalCanvasHandle>(null);
   const fleetOrder = telemetry.snapshot?.metadata?.fleetOrder;
   const {
@@ -97,6 +101,35 @@ export function App() {
       starting,
       setAlert: setCommandAlert,
     });
+  const marketArchive = useMarketArchive(
+    telemetry.logisticsSnapshot?.metadata?.logistics,
+    telemetry.galaxyCatalog,
+  );
+  const {
+    refreshMarkets,
+    refreshError,
+    execution: traderExecution,
+    armRoute,
+    pauseRoute,
+    resumeRoute,
+    abortRoute,
+    clearRoute,
+    config: traderConfig,
+    addShip,
+    addPad,
+    saveRoute,
+    storageError,
+    deleteShip,
+    selectShip,
+    deletePad,
+    deleteRoute,
+    renameRoute,
+  } = useTraderController(
+    telemetry.connected,
+    telemetry.logisticsSnapshot,
+    telemetry.galaxyCatalog ?? marketArchive.archive.catalog,
+    marketArchive.archive.logistics,
+  );
   const viewpointMember = fleetMemberForSelectionKey(fleet?.members ?? [], viewpointMemberKey);
   const activeTacticalView = tacticalViewForMember(telemetry.snapshot, viewpointMemberKey);
   const tacticalSnapshot = useMemo(
@@ -322,12 +355,26 @@ export function App() {
   const routeClearance = hyperspace.routeClearance;
   const navigationDestinations = hyperspace.navigationDestinations;
   const currentGalaxyPosition = hyperspace.currentGalaxyPosition;
+  const liveShipGalaxyPosition = useMemo(() => {
+    const shipSystem = telemetry.galaxyCatalog?.shipSystem;
+    const x = Number(shipSystem?.x);
+    const y = Number(shipSystem?.y);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : hyperspace.ownGalaxyPosition;
+  }, [
+    hyperspace.ownGalaxyPosition,
+    telemetry.galaxyCatalog?.shipSystem?.x,
+    telemetry.galaxyCatalog?.shipSystem?.y,
+  ]);
+  // Once transit begins, the Mudlet snapshot is authoritative. This is
+  // especially important for jumps entered directly in Mudlet, whose navstat
+  // route must not be masked by an older planner selection.
+  const transitRoute = hyperspaceState.route || activeRoute || null;
 
   const navigation = useNavigationController({
     connected: telemetry.connected,
     landed,
     pollingPaused,
-    keyboardEnabled: !hyperspacePlanner && !managementOpen && !cinematicMode,
+    keyboardEnabled: !hyperspacePlanner && !managementOpen && !traderOpen && !cinematicMode,
     commandLocked,
     setCommandLocked,
     setAlert: setCommandAlert,
@@ -370,7 +417,7 @@ export function App() {
   );
   const autotrackObserved = typeof observer.autotrack === "boolean" ? observer.autotrack : null;
   const observerHasNoWeapons = observer.hasWeapons === false;
-  const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired !== false;
+  const autotrackDesired = telemetry.snapshot?.metadata?.autotrackDesired === true;
   const autotrackPending = telemetry.snapshot?.metadata?.autotrackPending === true;
   const combatEvent = telemetry.snapshot?.metadata?.combatEvent;
   const combatEvents =
@@ -438,6 +485,7 @@ export function App() {
   useEffect(() => {
     const handleManagementKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (traderOpen) return; // Native dialogs own Escape, including nested confirmation.
       if (cinematicMode) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -472,6 +520,7 @@ export function App() {
     hyperspacePlanner,
     managementOpen,
     navigationMode,
+    traderOpen,
     scopeDrawerOpen,
     shipDossier,
     starting,
@@ -496,7 +545,7 @@ export function App() {
         return;
       if (
         !cinematicMode &&
-        (!spaceTelemetryActive || starting || managementOpen || hyperspacePlanner)
+        (!spaceTelemetryActive || starting || managementOpen || traderOpen || hyperspacePlanner)
       )
         return;
       event.preventDefault();
@@ -504,7 +553,14 @@ export function App() {
     };
     window.addEventListener("keydown", handleCinematicKey);
     return () => window.removeEventListener("keydown", handleCinematicKey);
-  }, [cinematicMode, hyperspacePlanner, managementOpen, spaceTelemetryActive, starting]);
+  }, [
+    cinematicMode,
+    hyperspacePlanner,
+    managementOpen,
+    traderOpen,
+    spaceTelemetryActive,
+    starting,
+  ]);
 
   useEffect(() => {
     if (!spaceTelemetryActive) setCinematicMode(false);
@@ -521,23 +577,52 @@ export function App() {
   const managementMenu = managementOpen ? (
     <ManagementMenu onClose={() => setManagementOpen(false)} />
   ) : null;
+  const traderWorkspace = traderOpen ? (
+    <TraderWorkspace
+      connected={telemetry.connected}
+      refreshError={refreshError}
+      snapshot={telemetry.logisticsSnapshot}
+      catalog={marketArchive.archive.catalog ?? telemetry.galaxyCatalog}
+      storedLogistics={marketArchive.archive.logistics}
+      execution={traderExecution}
+      config={traderConfig}
+      onClose={() => setTraderOpen(false)}
+      onRefresh={refreshMarkets}
+      onPauseRoute={pauseRoute}
+      onArmRoute={armRoute}
+      onResumeRoute={resumeRoute}
+      onAbortRoute={abortRoute}
+      onClearRoute={() => void clearRoute()}
+      onAddShip={addShip}
+      onAddPad={addPad}
+      onSaveRoute={(route, name) =>
+        saveRoute(route, name, Object.values(marketArchive.archive.logistics.markets ?? {}))
+      }
+      storageError={[storageError, marketArchive.error].filter(Boolean).join(" ") || null}
+      onDeleteShip={deleteShip}
+      onSelectShip={selectShip}
+      onDeletePad={deletePad}
+      onDeleteRoute={deleteRoute}
+      onRenameRoute={renameRoute}
+    />
+  ) : null;
 
-  if (!spaceTelemetryActive)
-    return (
-      <>
-        {starting && <StartupSequence onComplete={finishStartup} />}
-        <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
-          <div className={styles.scanlines} aria-hidden="true" />
-          <UplinkNotice
-            paused={telemetry.connected && landed}
-            reason={telemetry.spaceState?.reason}
-          />
-          {managementMenu}
-        </main>
-      </>
-    );
+  const landedView = (
+    <>
+      {starting && <StartupSequence onComplete={finishStartup} />}
+      <main className={`${styles.experience} ${starting ? styles.startupActive : ""}`}>
+        <div className={styles.scanlines} aria-hidden="true" />
+        <UplinkNotice
+          onOpenTrader={() => setTraderOpen(true)}
+          paused={telemetry.connected && landed}
+          reason={telemetry.spaceState?.reason}
+        />
+        {managementMenu}
+      </main>
+    </>
+  );
 
-  return (
+  const spaceView = spaceTelemetryActive ? (
     <>
       {starting && <StartupSequence onComplete={finishStartup} />}
       {!starting &&
@@ -546,6 +631,9 @@ export function App() {
             reentry={["reentry", "arrived"].includes(hyperspaceState.phase || "")}
             arrived={hyperspaceState.phase === "arrived"}
             escapePending={hyperspaceEscapePending}
+            route={transitRoute}
+            catalog={telemetry.galaxyCatalog}
+            galaxyPosition={liveShipGalaxyPosition}
             onEscape={() => void escapeHyperspace()}
           />
         )}
@@ -558,7 +646,7 @@ export function App() {
           observerLabel={viewpointMemberKey ? "REMOTE VIEW" : "YOUR SHIP"}
           radarBubbleEnabled={radarBubbleEnabled}
           originGridEnabled={originGridEnabled}
-          keyboardEnabled={!hyperspacePlanner && !managementOpen}
+          keyboardEnabled={!hyperspacePlanner && !managementOpen && !traderOpen}
           combatEvents={viewpointMemberKey ? [] : combatEvents}
           jumpEvents={viewpointMemberKey ? [] : telemetry.snapshot?.metadata?.shipJumpEvents}
           destructionEvents={telemetry.snapshot?.metadata?.shipDestructionEvents}
@@ -605,6 +693,7 @@ export function App() {
               onCameraMode={chooseCameraMode}
               onScaleMode={(mode) => tacticalRef.current?.setScaleMode(mode)}
               onCinematicMode={() => setCinematicMode(true)}
+              onOpenTrader={() => setTraderOpen(true)}
               onPollingPaused={(paused) => void changePollingPause(paused)}
             />
           )}
@@ -687,6 +776,8 @@ export function App() {
               observer={hyperspacePlanner.origin}
               snapshot={classifiedSnapshot}
               hyperspeed={hyperspacePlanner.hyperspeed}
+              formationMaximumSpeed={hyperspacePlanner.formationMaximumSpeed}
+              missingMaximumSpeedNames={hyperspacePlanner.missingMaximumSpeedNames}
               motionTracks={hyperspace.motionTracks}
               destinations={navigationDestinations}
               onCancel={hyperspace.closePlanner}
@@ -727,7 +818,10 @@ export function App() {
               }
               vector={courseVector}
               status={navigationStatus}
-              departureSpeedRequired={Boolean(navigation.fleetScope) || observerSpeed === 0}
+              departureSpeedRequired={
+                pendingNavigationMode !== "face" &&
+                (Boolean(navigation.fleetScope) || observerSpeed === 0)
+              }
               speed={requestedSpeed}
               maximumSpeed={maximumSpeed}
               commandLocked={commandLocked}
@@ -850,6 +944,12 @@ export function App() {
           )}
         </div>
       </main>
+    </>
+  ) : null;
+  return (
+    <>
+      {spaceTelemetryActive ? spaceView : landedView}
+      {traderWorkspace}
     </>
   );
 }

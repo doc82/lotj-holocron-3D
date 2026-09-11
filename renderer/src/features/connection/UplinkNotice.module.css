@@ -81,6 +81,20 @@
   font: inherit;
 }
 
+.trader {
+  margin-top: 20px;
+  padding: 10px 18px;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  background: rgba(6, 25, 39, 0.88);
+  cursor: pointer;
+}
+
+.trader:focus-visible,
+.trader:hover {
+  background: rgba(45, 172, 197, 0.2);
+}
+
 .reticle {
   position: relative;
   width: 46px;

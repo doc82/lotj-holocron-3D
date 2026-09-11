@@ -44,6 +44,10 @@ const timestampSeconds = (value: unknown): number => {
 function sourceTimestamp(snapshot: SystemSnapshot, source: "radar" | "ship_gmcp"): number {
   const sources = snapshot.metadata?.sources as Record<string, unknown> | undefined;
   return (
+    (source === "ship_gmcp"
+      ? timestampSeconds(sources?.observer_position) ||
+        timestampSeconds(sources?.ship_gmcp_position)
+      : 0) ||
     timestampSeconds(sources?.[source]) ||
     timestampSeconds(snapshot.observedAt) ||
     Date.now() / 1_000
@@ -69,7 +73,7 @@ export function observeMotionTracks(
     id: string;
     observedAt: number;
   }> = [];
-  if (snapshot.observer) {
+  if (snapshot.observer && snapshot.metadata?.shipSpatialAvailable !== false) {
     observations.push({
       entity: snapshot.observer,
       id: "player-ship",
@@ -84,6 +88,9 @@ export function observeMotionTracks(
 
   let changed = false;
   const next = new Map(tracks);
+  if (snapshot.metadata?.shipSpatialAvailable === false) {
+    changed = next.delete("player-ship");
+  }
   for (const observation of observations) {
     const current = next.get(observation.id);
     const position = positionOf(observation.entity);

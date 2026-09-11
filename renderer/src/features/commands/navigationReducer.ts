@@ -1,8 +1,8 @@
 import type { FleetScope } from "../fleet/FleetRoster";
 import type { Vector3 } from "../../types/telemetry";
 
-export type NavigationMode = "idle" | "vector" | "target" | "away" | "confirm";
-export type NavigationCommandMode = "relative" | "target" | "away";
+export type NavigationMode = "idle" | "vector" | "target" | "away" | "face" | "confirm";
+export type NavigationCommandMode = "relative" | "target" | "away" | "face";
 
 export interface NavigationState {
   mode: NavigationMode;
@@ -30,7 +30,7 @@ export type NavigationAction =
   | { type: "begin-vector"; fleetScope: FleetScope | null }
   | {
       type: "arm-target";
-      mode: "target" | "away";
+      mode: "target" | "away" | "face";
       targetId: string;
       fleetScope: FleetScope | null;
     }
@@ -63,7 +63,12 @@ export function navigationReducer(
         commandMode: action.mode,
         targetId: action.targetId,
         fleetScope: action.fleetScope,
-        status: action.mode === "away" ? "CONFIRM REVERSE COURSE" : "CONFIRM INTERCEPT COURSE",
+        status:
+          action.mode === "away"
+            ? "CONFIRM REVERSE COURSE"
+            : action.mode === "face"
+              ? "CONFIRM FACE TARGET"
+              : "CONFIRM INTERCEPT COURSE",
       };
     case "stage":
       return { ...state, mode: "confirm", status: "COURSE READY // CONFIRM ORDER" };

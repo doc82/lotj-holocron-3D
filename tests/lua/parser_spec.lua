@@ -18,6 +18,57 @@ Your Coordinates:   10 20 -5
     equal(result.observer.z, -5)
   end)
 
+  it("distinguishes a marked star from an unprefixed planet contact", function()
+    local result = assert(parsers.parseRadar([[
+Corellian System
+
+(STAR) Corell                                             345 285 674
+Corellia                                                  1567 -10000 21812
+
+YT-1000 Light Freighter 'Fast Hauler Three'               1585 -10116 21786
+JumpMaster 5000 'High Flier'                              1643 -13647 25592
+JumpMaster 5000 'Planet Jumper Three'                     1567 -10000 21812
+
+Your Coordinates:                                         2008 -10017 21858
+]]))
+    equal(result.system, "Corellian System")
+    equal(#result.entities, 5)
+    equal(result.entities[1].name, "Corell")
+    equal(result.entities[1].kind, "star")
+    equal(result.entities[2].name, "Corellia")
+    equal(result.entities[2].kind, "celestial")
+    equal(result.entities[5].name, "Planet Jumper Three")
+    equal(result.entities[5].kind, "ship")
+    equal(result.observer.x, 2008)
+  end)
+
+  it("keeps planet words in quoted ship callsigns from changing their kind", function()
+    local result = assert(parsers.parseRadar([[
+Hutt Space
+
+(STAR) Y'Toub                                             -23000 5432 -2135
+Nar Shaddaa                                               10000 0 1000
+Nal Hutta                                                 13000 5250 -300
+
+YT-1000 Light Freighter 'Planetary Lanes Co'              9918 -45 925
+JumpMaster 5000 'Planet Jumper Six'                       12988 4978 1
+
+Your Coordinates:                                         12883 5428 -441
+]]))
+    equal(result.system, "Hutt Space")
+    equal(#result.entities, 5)
+    equal(result.entities[1].name, "Y'Toub")
+    equal(result.entities[1].kind, "star")
+    equal(result.entities[2].kind, "celestial")
+    equal(result.entities[3].kind, "celestial")
+    equal(result.entities[4].name, "Planetary Lanes Co")
+    equal(result.entities[4].class, "YT-1000 Light Freighter")
+    equal(result.entities[4].kind, "ship")
+    equal(result.entities[5].name, "Planet Jumper Six")
+    equal(result.entities[5].class, "JumpMaster 5000")
+    equal(result.entities[5].kind, "ship")
+  end)
+
   it("ignores chat while finding a radar system heading", function()
     local result = assert(parsers.parseRadar([[
 (OOC) @Bando: My apologies.
@@ -31,7 +82,22 @@ Your Coordinates: 12 22 -3
     equal(result.entities[1].name, "Gore")
   end)
 
-  it("rejects arrival prose and spaced ship callsigns as radar contacts", function()
+  it("ignores trailing character HUD lines that resemble radar coordinates", function()
+    local result = assert(parsers.parseRadar([[
+Esstran Sector
+Dromund Kaas 0 0 0
+Speed: 80 Fuel Level: 97% Coords: -1 3 26
+Your Coordinates: -1 3 26
+]]))
+    equal(#result.entities, 1)
+    equal(result.entities[1].name, "Dromund Kaas")
+    equal(result.entities[1].kind, "celestial")
+    equal(result.observer.x, -1)
+    equal(result.observer.y, 3)
+    equal(result.observer.z, 26)
+  end)
+
+  it("rejects arrival prose while accepting spaced ship callsigns", function()
     local result = assert(parsers.parseRadar([[
 Esstran Sector
 Victory-II Class Star Destroyer 'TeeHee3' enters the starsystem, coming out of its hyperjump at celestial 3670 3491 3402
@@ -40,11 +106,39 @@ Victory-II Class Star Destroyer 'VSD02' 3670 3491 3402
 Planet 'Dromund Kaas' 0 0 0
 Your Coordinates: 3510 3491 3402
 ]]))
-    equal(#result.entities, 2)
-    equal(result.entities[1].name, "VSD02")
+    equal(#result.entities, 3)
+    equal(result.entities[1].name, "Bad Name")
     equal(result.entities[1].kind, "ship")
-    equal(result.entities[2].name, "Dromund Kaas")
-    equal(result.entities[2].kind, "planet")
+    equal(result.entities[2].name, "VSD02")
+    equal(result.entities[2].kind, "ship")
+    equal(result.entities[3].name, "Dromund Kaas")
+    equal(result.entities[3].kind, "planet")
+  end)
+
+  it("parses named stations and grouped ships in nebula radar output", function()
+    local result = assert(parsers.parseRadar([[
+Fictional Test Nebula
+Test Research Station 'Test Beacon'                            0 0 0
+
+Z-95 Headhunter 'AngerTL's squadron:
+Z-95 Headhunter 'AngerTL'                             (Ctr) 1 37 -1
+Z-95 Headhunter 'AngerT5'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT4'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT2'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT3'                             (Out) 1 37 -1
+Z-95 Headhunter 'AngerT6'                             (Out) 1 37 -1
+]]))
+
+    equal(result.system, "Fictional Test Nebula")
+    equal(#result.entities, 7)
+    equal(result.entities[1].name, "Test Beacon")
+    equal(result.entities[1].class, "Test Research Station")
+    equal(result.entities[1].kind, "ship")
+    equal(result.entities[1].shipCategory, "battlestation")
+    equal(result.entities[2].name, "AngerTL")
+    equal(result.entities[2].position, "Ctr")
+    equal(result.entities[7].name, "AngerT6")
+    equal(result.entities[7].position, "Out")
   end)
 
   it("classifies projectile radar contacts", function()
@@ -262,6 +356,13 @@ Victory-II Class Star Destroyer 'Gore' |  | (Out) 0 0 0
     equal(piped.entities[1].name, "Pollution")
     equal(piped.entities[1].position, "Ctr")
     equal(piped.entities[1].x, -51)
+    local callsigns = assert(parsers.parseFleetRadar([[
+Hutt Space
+YT-1000 Light Freighter 'Planetary Lanes Co' |  | (Ctr) 9918 -45 925
+JumpMaster 5000 'Planet Jumper Six' |  | (Out) 12988 4978 1
+]]))
+    equal(callsigns.entities[1].kind, "ship")
+    equal(callsigns.entities[2].kind, "ship")
     local grouped = assert(parsers.parseFleetRadar([[
 Esstran Sector
 Imperial-II Class Star Destroyer 'Verdandi's battlegroup:
@@ -346,6 +447,108 @@ Wroona System 67.1 (Out of Range)
     equal(destinations.mode, "destinations")
     equal(destinations.destinations[1].reachable, true)
     equal(destinations.destinations[2].reachable, false)
+  end)
+
+  it("parses hyperlane status and planet resources", function()
+    local lanes = assert(parsers.parse(
+      "l hyp",
+      [[
+ .--------------------------------------------------.
+ |   Between Naboo and Bespin         : No Route    |
+ |   Between Corellia and Wroona      : Passable    |
+ *--------------------------------------------------*
+]]
+    ))
+    equal(lanes.lanes[1].from, "Naboo")
+    equal(lanes.lanes[1].to, "Bespin")
+    equal(lanes.lanes[1].status, "no_route")
+    equal(lanes.lanes[2].status, "passable")
+
+    local planet = assert(parsers.parse(
+      "showp",
+      [[
+--Planet Data: -----------------------------------------
+Planet: Bespin
+Starsystem: Anoat Sector
+Coordinates: 0 0 0
+Governed By: Confederacy of Independent Systems
+Tax Rate: 5.00
+Tibanna gas          ( Price per unit: 76.00)
+Common metals        ( Price per unit: 38.30)
+Food                 ( Price per unit: 23.97)
+]]
+    ))
+    equal(planet.planet, "Bespin")
+    equal(planet.system, "Anoat Sector")
+    equal(planet.governedBy, "Confederacy of Independent Systems")
+    equal(planet.taxRate, 5)
+    equal(planet.resources["Tibanna gas"], 76)
+
+    local catalogue = assert(parsers.parse(
+      "planets",
+      [[
+  Planet           Starsystem            Governed By               Notices
+  Ithor            Ottega System         A Neutral Government      [FP]
+  Lorrd            Kanz Sector           A Neutral Government      [FP]
+  ]]
+    ))
+    equal(catalogue.planets[1].name, "Ithor")
+    equal(catalogue.planets[1].system, "Ottega System")
+    equal(catalogue.planets[1].governedBy, "A Neutral Government")
+  end)
+
+  it("parses clans, cargo manifests, and transaction confirmations", function()
+    local clans = assert(parsers.parse(
+      "clans",
+      [[
+Major Organizations:
+Clan Name                                | Planets | Active Members
+A Neutral Government                     | 7       | (None)
+Confederacy of Independent Systems       | 3       | 30+
+Minor Organizations:
+Clan Name                                | Planets | Active Members
+Merr-Sonn Munitions                      | 0       | 20+
+]]
+    ))
+    equal(#clans.organizations, 3)
+    equal(clans.organizations[2].name, "Confederacy of Independent Systems")
+    equal(clans.organizations[3].category, "minor")
+
+    local cargo = assert(parsers.parse(
+      "listc",
+      [[
+Cargo Readout for YT-1000 Light Freighter 'BlueSkies':
+[ID:] [Contents:           ] [Amount:  ]
+[1  ] [Precious metals     ] [500/500  ]
+[2  ] [Textiles            ] [120/500  ]
+]]
+    ))
+    equal(cargo.shipName, "BlueSkies")
+    equal(cargo.items[1].resource, "Precious metals")
+    equal(cargo.items[2].current, 120)
+
+    local bought =
+      assert(parsers.parse("buycargo", "You purchased 4500 units of Textiles for 162162 credits."))
+    equal(bought.action, "buy")
+    equal(bought.amount, 4500)
+    equal(bought.cost, 162162)
+
+    local sold = assert(
+      parsers.parse("sellcargo", "You sell 4500 units of Precious metals for 307094 credits.")
+    )
+    equal(sold.action, "sell")
+    equal(sold.revenue, 307094)
+
+    local refueled = assert(parsers.parse("refuel", "You pay 3228 credits to refuel the ship."))
+    equal(refueled.action, "refuel")
+    equal(refueled.cost, 3228)
+    local full = assert(parsers.parse("refuel", "That ship is already fully fueled!"))
+    equal(full.action, "refuel")
+    equal(full.cost, 0)
+    equal(full.alreadyFull, true)
+    equal(assert(parsers.parse("credits", "You have 1097793 credits.")).balance, 1097793)
+    equal(assert(parsers.parse("credits", "You have 0 credits.")).balance, 0)
+    equal(parsers.parse("credits", "You pay 10 credits to refuel the ship."), nil)
   end)
 
   it("rejects unsupported commands", function()

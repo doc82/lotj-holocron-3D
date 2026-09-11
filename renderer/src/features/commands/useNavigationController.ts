@@ -95,7 +95,7 @@ export function useNavigationController({
   ]);
 
   const armTarget = useCallback(
-    (mode: "target" | "away") => {
+    (mode: "target" | "away" | "face") => {
       if (!navigableTarget) return;
       clearTransientSelection();
       const commandScope = fleetCommandMode ? fleetScope : null;
@@ -138,7 +138,9 @@ export function useNavigationController({
       setAlert("NAVIGATION COMPUTER IS WAITING FOR THE CURRENT MANEUVER");
       return;
     }
-    if ((state.fleetScope || observerSpeed === 0) && state.requestedSpeed === 0) {
+    const departureSpeedRequired =
+      state.commandMode !== "face" && (Boolean(state.fleetScope) || observerSpeed === 0);
+    if (departureSpeedRequired && state.requestedSpeed === 0) {
       dispatch({ type: "set-status", status: "COURSE SPEED REQUIRED // SELECT A NON-ZERO SPEED" });
       setAlert("SELECT A NON-ZERO COURSE SPEED");
       return;
@@ -151,8 +153,12 @@ export function useNavigationController({
       dispatch({ type: "set-status", status: "ORDER BLOCKED // TARGET CONTACT LOST" });
       return;
     }
-    if (state.fleetScope || observerSpeed === 0) payload.departureSpeed = state.requestedSpeed;
-    dispatch({ type: "set-status", status: "TRANSMITTING COURSE..." });
+    if (departureSpeedRequired) payload.departureSpeed = state.requestedSpeed;
+    dispatch({
+      type: "set-status",
+      status:
+        state.commandMode === "face" ? "TRANSMITTING FACE ORDER..." : "TRANSMITTING COURSE...",
+    });
     if (state.fleetScope) {
       payload.scope = state.fleetScope;
       payload.order = "navigate";
@@ -187,8 +193,10 @@ export function useNavigationController({
       scheduleTimeout(() => intentIdsRef.current.delete(result.id!), 60_000);
     }
     if (state.fleetScope) {
-      dispatch({ type: "finish", status: "FLEET COURSE TRANSMITTED" });
-      setAlert("FLEET COURSE TRANSMITTED // MONITOR FORMATION ROSTER");
+      const transmitted =
+        state.commandMode === "face" ? "FLEET FACE ORDER TRANSMITTED" : "FLEET COURSE TRANSMITTED";
+      dispatch({ type: "finish", status: transmitted });
+      setAlert(`${transmitted} // MONITOR FORMATION ROSTER`);
       tacticalRef.current?.finishMovementPlanning();
       return;
     }
@@ -343,7 +351,10 @@ export function useNavigationController({
       if (!current.keyboardEnabled || current.pollingPaused) return;
       if (event.key.toLowerCase() === "m" && current.mode === "idle") current.beginVector();
       else if (event.key === "Escape" && current.mode !== "idle") current.cancel();
-      else if (event.key === "Enter" && ["confirm", "target", "away"].includes(current.mode))
+      else if (
+        event.key === "Enter" &&
+        ["confirm", "target", "away", "face"].includes(current.mode)
+      )
         void current.submit();
       else if (event.key === "Enter" && current.mode === "vector") current.stage();
     };

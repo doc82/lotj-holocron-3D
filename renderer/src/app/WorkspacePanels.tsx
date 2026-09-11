@@ -113,7 +113,12 @@ export function SelectedTargetPanel({
             </div>
             <div className={styles.vesselTags}>
               {isDisabledShip(selection) && <span className={styles.disabledTag}>DISABLED</span>}
-              <span>{selection.shipCategory?.toUpperCase() || "UNCLASSIFIED"}</span>
+              <span>
+                {selection.shipCategory?.toUpperCase() ||
+                  (selection.kind === "ship"
+                    ? "UNCLASSIFIED"
+                    : selection.kind?.toUpperCase() || "UNKNOWN CONTACT")}
+              </span>
               {selectedShip && (
                 <span className={styles.dossierLaunchers}>
                   <button

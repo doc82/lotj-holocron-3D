@@ -72,6 +72,7 @@ export interface TelemetryEntity {
 }
 
 export interface Observer extends TelemetryEntity {
+  piloting?: boolean;
   coordinates?: { x?: number; y?: number; z?: number };
   sensorArray?: number;
   radarRange?: number;
@@ -88,6 +89,7 @@ export interface PollingState {
   paused?: boolean;
   pausedAt?: number;
   pauseReason?: string;
+  gagPolledOutput?: boolean;
   command?: string;
   sensorTickFallbackSeconds?: number;
   sensorPollWaitingForTick?: boolean;
@@ -223,10 +225,102 @@ export interface GalaxyCatalog {
   shipSystem?: { x?: number; y?: number; name?: string };
 }
 
+export interface LogisticsPlanet {
+  name: string;
+  system?: string;
+  governedBy?: string;
+  notices?: string;
+}
+
+export interface LogisticsMarket {
+  planet?: string;
+  system?: string;
+  governedBy?: string;
+  taxRate?: number;
+  coordinates?: { x?: number; y?: number; z?: number };
+  resources?: Record<string, number>;
+  observedAt?: number;
+}
+
+export interface LogisticsCargoItem {
+  slot?: number;
+  resource: string;
+  current?: number;
+  maximum?: number;
+}
+
+export interface LogisticsState {
+  refresh?: {
+    phase: "refreshing" | "completed" | "failed";
+    completed: number;
+    total: number;
+    command?: string;
+    error?: string;
+    startedAt: number;
+    finishedAt?: number;
+  };
+  planets?: LogisticsPlanet[];
+  clans?: Array<{
+    name: string;
+    category?: "major" | "minor";
+    planets?: number;
+    activeMembers?: string;
+  }>;
+  hyperlanes?: Array<{
+    from: string;
+    to: string;
+    status: "passable" | "no_route" | "unknown" | "stale";
+  }>;
+  market?: LogisticsMarket;
+  credits?: number;
+  creditsObservedAt?: number;
+  location?: {
+    planet: string;
+    system?: string;
+    observedAt: number;
+    source: "showplanet";
+  };
+  markets?: Record<string, LogisticsMarket>;
+  cargo?: {
+    shipName?: string;
+    items?: LogisticsCargoItem[];
+    used?: number;
+    capacity?: number;
+    observedAt?: number;
+  };
+  lastTransaction?: {
+    alreadyFull?: boolean;
+    action?: "buy" | "sell" | "refuel";
+    amount?: number;
+    resource?: string;
+    cost?: number;
+    revenue?: number;
+  };
+  observedAt?: number;
+  clansObservedAt?: number;
+  hyperlanesObservedAt?: number;
+}
+
+export interface HyperspaceExitPlan {
+  mode: "target" | "coordinates";
+  target?: {
+    id?: string;
+    name: string;
+    kind: "ship" | "planet" | "celestial" | "star";
+    systemName?: string;
+    lastKnownPosition?: { x: number; y: number; z: number };
+  };
+  destination?: { x: number; y: number; z: number };
+  speedPercent: number;
+  formationMaximumSpeed: number;
+  speed: number;
+}
+
 export interface HyperspaceRoutePayload {
   mode: "local" | "galactic";
   destination: { x: number; y: number; z: number };
   galaxy?: { x: number; y: number };
+  galaxyOrigin?: { x: number; y: number };
   systemName?: string;
   planetName?: string;
   acknowledgeFuelRisk?: boolean;
@@ -239,8 +333,11 @@ export interface HyperspaceRoutePayload {
   memberNames?: string[];
   memberSlots?: number[];
   recipientLabel?: string;
+  manuallyInitiated?: boolean;
+  detectedBy?: "navstat";
   predictionModel?: string;
   estimatedTravelSeconds?: number;
+  exitPlan?: HyperspaceExitPlan;
   tracking?: {
     targetId: string;
     targetName: string;
@@ -279,10 +376,36 @@ export interface HyperspaceState {
   error?: string;
   arrivedAt?: number;
   awaitingArrivalRadar?: boolean;
+  destinationReachedAt?: number;
   hyperjumpCompleteObservedAt?: number;
   realspaceLurchObservedAt?: number;
   arrivalConfirmedBy?: string;
   reentrySystemName?: string;
+  manuallyInitiated?: boolean;
+  galaxyOrigin?: { x: number; y: number };
+  originSystemName?: string;
+  navstatRequestedAt?: number;
+  navstatObservedAt?: number;
+  exitPlanStatus?:
+    | "pending"
+    | "armed"
+    | "waiting"
+    | "executing"
+    | "completed"
+    | "partial"
+    | "failed"
+    | "cancelled";
+  exitPlanReason?: string;
+  exitPlanUpdatedAt?: number;
+  exitPlanResults?: Record<
+    string,
+    {
+      name: string;
+      status: "waiting" | "completed" | "failed" | "cancelled";
+      reason?: string;
+      observedAt?: number;
+    }
+  >;
 }
 
 export interface ShipJumpEvent {
@@ -312,6 +435,24 @@ export interface SystemSnapshot {
   metadata?: {
     system?: string;
     inSpace?: boolean;
+    shipGmcpHealthy?: boolean;
+    shipSpatialAvailable?: boolean;
+    shipAccess?: {
+      aboard?: boolean;
+      piloting?: boolean;
+      telemetryPresent?: boolean;
+      source: "ship_gmcp" | "room_gmcp";
+      observedAt: number;
+      sequence: number;
+    };
+    room?: {
+      vnum?: number;
+      name?: string;
+      planet?: string;
+      exits?: string[] | Record<string, unknown>;
+      observedAt: number;
+      sequence: number;
+    };
     polling?: PollingState;
     lastSensorCapture?: SensorCaptureState;
     autotrackDesired?: boolean;
@@ -323,6 +464,16 @@ export interface SystemSnapshot {
     combatEvent?: CombatEvent;
     combatEvents?: CombatEvent[];
     autoRechargeEnabled?: boolean;
+    routeAccounts?: import("../domain/routeAutopilot").RouteAccounts & { runId: string };
+    routeNavigation?: {
+      phase?: "ground" | "pre_hyperspace" | "hyperspace" | "post_hyperspace";
+      operationId: string;
+      runId: string;
+      status: "running" | "completed" | "blocked";
+      label?: string;
+      reason?: string;
+      confirmation?: import("../domain/routeAutopilot").RouteConfirmation;
+    };
     shieldRecharging?: boolean;
     shieldRechargeAttempts?: number;
     shieldStatusPending?: boolean;
@@ -345,6 +496,7 @@ export interface SystemSnapshot {
         fuelPercent?: number;
       }>;
     };
+    logistics?: LogisticsState;
     fleet?: FleetStatus;
     fleetOrder?: FleetOrderStatus;
     tacticalViews?: Record<string, TacticalView>;

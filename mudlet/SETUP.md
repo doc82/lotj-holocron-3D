@@ -80,6 +80,7 @@ The legacy launcher is now:
 - `lotj_holocron_proxy.lua`
 - `lotj_holocron_parsers.lua`
 - `lotj_holocron_scraper.lua`
+- `lotj_holocron_navigation.lua`
 - `poc/mudlet/start_prototype.lua`
 
 Do not move the launcher or runtime modules; their relative paths are intentional.
@@ -231,12 +232,19 @@ complete cycle. It pauses while landed and resumes after launch. To control it:
 ```lua
 lua lotjHolocron3D.scraper.stopPolling()
 lua lotjHolocron3D.scraper.startPolling({commandGapSeconds = 1, cycleDelaySeconds = 5})
+lua lotjHolocron3D.scraper.setPolledOutputGagged(false)
 ```
 
-Holocron3D is compatible with the official `LotJ/lotj-mudlet-ui` package. Chat
-and unknown game output remain available to that package's tabbed consoles;
-only lines positively identified as part of a Holocron3D background telemetry
-request are hidden. Any command entered in Mudlet interrupts the current
+Holocron3D is compatible with the official `LotJ/lotj-mudlet-ui` package. Chat,
+critical events, and unknown game output remain available to that package's
+tabbed consoles. Background captures may retain unknown continuation lines as
+parser context, but only lines positively identified as telemetry output are
+eligible to be hidden. That cosmetic gag is deferred until every package has
+processed the line, allowing lotj-ui to copy clan and local speech into its
+consoles first. If Mudlet has already advanced to another line, Holocron3D skips
+the gag instead of risking deletion of unrelated output. Pass
+`gagPolledOutput = false` to `startPolling`, or use the setter above, to leave
+all polling output visible. Any command entered in Mudlet interrupts the current
 background capture and pauses polling briefly. Radar issued manually or by
 another package is reused for the next Holocron3D snapshot rather than followed
 by an immediate duplicate request.
@@ -245,16 +253,111 @@ Holocron3D also subscribes to LotJ's `gmcp.Ship.Info` feed. Fresh GMCP values
 provide the player's live coordinates, heading, speed, hull, shields, energy,
 and whether the player is at the controls. This suppresses routine self-`status`
 polls while the feed is healthy; `status` remains the fallback for stale data
-and does not infer landed/in-space state from the `piloting` flag. A launch or
-`You grip the controls.` queues a fresh self-`info` for class, sensors, and
-weapons, which are not included in `Ship.Info`.
+and does not infer landed/in-space state from the `piloting` flag.
+
+A complete numeric speed/position/vitals report is required to refresh that
+health window. A heading-only or piloting-only report cannot hide stale vitals.
+Moving/combat telemetry retains the ten-second window. A complete zero-speed
+report outside combat tolerates up to 60 seconds of silence, matching the quiet
+periods observed in the replay without treating a lost feed as healthy forever.
+Automatic self-status fallbacks back off at 15, 30, 60, then 120 seconds until
+a complete GMCP report returns; combat uses a five-second fallback minimum.
+Explicit manual status requests are unaffected.
+
+Empty ship reports mean telemetry access was lost (for example, leaving the
+cockpit); they clear stale readings and suspend background cockpit commands
+without declaring a landing. A nonempty cockpit report establishes aboard;
+subsequent nonplanetary room transitions retain it. Visited interior room vnums
+can identify reboarding during that observer session. Unknown rooms remain
+unknown when entered from outside; room names do not establish ship identity.
+Room knowledge resets on disconnect, collector reload, or observer identity change.
+
+Full vitals reports without speed/position clear spatial eligibility and old
+motion tracks but retain vitals. This occurs both landed and in hyperspace, so
+missing fields never establish the flight phase. Fresh spatial reports or
+validated own-ship radar/status fixes restore position eligibility.
+Fresh `Room.Info` observations distinguish room changes from control changes;
+a planetary room after absent ship telemetry confirms outside and avoids a
+radar access probe. Disconnect clears room, location, and control observations.
+Routes can use fresh corroborated GMCP planet data for location-only checks and
+a new piloting event for the active take-controls step. Ship-on-pad checks and
+transaction/flight confirmations remain required.
+
+During galactic hyperspace travel, `gmcp.Ship.System` supplies the moving galaxy
+`x`/`y` position and `gmcp.Galaxy.Systems` supplies the known system catalog.
+Holocron3D relays both to the transparent transit map layered over the
+hyperspace field. Jumps entered directly in Mudlet with `hyper`, `hyp`, or
+`hyperspace` are adopted automatically. After the jump begins, Holocron3D runs
+one hidden `navstat` capture to identify the Jump System and reconstruct the
+route overlay. A Jump System different from the departure system selects the
+galactic map; a matching (or absent) Jump System keeps the local hyperspace
+view. Galactic mode is selected as soon as `navstat` identifies it, even if the
+destination's GMCP coordinates arrive a little later.
+
+Own-ship galactic positioning prefers `Ship.System.x/y` over cached `navstat`
+coordinates. The planner makes at most two missing-position `navstat` attempts
+per opening and suspends its navigation refreshes during transit. Ordinary
+arrival requires no `navstat`; an armed escape plan requests it once only when
+arrival position has not been verified by GMCP or a fresh navigation report.
+
+`Destination reached. Initiating realspace reentry...` is also treated as the
+authoritative boundary for requesting fresh world telemetry. Holocron3D queues
+an immediate `radar` there and uses the first successful full response to close
+the hyperspace animation, even if Mudlet misses the later realspace-lurch line.
+
+Static `info` results are acquired once per unique ship-name and ship-class
+pair, then stored in `holocron3d-ship-info-cache.json` within the Mudlet profile
+directory. Cached weapons, sensors, category, performance, and safe dossier
+details are restored when that exact ship is observed again. Access codes are
+never written to this file. Automatic polling does not refresh a cached record;
+enter `info` or `info <ship name>` manually when the stored loadout needs to be
+replaced.
 
 Ships inside `500 + (10 × Sensor Array)` units are also queued for targeted
 `status <ship>` and `info <ship>` scans. Enemy status defaults to a four-second
-refresh; neutral/friendly status and all identity info default to ten seconds.
+refresh. First-contact discovery remains immediate; subsequent peaceful
+neutral/friendly non-target status scans wait at least 60 seconds. Other status
+and uncached identity info use the ten-second standard interval. Peaceful fleet
+radar defaults to 15 seconds; combat keeps its separate interval.
 These are best-effort intervals because Mudlet executes one captured command at
 a time. They can be adjusted with `hostileScanIntervalSeconds` and
 `standardScanIntervalSeconds` in the polling options.
+
+Failed automatic named scans back off from 30 seconds to at most five minutes.
+The observer is excluded from the contact scan queue. Known non-fighter
+squadron rejections suppress repeat routine probes until room/ship context
+changes. Explicit manual scans remain available.
+
+### GMCP transition validation
+
+After installing or reloading the package, run `h3d start` in Mudlet first.
+Installation leaves telemetry stopped; `lotjHolocron3D.scraper` is only attached
+after collector setup succeeds and is removed when telemetry stops. If startup
+reports an error, resolve that error before tracing. `h3d status` reports the
+current telemetry state.
+
+Start a bounded in-memory trace in Mudlet before a short boarding/flight test:
+
+```lua
+lua lotjHolocron3D.scraper.startGmcpTrace()
+```
+
+Walk outside → board → cockpit → pilot → launch → hyperspace → arrival → land
+→ release controls → cabin → leave. Include a passenger/station case and a
+reconnect. Stop and inspect the trace:
+
+```lua
+lua display(lotjHolocron3D.scraper.stopGmcpTrace())
+```
+
+The trace retains the most recent 300 `Ship.Info` and `Room.Info` events with
+timestamps and payloads; it excludes unrelated character and chat modules.
+It is off by default and resets on collector reload. Check whether ship data
+clears on cockpit exit or only ship exit, and whether reports are periodic or
+change-only. Verify that healthy ship vitals eliminate routine self-status
+commands, outside detection issues no radar probe, and landed pilots are never
+classified as flying just because they hold the controls. Command-stack and
+arbitrary aboard/cockpit recovery remain pending verified server semantics.
 
 ## Step 7: Open the 3D renderer
 

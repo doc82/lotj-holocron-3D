@@ -1,0 +1,1211 @@
+{
+  "schemaVersion": 1,
+  "era": "2026-09",
+  "revision": 3,
+  "notes": "Directional evidence from six origin scans. Missing edges are unverified, never implicitly open. Temporary controls are bidirectional; Core Worlds expansion follows the user supplied region definition.",
+  "nodes": [
+    {
+      "id": "ithor",
+      "name": "Ithor",
+      "system": "Ottega System",
+      "x": 57,
+      "y": 8,
+      "aliases": []
+    },
+    {
+      "id": "lorrd",
+      "name": "Lorrd",
+      "system": "Kanz Sector",
+      "x": 26,
+      "y": 41,
+      "aliases": []
+    },
+    {
+      "id": "mon-cala",
+      "name": "Mon Cala",
+      "system": "Calamari System",
+      "x": -12,
+      "y": -7,
+      "aliases": ["Mon-Cal", "Mon Cal", "Mon-Cala"]
+    },
+    {
+      "id": "nal-hutta",
+      "name": "Nal Hutta",
+      "system": "Hutt Space",
+      "x": 43,
+      "y": -15,
+      "aliases": []
+    },
+    {
+      "id": "ryloth",
+      "name": "Ryloth",
+      "system": "Gaulus Sector",
+      "x": 56,
+      "y": 35,
+      "aliases": []
+    },
+    {
+      "id": "tatooine",
+      "name": "Tatooine",
+      "system": "Arkanis Sector",
+      "x": 61,
+      "y": -10,
+      "aliases": []
+    },
+    {
+      "id": "arkania",
+      "name": "Arkania",
+      "system": "Perave System",
+      "x": 64,
+      "y": 53,
+      "aliases": []
+    },
+    {
+      "id": "bespin",
+      "name": "Bespin",
+      "system": "Anoat Sector",
+      "x": 84,
+      "y": 50,
+      "aliases": []
+    },
+    {
+      "id": "naboo",
+      "name": "Naboo",
+      "system": "Chommell Sector",
+      "x": 78,
+      "y": 68,
+      "aliases": []
+    },
+    {
+      "id": "alderaan",
+      "name": "Alderaan",
+      "system": "Alderaan System",
+      "x": -11,
+      "y": 9,
+      "aliases": []
+    },
+    {
+      "id": "corellia",
+      "name": "Corellia",
+      "system": "Corellian System",
+      "x": 23,
+      "y": 3,
+      "aliases": []
+    },
+    {
+      "id": "coruscant",
+      "name": "Coruscant",
+      "system": "Corusca Sector",
+      "x": 0,
+      "y": 0,
+      "aliases": []
+    },
+    {
+      "id": "kashyyyk",
+      "name": "Kashyyyk",
+      "system": "Mytaranor Sector",
+      "x": 2,
+      "y": 42,
+      "aliases": ["Kashyyk"]
+    },
+    {
+      "id": "wroona",
+      "name": "Wroona",
+      "system": "Wroona System",
+      "x": 46,
+      "y": 14,
+      "aliases": []
+    },
+    {
+      "id": "eeropha",
+      "name": "Eeropha",
+      "system": "Eeropha System",
+      "x": 39,
+      "y": 30,
+      "aliases": ["Eeropha / Lodestar", "Ereopha", "Europhea"]
+    }
+  ],
+  "regions": {
+    "core-worlds": {
+      "name": "Core Worlds",
+      "members": ["coruscant", "alderaan", "mon-cala"]
+    }
+  },
+  "permanentEdges": [
+    {
+      "from": "eeropha",
+      "to": "lorrd"
+    },
+    {
+      "from": "arkania",
+      "to": "wroona"
+    },
+    {
+      "from": "arkania",
+      "to": "eeropha"
+    },
+    {
+      "from": "arkania",
+      "to": "ithor"
+    },
+    {
+      "from": "arkania",
+      "to": "ryloth"
+    },
+    {
+      "from": "arkania",
+      "to": "bespin"
+    },
+    {
+      "from": "arkania",
+      "to": "naboo"
+    },
+    {
+      "from": "wroona",
+      "to": "coruscant"
+    },
+    {
+      "from": "wroona",
+      "to": "eeropha"
+    },
+    {
+      "from": "wroona",
+      "to": "ithor"
+    },
+    {
+      "from": "wroona",
+      "to": "lorrd"
+    },
+    {
+      "from": "wroona",
+      "to": "nal-hutta"
+    },
+    {
+      "from": "wroona",
+      "to": "ryloth"
+    },
+    {
+      "from": "wroona",
+      "to": "arkania"
+    },
+    {
+      "from": "ryloth",
+      "to": "corellia"
+    },
+    {
+      "from": "ryloth",
+      "to": "wroona"
+    },
+    {
+      "from": "ryloth",
+      "to": "eeropha"
+    },
+    {
+      "from": "ryloth",
+      "to": "ithor"
+    },
+    {
+      "from": "ryloth",
+      "to": "tatooine"
+    },
+    {
+      "from": "ryloth",
+      "to": "bespin"
+    },
+    {
+      "from": "ryloth",
+      "to": "arkania"
+    },
+    {
+      "from": "corellia",
+      "to": "kashyyyk"
+    },
+    {
+      "from": "corellia",
+      "to": "coruscant"
+    },
+    {
+      "from": "corellia",
+      "to": "alderaan"
+    },
+    {
+      "from": "corellia",
+      "to": "eeropha"
+    },
+    {
+      "from": "corellia",
+      "to": "ithor"
+    },
+    {
+      "from": "corellia",
+      "to": "lorrd"
+    },
+    {
+      "from": "corellia",
+      "to": "nal-hutta"
+    },
+    {
+      "from": "corellia",
+      "to": "mon-cala"
+    },
+    {
+      "from": "corellia",
+      "to": "ryloth"
+    },
+    {
+      "from": "coruscant",
+      "to": "alderaan"
+    },
+    {
+      "from": "coruscant",
+      "to": "corellia"
+    },
+    {
+      "from": "coruscant",
+      "to": "wroona"
+    },
+    {
+      "from": "coruscant",
+      "to": "eeropha"
+    },
+    {
+      "from": "coruscant",
+      "to": "lorrd"
+    },
+    {
+      "from": "coruscant",
+      "to": "nal-hutta"
+    },
+    {
+      "from": "coruscant",
+      "to": "mon-cala"
+    },
+    {
+      "from": "lorrd",
+      "to": "kashyyyk"
+    },
+    {
+      "from": "lorrd",
+      "to": "coruscant"
+    },
+    {
+      "from": "lorrd",
+      "to": "corellia"
+    },
+    {
+      "from": "lorrd",
+      "to": "eeropha"
+    },
+    {
+      "from": "lorrd",
+      "to": "ithor"
+    },
+    {
+      "from": "tatooine",
+      "to": "ithor"
+    },
+    {
+      "from": "tatooine",
+      "to": "ryloth"
+    }
+  ],
+  "temporaryControls": [
+    {
+      "id": "naboo-bespin",
+      "from": "naboo",
+      "to": "bespin",
+      "monitor": ["Naboo", "Bespin"]
+    },
+    {
+      "id": "corellia-wroona",
+      "from": "corellia",
+      "to": "wroona",
+      "monitor": ["Corellia", "Wroona"]
+    },
+    {
+      "id": "kashyyyk-core-worlds",
+      "from": "kashyyyk",
+      "to": "core-worlds",
+      "monitor": ["Kashyyyk", "Core Worlds"]
+    },
+    {
+      "id": "arkania-lorrd",
+      "from": "arkania",
+      "to": "lorrd",
+      "monitor": ["Arkania", "Lorrd"]
+    },
+    {
+      "id": "hutt-space-tatooine",
+      "from": "nal-hutta",
+      "to": "tatooine",
+      "monitor": ["Hutt Space", "Tatooine"]
+    }
+  ],
+  "observations": [
+    {
+      "from": "eeropha",
+      "to": "lorrd",
+      "status": "Available",
+      "evidence": "User-confirmed Ryloth to Lorrd itinerary via Eeropha and Lodestar refueling, 2026-09-10."
+    },
+    {
+      "from": "arkania",
+      "to": "kashyyyk",
+      "status": "No Path",
+      "parsecs": 63,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "coruscant",
+      "status": "Out of Range",
+      "parsecs": 83.1,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "alderaan",
+      "status": "No Path",
+      "parsecs": 87,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "corellia",
+      "status": "Out of Range",
+      "parsecs": 64.7,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "wroona",
+      "status": "Available",
+      "parsecs": 43,
+      "time": "5m 10s",
+      "fuel": "86%"
+    },
+    {
+      "from": "arkania",
+      "to": "eeropha",
+      "status": "Available",
+      "parsecs": 34,
+      "time": "4m 06s",
+      "fuel": "68%"
+    },
+    {
+      "from": "arkania",
+      "to": "ithor",
+      "status": "Available",
+      "parsecs": 45.5,
+      "time": "5m 28s",
+      "fuel": "91%"
+    },
+    {
+      "from": "arkania",
+      "to": "lorrd",
+      "status": "No Path",
+      "parsecs": 39.8,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "nal-hutta",
+      "status": "Out of Range",
+      "parsecs": 71.2,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "tatooine",
+      "status": "Out of Range",
+      "parsecs": 63.1,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "mon-cala",
+      "status": "No Path",
+      "parsecs": 96.8,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "arkania",
+      "to": "ryloth",
+      "status": "Available",
+      "parsecs": 19.7,
+      "time": "2m 26s",
+      "fuel": "39%"
+    },
+    {
+      "from": "arkania",
+      "to": "bespin",
+      "status": "Available",
+      "parsecs": 20.2,
+      "time": "2m 30s",
+      "fuel": "40%"
+    },
+    {
+      "from": "arkania",
+      "to": "naboo",
+      "status": "Available",
+      "parsecs": 20.5,
+      "time": "2m 32s",
+      "fuel": "41%"
+    },
+    {
+      "from": "arkania",
+      "to": "arkania",
+      "status": "Same system",
+      "parsecs": 0,
+      "time": "08s",
+      "fuel": "0%"
+    },
+    {
+      "from": "wroona",
+      "to": "kashyyyk",
+      "status": "Out of Range",
+      "parsecs": 52.2,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "wroona",
+      "to": "coruscant",
+      "status": "Available",
+      "parsecs": 48.1,
+      "time": "5m 46s",
+      "fuel": "98%"
+    },
+    {
+      "from": "wroona",
+      "to": "alderaan",
+      "status": "Out of Range",
+      "parsecs": 57.2,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "wroona",
+      "to": "corellia",
+      "status": "Available",
+      "parsecs": 25.5,
+      "time": "3m 06s",
+      "fuel": "52%"
+    },
+    {
+      "from": "wroona",
+      "to": "wroona",
+      "status": "Same system",
+      "parsecs": 0,
+      "time": "08s",
+      "fuel": "0%"
+    },
+    {
+      "from": "wroona",
+      "to": "eeropha",
+      "status": "Available",
+      "parsecs": 17.4,
+      "time": "2m 10s",
+      "fuel": "35%"
+    },
+    {
+      "from": "wroona",
+      "to": "ithor",
+      "status": "Available",
+      "parsecs": 12.5,
+      "time": "1m 36s",
+      "fuel": "25%"
+    },
+    {
+      "from": "wroona",
+      "to": "lorrd",
+      "status": "Available",
+      "parsecs": 33.6,
+      "time": "4m 04s",
+      "fuel": "68%"
+    },
+    {
+      "from": "wroona",
+      "to": "nal-hutta",
+      "status": "Available",
+      "parsecs": 29.2,
+      "time": "3m 32s",
+      "fuel": "59%"
+    },
+    {
+      "from": "wroona",
+      "to": "tatooine",
+      "status": "No Path",
+      "parsecs": 28.3,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "wroona",
+      "to": "mon-cala",
+      "status": "Out of Range",
+      "parsecs": 61.7,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "wroona",
+      "to": "ryloth",
+      "status": "Available",
+      "parsecs": 23.2,
+      "time": "2m 50s",
+      "fuel": "47%"
+    },
+    {
+      "from": "wroona",
+      "to": "bespin",
+      "status": "Out of Range",
+      "parsecs": 52.3,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "wroona",
+      "to": "naboo",
+      "status": "No Path",
+      "parsecs": 62.7,
+      "time": "-\u003e",
+      "fuel": "-\u003e"
+    },
+    {
+      "from": "wroona",
+      "to": "arkania",
+      "status": "Available",
+      "parsecs": 42.9,
+      "time": "5m 10s",
+      "fuel": "87%"
+    },
+    {
+      "from": "ryloth",
+      "to": "kashyyyk",
+      "status": "No Path",
+      "parsecs": 54.5,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "coruscant",
+      "status": "Out of Range",
+      "parsecs": 65.9,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "alderaan",
+      "status": "Out of Range",
+      "parsecs": 71.8,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "corellia",
+      "status": "Available",
+      "parsecs": 45.8,
+      "time": "5m 30s",
+      "fuel": "92%"
+    },
+    {
+      "from": "ryloth",
+      "to": "wroona",
+      "status": "Available",
+      "parsecs": 23.1,
+      "time": "2m 50s",
+      "fuel": "46%"
+    },
+    {
+      "from": "ryloth",
+      "to": "eeropha",
+      "status": "Available",
+      "parsecs": 17.7,
+      "time": "2m 12s",
+      "fuel": "35%"
+    },
+    {
+      "from": "ryloth",
+      "to": "ithor",
+      "status": "Available",
+      "parsecs": 26.8,
+      "time": "3m 16s",
+      "fuel": "54%"
+    },
+    {
+      "from": "ryloth",
+      "to": "lorrd",
+      "status": "No Path",
+      "parsecs": 30.6,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "nal-hutta",
+      "status": "Out of Range",
+      "parsecs": 51.5,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "tatooine",
+      "status": "Available",
+      "parsecs": 45.1,
+      "time": "5m 24s",
+      "fuel": "91%"
+    },
+    {
+      "from": "ryloth",
+      "to": "mon-cala",
+      "status": "Out of Range",
+      "parsecs": 79.8,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "ryloth",
+      "status": "Same system",
+      "parsecs": 0.4,
+      "time": "10s",
+      "fuel": "0%"
+    },
+    {
+      "from": "ryloth",
+      "to": "bespin",
+      "status": "Available",
+      "parsecs": 31.9,
+      "time": "3m 52s",
+      "fuel": "64%"
+    },
+    {
+      "from": "ryloth",
+      "to": "naboo",
+      "status": "No Path",
+      "parsecs": 39.8,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "ryloth",
+      "to": "arkania",
+      "status": "Available",
+      "parsecs": 19.9,
+      "time": "2m 26s",
+      "fuel": "40%"
+    },
+    {
+      "from": "corellia",
+      "to": "kashyyyk",
+      "status": "Available",
+      "parsecs": 44.4,
+      "time": "5m 20s",
+      "fuel": "90%"
+    },
+    {
+      "from": "corellia",
+      "to": "coruscant",
+      "status": "Available",
+      "parsecs": 23.2,
+      "time": "2m 50s",
+      "fuel": "47%"
+    },
+    {
+      "from": "corellia",
+      "to": "alderaan",
+      "status": "Available",
+      "parsecs": 34.6,
+      "time": "4m 10s",
+      "fuel": "70%"
+    },
+    {
+      "from": "corellia",
+      "to": "corellia",
+      "status": "Same system",
+      "parsecs": 0.2,
+      "time": "08s",
+      "fuel": "0%"
+    },
+    {
+      "from": "corellia",
+      "to": "wroona",
+      "status": "Available",
+      "parsecs": 25.5,
+      "time": "3m 06s",
+      "fuel": "52%"
+    },
+    {
+      "from": "corellia",
+      "to": "eeropha",
+      "status": "Available",
+      "parsecs": 31.4,
+      "time": "3m 48s",
+      "fuel": "64%"
+    },
+    {
+      "from": "corellia",
+      "to": "ithor",
+      "status": "Available",
+      "parsecs": 34.3,
+      "time": "4m 08s",
+      "fuel": "70%"
+    },
+    {
+      "from": "corellia",
+      "to": "lorrd",
+      "status": "Available",
+      "parsecs": 38.2,
+      "time": "4m 36s",
+      "fuel": "78%"
+    },
+    {
+      "from": "corellia",
+      "to": "nal-hutta",
+      "status": "Available",
+      "parsecs": 26.8,
+      "time": "3m 16s",
+      "fuel": "54%"
+    },
+    {
+      "from": "corellia",
+      "to": "tatooine",
+      "status": "No Path",
+      "parsecs": 40.1,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "corellia",
+      "to": "mon-cala",
+      "status": "Available",
+      "parsecs": 36.4,
+      "time": "4m 24s",
+      "fuel": "74%"
+    },
+    {
+      "from": "corellia",
+      "to": "ryloth",
+      "status": "Available",
+      "parsecs": 46,
+      "time": "5m 30s",
+      "fuel": "94%"
+    },
+    {
+      "from": "corellia",
+      "to": "bespin",
+      "status": "Out of Range",
+      "parsecs": 77,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "corellia",
+      "to": "naboo",
+      "status": "No Path",
+      "parsecs": 85.2,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "corellia",
+      "to": "arkania",
+      "status": "Out of Range",
+      "parsecs": 64.7,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "kashyyyk",
+      "status": "No Path",
+      "parsecs": 42,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "coruscant",
+      "status": "Same system",
+      "parsecs": 0,
+      "time": "08s",
+      "fuel": "0%"
+    },
+    {
+      "from": "coruscant",
+      "to": "alderaan",
+      "status": "Available",
+      "parsecs": 14.2,
+      "time": "1m 48s",
+      "fuel": "28%"
+    },
+    {
+      "from": "coruscant",
+      "to": "corellia",
+      "status": "Available",
+      "parsecs": 23.2,
+      "time": "2m 50s",
+      "fuel": "46%"
+    },
+    {
+      "from": "coruscant",
+      "to": "wroona",
+      "status": "Available",
+      "parsecs": 48.1,
+      "time": "5m 46s",
+      "fuel": "96%"
+    },
+    {
+      "from": "coruscant",
+      "to": "eeropha",
+      "status": "Available",
+      "parsecs": 49.2,
+      "time": "5m 54s",
+      "fuel": "99%"
+    },
+    {
+      "from": "coruscant",
+      "to": "ithor",
+      "status": "Out of Range",
+      "parsecs": 57.6,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "lorrd",
+      "status": "Available",
+      "parsecs": 48.5,
+      "time": "5m 48s",
+      "fuel": "97%"
+    },
+    {
+      "from": "coruscant",
+      "to": "nal-hutta",
+      "status": "Available",
+      "parsecs": 45.5,
+      "time": "5m 28s",
+      "fuel": "91%"
+    },
+    {
+      "from": "coruscant",
+      "to": "tatooine",
+      "status": "No Path",
+      "parsecs": 61.8,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "mon-cala",
+      "status": "Available",
+      "parsecs": 13.9,
+      "time": "1m 44s",
+      "fuel": "27%"
+    },
+    {
+      "from": "coruscant",
+      "to": "ryloth",
+      "status": "Out of Range",
+      "parsecs": 66,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "bespin",
+      "status": "Out of Range",
+      "parsecs": 97.8,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "naboo",
+      "status": "No Path",
+      "parsecs": 103.5,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "coruscant",
+      "to": "arkania",
+      "status": "Out of Range",
+      "parsecs": 83.1,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "kashyyyk",
+      "status": "Available",
+      "parsecs": 24,
+      "time": "2m 56s",
+      "fuel": "48%"
+    },
+    {
+      "from": "lorrd",
+      "to": "coruscant",
+      "status": "Available",
+      "parsecs": 48.5,
+      "time": "5m 48s",
+      "fuel": "97%"
+    },
+    {
+      "from": "lorrd",
+      "to": "alderaan",
+      "status": "No Path",
+      "parsecs": 48.9,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "corellia",
+      "status": "Available",
+      "parsecs": 38.1,
+      "time": "4m 36s",
+      "fuel": "76%"
+    },
+    {
+      "from": "lorrd",
+      "to": "wroona",
+      "status": "No Path",
+      "parsecs": 33.6,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "eeropha",
+      "status": "Available",
+      "parsecs": 17,
+      "time": "2m 06s",
+      "fuel": "34%"
+    },
+    {
+      "from": "lorrd",
+      "to": "ithor",
+      "status": "Available",
+      "parsecs": 45.3,
+      "time": "5m 26s",
+      "fuel": "91%"
+    },
+    {
+      "from": "lorrd",
+      "to": "lorrd",
+      "status": "Same system",
+      "parsecs": 0,
+      "time": "06s",
+      "fuel": "0%"
+    },
+    {
+      "from": "lorrd",
+      "to": "nal-hutta",
+      "status": "Out of Range",
+      "parsecs": 58.5,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "tatooine",
+      "status": "No Path",
+      "parsecs": 61.9,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "mon-cala",
+      "status": "Out of Range",
+      "parsecs": 61.2,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "ryloth",
+      "status": "No Path",
+      "parsecs": 30.6,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "bespin",
+      "status": "No Path",
+      "parsecs": 58.7,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "naboo",
+      "status": "No Path",
+      "parsecs": 58.6,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "lorrd",
+      "to": "arkania",
+      "status": "No Path",
+      "parsecs": 39.8,
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "kashyyyk",
+      "parsecs": 78.6,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "coruscant",
+      "parsecs": 61.8,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "alderaan",
+      "parsecs": 74.5,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "corellia",
+      "parsecs": 40.2,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "wroona",
+      "parsecs": 28.3,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "eeropha",
+      "parsecs": 45.6,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "ithor",
+      "parsecs": 18.4,
+      "status": "Available",
+      "time": "2m 16s",
+      "fuel": "37%"
+    },
+    {
+      "from": "tatooine",
+      "to": "lorrd",
+      "parsecs": 61.8,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "nal-hutta",
+      "parsecs": 18.7,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "tatooine",
+      "parsecs": 0,
+      "status": "Same system",
+      "time": "08s",
+      "fuel": "0%"
+    },
+    {
+      "from": "tatooine",
+      "to": "mon-cala",
+      "parsecs": 73.1,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "ryloth",
+      "parsecs": 45.3,
+      "status": "Available",
+      "time": "5m 26s",
+      "fuel": "91%"
+    },
+    {
+      "from": "tatooine",
+      "to": "bespin",
+      "parsecs": 64.2,
+      "status": "Out of Range",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "naboo",
+      "parsecs": 79.8,
+      "status": "No Path",
+      "time": "-",
+      "fuel": "-"
+    },
+    {
+      "from": "tatooine",
+      "to": "arkania",
+      "parsecs": 63,
+      "status": "Out of Range",
+      "time": "-",
+      "fuel": "-"
+    }
+  ],
+  "waypoints": {
+    "eeropha": {
+      "name": "Eeropha",
+      "system": "Eeropha System",
+      "galacticCoordinates": {
+        "x": 39,
+        "y": 30
+      },
+      "refuelStation": "Lodestar Utopia Refueling Station",
+      "refuelCoordinates": {
+        "x": 9137,
+        "y": 4521,
+        "z": -18941
+      },
+      "landingTarget": "Lodestar",
+      "approachTarget": "Eeropha",
+      "landingPad": "1"
+    }
+  }
+}

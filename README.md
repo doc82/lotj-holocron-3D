@@ -87,6 +87,10 @@ waits and reconnects automatically until both sides are available.
 
 ## Documentation
 
+See the [documentation index](docs/README.md), including the current
+[Trader/autopilot iteration](docs/trader/README.md) and
+[galaxy maps and navigation evidence](docs/navigation/README.md).
+
 ### Using Holocron3D
 
 - [Current capabilities](docs/capabilities.md) describes telemetry, rendering,
@@ -114,6 +118,12 @@ waits and reconnects automatically until both sides are available.
 - [Product roadmap](docs/roadmap.md) tracks completed and planned milestones.
 - [Electron migration notes](docs/electron-migration.md) preserve the desktop
   migration history and distribution considerations.
+
+## AutoPilot credits
+
+Thanks to [Xavious](https://github.com/Xavious/AutoPilot), author of AutoPilot for
+Legends of the Jedi. Its flight and cargo workflows provided a reference for
+Holocron’s autoflight implementation.
 
 ## Planet texture credits
 

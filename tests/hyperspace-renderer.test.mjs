@@ -31,6 +31,14 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
     "utf8",
   );
   const transit = await readFile("renderer/src/features/hyperspace/HyperspaceTransit.tsx", "utf8");
+  const transitMap = await readFile(
+    "renderer/src/features/hyperspace/GalacticTransitMap.tsx",
+    "utf8",
+  );
+  const transitMapStyles = await readFile(
+    "renderer/src/features/hyperspace/GalacticTransitMap.module.css",
+    "utf8",
+  );
   const field = await readFile("renderer/src/features/hyperspace/HyperspaceField.tsx", "utf8");
   const scraper = await readFile("mudlet/lotj_holocron_scraper.lua", "utf8");
 
@@ -133,8 +141,25 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(controller, /TARGET MOVED/);
   assert.match(controller, /trackingUpdate\.targetObservedAt/);
   assert.match(planner, /PLOT \+ TRACK/);
+  assert.match(planner, /ARM EXIT VECTOR/);
+  assert.match(planner, /KNOWN OBJECT/);
+  assert.match(planner, /CUSTOM XYZ/);
+  assert.match(planner, /EXIT SPEED \/\/ \{exitSpeedPercent\}% OF FORMATION MAX/);
+  assert.match(planner, /setExitSpeedPercent\] = useState\(50\)/);
+  assert.match(planner, /exitPlan: escape \? undefined : exitPlan/);
+  assert.match(planner, /escape\.route\.exitPlan = exitPlan/);
+  assert.match(controller, /Math\.min\(\.\.\.maximums\)/);
+  assert.match(controller, /missingMaximumSpeedNames/);
+  assert.match(planner, /source: "info"/);
+  assert.match(controller, /EXIT VECTOR \$\{status\.toUpperCase\(\)\}/);
+  assert.match(computer, /EXIT VECTOR ARMED/);
+  assert.match(scraper, /course %d %d %d/);
+  assert.match(scraper, /hyperspaceExitRecipients/);
+  assert.match(scraper, /formationMaximum \* speedPercent \/ 100/);
+  assert.match(scraper, /completeHyperspaceExitArrival/);
+  assert.match(scraper, /Emergency hyperspace cutoff requested/);
   assert.match(computer, /RECALCULATE BEYOND/);
-  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen\}/);
+  assert.match(app, /keyboardEnabled=\{!hyperspacePlanner && !managementOpen && !traderOpen\}/);
   assert.match(navigation, /!current\.keyboardEnabled/);
   assert.match(tacticalCanvas, /setKeyboardEnabled\(keyboardEnabled\)/);
   assert.match(tacticalCanvas, /focusPoint: \(targetId\)/);
@@ -146,6 +171,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /scheduleHyperspaceCalculationEstimate/);
   assert.match(scraper, /Checking hyperspace course integrity/);
   assert.match(scraper, /Navigation Computer is calculating the route/);
+  assert.match(scraper, /Could not locate destination system in your nav computer/);
   assert.match(computer, /INSUFFICIENT FUEL/);
   assert.match(computer, /ENGAGE ANYWAY/);
   assert.match(computer, /ESTIMATED CALCULATION WINDOW COMPLETE/);
@@ -157,12 +183,30 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(transit, /Escape hyperspace/);
   assert.match(transit, /EMERGENCY HYPERDRIVE CUTOFF/);
   assert.match(transit, /HyperspaceField engaged/);
+  assert.doesNotMatch(transit, /route\?\.mode === "galactic"/);
+  assert.match(transit, /GalacticTransitMap/);
+  assert.match(transit, /origin=\{route\?\.galaxyOrigin\}/);
+  assert.match(transit, /current=\{galaxyPosition\}/);
+  assert.match(transit, /destination=\{route\?\.galaxy\}/);
+  assert.match(planner, /galaxyOrigin: mode === "galactic" \? currentGalaxy : undefined/);
+  assert.match(app, /liveShipGalaxyPosition/);
+  assert.match(app, /const transitRoute = hyperspaceState\.route \|\| activeRoute \|\| null/);
+  assert.match(app, /route=\{transitRoute\}/);
+  assert.match(app, /telemetry\.galaxyCatalog\?\.shipSystem/);
+  assert.match(transitMap, /GALACTIC TRANSIT PLOT/);
+  assert.match(transitMap, /LIVE GMCP \/\/ SHIP\.SYSTEM/);
+  assert.match(transitMapStyles, /left 850ms linear/);
+  assert.match(transitMap, /completedRoute/);
   assert.match(transit, /transition: "opacity 5s ease-out, filter 5s ease-out"/);
   assert.match(transit, /arrived && reentryFadeStarted \? 0 : 1/);
   assert.match(transit, /setHidden\(true\), 5_000/);
   assert.match(field, /edgeActivation/);
   assert.match(scraper, /calc stop/);
   assert.match(scraper, /"hyper off", false/);
+  assert.match(scraper, /normalized == "hyperspace"/);
+  assert.match(scraper, /requestManualHyperspaceNavstat/);
+  assert.match(scraper, /updateManualHyperspaceRoute/);
+  assert.match(scraper, /command ~= "navstat"/);
   assert.match(scraper, /escape_hyperspace/);
   assert.match(scraper, /automation lease expired/i);
   assert.match(scraper, /Galaxy 1/);
@@ -179,6 +223,7 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
   assert.match(scraper, /capture\.followupRadar/);
   assert.match(scraper, /lotj\.galaxyMap\.systems/);
   assert.match(scraper, /Destination reached\. Initiating realspace reentry/);
+  assert.match(scraper, /queueImmediateWorldRefresh\("hyperspace destination reached", true\)/);
   assert.match(scraper, /The ship lurches slightly as it comes out of hyperspace/);
   assert.match(scraper, /queueImmediateWorldRefresh\("own ship realspace lurch", true\)/);
   assert.match(scraper, /completeOwnHyperspaceArrival\("fresh radar"\)/);
@@ -189,6 +234,9 @@ test("hyperspace planners expose local, galactic, fuel-safety, and escape flows"
     /recipient\.localShip[\s\S]*?table\.insert\(commands, localCommand\)[\s\S]*?battlegroup nav " \.\. recipient\.selector/,
   );
   assert.match(scraper, /routeIncludesLocalShip/);
-  assert.match(scraper, /MIN_HYPERSPACE_CLEARANCE = 500/);
+  assert.match(
+    await readFile("mudlet/lotj_holocron_navigation.lua", "utf8"),
+    /MIN_HYPERSPACE_CLEARANCE = 500/,
+  );
   assert.match(await readFile("mudlet/lotj_holocron_parsers.lua", "utf8"), /\[%dsmh%s\]\+/);
 });

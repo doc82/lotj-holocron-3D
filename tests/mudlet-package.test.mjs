@@ -41,10 +41,11 @@ test("Muddler project declares the Holocron3D bootstrap and command alias", asyn
   assert.match(bootstrap, /XDG_DATA_HOME/);
   assert.match(bootstrap, /desktop-launcher/);
   assert.match(bootstrap, /Package\.settingsPath/);
+  assert.match(bootstrap, /holocron3d-ship-info-cache\.json/);
   assert.match(bootstrap, /h3d confirmations on \| off/);
   assert.match(bootstrap, /h3d debug on \| off/);
   assert.match(bootstrap, /Package\.setPollingPaused/);
-  assert.match(bootstrap, /scraper\.setup\(lotjHolocron3D, \{ polling = false \}\)/);
+  assert.match(bootstrap, /infoCache = \{ path = Package\.infoCachePath \}/);
   assert.match(bootstrap, /scraper\.startStartupPolling\(\)/);
   assert.match(bootstrap, /lotjHolocron3D\.onDisconnect/);
   assert.match(bootstrap, /lotjHolocron3D\.isReady/);

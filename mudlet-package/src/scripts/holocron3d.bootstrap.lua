@@ -1,10 +1,11 @@
 lotjHolocron3DPackage = lotjHolocron3DPackage or {}
 
 local Package = lotjHolocron3DPackage
-Package.VERSION = "0.1.12"
+Package.VERSION = "0.1.13"
 Package.root = getMudletHomeDir() .. "/Holocron3D"
 Package.devConfigPath = getMudletHomeDir() .. "/holocron3d-dev-app-path.txt"
 Package.settingsPath = getMudletHomeDir() .. "/holocron3d-settings.txt"
+Package.infoCachePath = getMudletHomeDir() .. "/holocron3d-ship-info-cache.json"
 Package.settings = { confirmations = true, debug = false }
 
 local function trim(value)
@@ -367,6 +368,9 @@ function Package.start()
   package.loaded["lotj_holocron_proxy"] = nil
   package.loaded["lotj_holocron_parsers"] = nil
   package.loaded["lotj_holocron_scraper"] = nil
+  package.loaded["lotj_holocron_navigation"] = nil
+  package.loaded["lotj_holocron_topology"] = nil
+  package.loaded["lotj_holocron_topology_data"] = nil
 
   local runtime, runtimeError = resolveRuntime(false)
   if not runtime then
@@ -417,7 +421,10 @@ function Package.start()
     end
   end
 
-  local scraperReady, scraperError = scraper.setup(lotjHolocron3D, { polling = false })
+  local scraperReady, scraperError = scraper.setup(lotjHolocron3D, {
+    polling = false,
+    infoCache = { path = Package.infoCachePath },
+  })
   if not scraperReady then
     say("red", "could not start live scraping: " .. tostring(scraperError))
     return nil, scraperError

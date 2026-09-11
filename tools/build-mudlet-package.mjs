@@ -4,6 +4,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import "./build-navigation-data.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "mudlet-package");
 const resources = path.join(packageRoot, "src", "resources");
@@ -22,6 +24,9 @@ if (!launcher) throw new Error(`Muddler launcher was not found beneath ${muddler
 fs.mkdirSync(resources, { recursive: true });
 for (const name of [
   "lotj_holocron_parsers.lua",
+  "lotj_holocron_navigation.lua",
+  "lotj_holocron_topology.lua",
+  "lotj_holocron_topology_data.lua",
   "lotj_holocron_proxy.lua",
   "lotj_holocron_scraper.lua",
 ]) {

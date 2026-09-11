@@ -62,6 +62,15 @@ export function NavigationComputer({
             {fmt(route.tracking.thresholdUnits)} U
           </div>
         )}
+        {route.exitPlan && (
+          <div className={styles.estimate}>
+            EXIT VECTOR ARMED // {route.exitPlan.speedPercent}% FORMATION MAX // SPEED{" "}
+            {fmt(route.exitPlan.speed)} //{" "}
+            {route.exitPlan.mode === "target"
+              ? route.exitPlan.target?.name.toUpperCase()
+              : `COURSE ${fmt(route.exitPlan.destination?.x)} / ${fmt(route.exitPlan.destination?.y)} / ${fmt(route.exitPlan.destination?.z)}`}
+          </div>
+        )}
         {trackingRecalculationPending && (
           <div className={styles.countdown}>
             <span style={{ width: "100%" }} />

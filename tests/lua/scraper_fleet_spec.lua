@@ -580,6 +580,23 @@ Hull: 712/1000 Shields: 400/500
     )
   end)
 
+  it("faces a selected contact without changing formation speed", function()
+    battlegroup()
+    local before = #fixture.commands
+    local ok, failure = fixture.intentHandlers.fleet_order({
+      order = "navigate",
+      scope = "selected",
+      mode = "face",
+      targetId = "wayfarer",
+      memberIds = { "reeheehee" },
+      memberNames = { "ReeHeeHee" },
+      memberSlots = { 1 },
+    }, { id = "selected-face" })
+    assert(ok, failure)
+    equal(#fixture.commands, before + 1)
+    equal(fixture.commands[before + 1].command, "battlegroup nav ReeHeeHee face Wayfarer")
+  end)
+
   it("records a squadron target as both squadron and lead-ship target", function()
     local fleet = {
       kind = "squadron",
@@ -742,7 +759,7 @@ Hull: 712/1000 Shields: 400/500
     assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
     equal(fixture.scraper.state.metadata.hyperspace.phase, "reentry")
     assert(fixture.scraper.handleReentrySystemLine("Corellian System"))
-    equal(fixture.scraper.getPollingState().radarRefreshPending, false)
+    equal(fixture.scraper.getPollingState().radarRefreshPending, true)
     assert(
       fixture.scraper.handleHyperspaceLine(
         "The ship lurches slightly as it comes out of hyperspace."
@@ -753,6 +770,228 @@ Hull: 712/1000 Shields: 400/500
     equal(fixture.scraper.getPollingState().fleetRadarRefreshPending, true)
     finishFreshRadar(1200, -50, 800)
     equal(fixture.scraper.state.metadata.hyperspace.phase, "arrived")
+  end)
+
+  it("applies a local absolute exit course at half maximum speed after fresh radar", function()
+    fixture:entity("Wayfarer").x = 600
+    fixture.scraper.state.observer.speed = { current = 40, maximum = 300 }
+    fixture.scraper.state.metadata.sources.radar = os.time()
+    local route = {
+      mode = "local",
+      scope = "local",
+      destination = { x = 1200, y = -50, z = 800 },
+      exitPlan = {
+        mode = "coordinates",
+        destination = { x = 900, y = -25, z = 450 },
+        speedPercent = 50,
+      },
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, { id = "exit-route" }))
+    equal(route.exitPlan.formationMaximumSpeed, 300)
+    equal(route.exitPlan.speed, 150)
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "exit-engage" }))
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The ship lurches slightly as it comes out of hyperspace."
+      )
+    )
+    local before = #fixture.commands
+    finishFreshRadar(1200, -50, 800)
+    equal(fixture.commands[before + 1].command, "speed 150")
+    equal(fixture.commands[before + 2].command, "course 900 -25 450")
+    equal(fixture.scraper.state.metadata.hyperspace.exitPlanStatus, "completed")
+  end)
+
+  it("resolves a known exit target from its fresh post-arrival coordinates", function()
+    fixture:entity("Wayfarer").x = 600
+    fixture.scraper.state.observer.speed = { current = 40, maximum = 300 }
+    fixture.scraper.state.metadata.sources.radar = os.time()
+    local route = {
+      mode = "local",
+      scope = "local",
+      destination = { x = 1200, y = -50, z = 800 },
+      exitPlan = {
+        mode = "target",
+        target = {
+          id = "wayfarer",
+          name = "Wayfarer",
+          kind = "ship",
+          lastKnownPosition = { x = 600, y = 0, z = 0 },
+        },
+        speedPercent = 50,
+      },
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, { id = "target-exit-route" }))
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "target-exit-engage" }))
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The ship lurches slightly as it comes out of hyperspace."
+      )
+    )
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("YT-1300 'Wayfarer' 1700 75 -20")
+    fixture.scraper.captureLine("Your Coordinates: 1200 -50 800")
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.commands[#fixture.commands - 1].command, "speed 150")
+    equal(fixture:lastCommand().command, "course 1700 75 -20")
+  end)
+
+  it("uses the slowest selected ship maximum for a shared battlegroup exit speed", function()
+    local fleet = battlegroup()
+    fixture.scraper.state.observer.speed = { current = 40, maximum = 600 }
+    fleet.members[1].maximumSpeed = 600
+    fleet.members[2].maximumSpeed = 400
+    fixture.scraper.state.metadata.sources.radar = os.time()
+    local route = {
+      mode = "local",
+      scope = "all",
+      formationKind = "battlegroup",
+      destination = { x = 1200, y = -50, z = 800 },
+      estimatedTravelSeconds = 2,
+      exitPlan = {
+        mode = "coordinates",
+        destination = { x = 700, y = 80, z = -300 },
+        speedPercent = 50,
+      },
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, { id = "fleet-exit-route" }))
+    equal(route.exitPlan.formationMaximumSpeed, 400)
+    equal(route.exitPlan.speed, 200)
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "fleet-exit-engage" }))
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The ship lurches slightly as it comes out of hyperspace."
+      )
+    )
+    local beforeLocal = #fixture.commands
+    finishFreshRadar(1200, -50, 800)
+    equal(fixture.commands[beforeLocal + 1].command, "speed 200")
+    equal(fixture.commands[beforeLocal + 2].command, "course 700 80 -300")
+
+    local probeTimer = fixture.scraper.hyperspace.exitProbeTimerId
+    assert(probeTimer and fixture.timers[probeTimer])
+    fixture:tick(probeTimer)
+    equal(fixture:lastCommand().command, "battlegroup nav ReeHeeHee radar")
+    fixture.scraper.captureLine("Corellian System")
+    fixture.scraper.captureLine("Your Coordinates: 1200 -50 800")
+    assert(fixture.scraper.finishCapture("prompt"))
+    equal(fixture.commands[#fixture.commands - 1].command, "battlegroup nav 1 speed 200")
+    equal(fixture:lastCommand().command, "battlegroup nav 1 course 700 80 -300")
+    equal(fixture.scraper.state.metadata.hyperspace.exitPlanStatus, "completed")
+  end)
+
+  it(
+    "waits for a remote wing to reach its plotted coordinates before applying its exit plan",
+    function()
+      local fleet = battlegroup()
+      fleet.members[2].maximumSpeed = 400
+      local route = {
+        mode = "local",
+        scope = "selected",
+        formationKind = "battlegroup",
+        memberIds = { "reeheehee" },
+        memberNames = { "ReeHeeHee" },
+        memberSlots = { 1 },
+        destination = { x = 1200, y = -50, z = 800 },
+        estimatedTravelSeconds = 2,
+        exitPlan = {
+          mode = "coordinates",
+          destination = { x = 700, y = 80, z = -300 },
+          speedPercent = 50,
+        },
+      }
+      assert(fixture.intentHandlers.plot_hyperspace(route, { id = "remote-exit-route" }))
+      local calculationTimer = fixture.scraper.hyperspace.statusTimerId
+      assert(calculationTimer and fixture.timers[calculationTimer])
+      fixture:tick(calculationTimer)
+      assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "remote-exit-engage" }))
+
+      local firstProbe = fixture.scraper.hyperspace.exitProbeTimerId
+      fixture:tick(firstProbe)
+      fixture.scraper.captureLine("Corellian System")
+      fixture.scraper.captureLine("Your Coordinates: 40 50 60")
+      assert(fixture.scraper.finishCapture("prompt"))
+      equal(fixture.scraper.state.metadata.hyperspace.exitPlanStatus, "armed")
+      equal(fixture:lastCommand().command, "battlegroup nav ReeHeeHee radar")
+
+      local secondProbe = fixture.scraper.hyperspace.exitProbeTimerId
+      fixture:tick(secondProbe)
+      fixture.scraper.captureLine("Corellian System")
+      fixture.scraper.captureLine("Your Coordinates: 1200 -50 800")
+      assert(fixture.scraper.finishCapture("prompt"))
+      equal(fixture.commands[#fixture.commands - 1].command, "battlegroup nav 1 speed 200")
+      equal(fixture:lastCommand().command, "battlegroup nav 1 course 700 80 -300")
+    end
+  )
+
+  it("cancels pending course and speed when hyperspace is cut off", function()
+    fixture:entity("Wayfarer").x = 600
+    fixture.scraper.state.observer.speed = { current = 40, maximum = 300 }
+    fixture.scraper.state.metadata.sources.radar = os.time()
+    local route = {
+      mode = "local",
+      scope = "local",
+      destination = { x = 1200, y = -50, z = 800 },
+      exitPlan = {
+        mode = "coordinates",
+        destination = { x = 900, y = -25, z = 450 },
+        speedPercent = 50,
+      },
+    }
+    assert(fixture.intentHandlers.plot_hyperspace(route, { id = "cutoff-exit-route" }))
+    assert(
+      fixture.scraper.handleHyperspaceLine("[Status]: Hyperspace calculations have been completed.")
+    )
+    assert(fixture.intentHandlers.engage_hyperdrive(route, { id = "cutoff-exit-engage" }))
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    assert(fixture.intentHandlers.escape_hyperspace())
+    equal(fixture.scraper.state.metadata.hyperspace.exitPlanStatus, "cancelled")
+    assert(fixture.scraper.handleHyperspaceLine("Hyperjump complete."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The ship lurches slightly as it comes out of hyperspace."
+      )
+    )
+    local beforeArrival = #fixture.commands
+    finishFreshRadar(1200, -50, 800)
+    equal(#fixture.commands, beforeArrival)
+    equal(fixture:lastCommand().command, "hyper off")
   end)
 
   it("recovers an observer arrival from a regressed engaging phase", function()
@@ -857,6 +1096,46 @@ Hull: 712/1000 Shields: 400/500
       fixture.scraper.state.metadata.hyperspace.error,
       "You must be at a nav computer to calculate jumps."
     )
+  end)
+
+  it("releases a galactic calculation when the destination system is missing", function()
+    local route = {
+      mode = "galactic",
+      scope = "local",
+      systemName = "Missing Sector",
+      galaxy = { x = 12, y = -8 },
+      destination = { x = 100, y = 200, z = -300 },
+    }
+    local plotted, plotFailure =
+      fixture.intentHandlers.plot_hyperspace(route, { id = "missing-system-route" })
+    assert(plotted, plotFailure)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "calculating")
+
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "Using your skill with navigation you reroute energy to the hyperdrives."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "calculating")
+
+    local failure = "Could not locate destination system in your nav computer."
+    assert(fixture.scraper.handleHyperspaceLine(failure))
+    local state = fixture.scraper.state.metadata.hyperspace
+    equal(state.phase, "failed")
+    equal(state.error, failure)
+    equal(state.waitingForCalculation, false)
+    equal(state.calculationEstimated, false)
+    equal(fixture.scraper.hyperspace.initiatedByHolocron, false)
+
+    local ack = fixture.intentAcks[#fixture.intentAcks]
+    equal(ack.id, "missing-system-route")
+    equal(ack.status, "rejected")
+    equal(ack.reason, failure)
+
+    local replotted, replotFailure =
+      fixture.intentHandlers.plot_hyperspace(route, { id = "missing-system-retry" })
+    assert(replotted, replotFailure)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "calculating")
   end)
 
   it("does not reject a fleet route when the commander is away from the nav computer", function()
@@ -1191,13 +1470,122 @@ Hull: 712/1000 Shields: 400/500
     assert(fixture.scraper.state.metadata.hyperspace.route)
   end)
 
-  it("moves the observer into hyperspace after a direct local command", function()
-    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyper")
+  it("adopts a manually entered hyperspace route and inspects its destination", function()
+    _G.gmcp = {
+      Ship = { System = { name = "Corellian System", x = 10, y = 20 } },
+      Galaxy = { Systems = { ["Hutt Space"] = { name = "Hutt Space", x = -32, y = 48 } } },
+    }
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyperspace")
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "engaging")
     assert(
       fixture.scraper.handleHyperspaceLine(
         "The stars become streaks of light as you enter hyperspace."
       )
     )
     equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    equal(fixture.scraper.state.metadata.hyperspace.galaxyOrigin.x, 10)
+    equal(fixture.scraper.state.metadata.hyperspace.galaxyOrigin.y, 20)
+    assert(fixture:tickTimersAt(0.1) >= 1)
+    equal(fixture:lastCommand().command, "navstat")
+
+    fixture.scraper.captureLine("Readout for YT-1000 Light Freighter 'BlueSkies':")
+    fixture.scraper.captureLine("--Location-----------------------------------------------")
+    fixture.scraper.captureLine(" (Unable to determine current location)")
+    fixture.scraper.captureLine("--Nav Computer-------------------------------------------")
+    fixture.scraper.captureLine("This ship can jump to all standard sectors.")
+    fixture.scraper.captureLine("--Hyperspace---------------------------------------------")
+    fixture.scraper.captureLine("Jump System:         Hutt Space")
+    fixture.scraper.captureLine("Jump Distance:       18.1 parsecs")
+    fixture.scraper.captureLine("Jump Time:           2m 14s")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    local route = fixture.scraper.state.metadata.hyperspace.route
+    equal(route.mode, "galactic")
+    equal(route.manuallyInitiated, true)
+    equal(route.detectedBy, "navstat")
+    equal(route.systemName, "Hutt Space")
+    equal(route.galaxy.x, -32)
+    equal(route.galaxy.y, 48)
+    equal(route.galaxyOrigin.x, 10)
+    equal(route.galaxyOrigin.y, 20)
+    equal(fixture.scraper.state.metadata.navigation.jumpTimeSeconds, 134)
+  end)
+
+  it("selects the galactic overlay before destination coordinates are available", function()
+    _G.gmcp = {
+      Ship = { System = { name = "Corellian System", x = 10, y = 20 } },
+      Galaxy = { Systems = {} },
+    }
+    fixture.scraper.state.metadata.navigation = { jumpSystem = "Stale Destination" }
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyper")
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.navigation.jumpSystem, nil)
+    assert(fixture.scraper.publishGalaxyCatalog())
+    equal(fixture.scraper.state.metadata.hyperspace.route, nil)
+    assert(fixture:tickTimersAt(0.1) >= 1)
+
+    fixture.scraper.captureLine("Readout for YT-1000 Light Freighter 'BlueSkies':")
+    fixture.scraper.captureLine(" (Unable to determine current location)")
+    fixture.scraper.captureLine("Jump System:         Hutt Space")
+    fixture.scraper.captureLine("Jump Distance:       18.1 parsecs")
+    fixture.scraper.captureLine("Jump Time:           2m 14s")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    local route = fixture.scraper.state.metadata.hyperspace.route
+    equal(route.mode, "galactic")
+    equal(route.systemName, "Hutt Space")
+    equal(route.galaxy, nil)
+
+    _G.gmcp.Galaxy.Systems["Hutt Space"] = { x = -32, y = 48 }
+    assert(fixture.scraper.publishGalaxyCatalog())
+    equal(route.galaxy.x, -32)
+    equal(route.galaxy.y, 48)
+  end)
+
+  it("uses navstat to distinguish a local manual jump", function()
+    _G.gmcp = {
+      Ship = { System = { name = "Hutt Space", x = -32, y = 48 } },
+      Galaxy = { Systems = { ["Hutt Space"] = { x = -32, y = 48 } } },
+    }
+    fixture.scraper.handleOutgoingCommand("sysDataSendRequest", "hyp")
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    assert(fixture:tickTimersAt(0.1) >= 1)
+
+    fixture.scraper.captureLine("Readout for YT-1000 Light Freighter 'BlueSkies':")
+    fixture.scraper.captureLine(" (Unable to determine current location)")
+    fixture.scraper.captureLine("Jump System:         Hutt Space")
+    fixture.scraper.captureLine("Jump Distance:       0.1 parsecs")
+    fixture.scraper.captureLine("Jump Time:           8s")
+    assert(fixture.scraper.finishCapture("prompt"))
+
+    local route = fixture.scraper.state.metadata.hyperspace.route
+    equal(route.mode, "local")
+    equal(route.systemName, "Hutt Space")
+    equal(route.detectedBy, "navstat")
+  end)
+
+  it("adopts a manual jump when the outgoing command event is missed", function()
+    assert(fixture.scraper.startCapture("radar", "radar", { polled = true }))
+    assert(fixture.scraper.handleHyperspaceLine("You push forward the hyperspeed lever."))
+    equal(fixture.scraper.active, nil)
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "engaging")
+    assert(
+      fixture.scraper.handleHyperspaceLine(
+        "The stars become streaks of light as you enter hyperspace."
+      )
+    )
+    equal(fixture.scraper.state.metadata.hyperspace.phase, "hyperspace")
+    equal(fixture.scraper.state.metadata.hyperspace.manuallyInitiated, true)
   end)
 end)

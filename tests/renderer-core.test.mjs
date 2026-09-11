@@ -869,6 +869,20 @@ test("renderer scene stays centered on the observer", () => {
   assert.equal(scene.sequence, 12);
 });
 
+test("known unprefixed worlds render as planets while marked stars remain stars", () => {
+  const scene = buildScene({
+    observer: { id: "player-ship", x: 2008, y: -10017, z: 21858 },
+    entities: [
+      { id: "corell", name: "Corell", kind: "star", x: 345, y: 285, z: 674 },
+      { id: "corellia", name: "Corellia", kind: "celestial", x: 1567, y: -10000, z: 21812 },
+    ],
+    metadata: { system: "Corellian System" },
+  });
+
+  assert.equal(findScenePoint(scene, "corell")?.kind, "star");
+  assert.equal(findScenePoint(scene, "corellia")?.kind, "planet");
+});
+
 test("disabled ship condition survives scene construction", () => {
   const scene = buildScene({
     observer: { id: "player-ship", x: 0, y: 0, z: 0 },

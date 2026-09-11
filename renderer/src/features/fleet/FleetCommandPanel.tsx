@@ -9,6 +9,7 @@ function Glyph({ kind }: { kind: string }) {
   const paths: Record<string, string> = {
     move: "M5 25 22 8m-8 0h8v8M5 25h16",
     to: "M4 16h21m-7-7 7 7-7 7",
+    face: "M4 16h17m-7-7 7 7-7 7M25 7v18m-3-15 3-3 3 3m-6 12 3 3 3-3",
     away: "M28 16H7m7-7-7 7 7 7",
     target: "M16 4v7m0 10v7M4 16h7m10 0h7M16 11a5 5 0 1 0 0 10 5 5 0 0 0 0-10",
     fire: "M5 22 20 7m-3 0h3v3M8 25l5-5m8-2 6 6",
@@ -99,7 +100,7 @@ export function FleetCommandPanel({
   canTarget?: boolean;
   disabled?: boolean;
   onBeginMove(): void;
-  onCourseTarget(mode: "target" | "away"): void;
+  onCourseTarget(mode: "target" | "away" | "face"): void;
   onOrder(order: FleetOrder, payload?: Record<string, unknown>): void;
 }) {
   const scopeLabel =
@@ -150,6 +151,12 @@ export function FleetCommandPanel({
             glyph="to"
             disabled={disabled || !targetName}
             onClick={() => onCourseTarget("target")}
+          />
+          <OrderButton
+            label="FACE SELECTED SHIP"
+            glyph="face"
+            disabled={disabled || !canTarget}
+            onClick={() => onCourseTarget("face")}
           />
           <OrderButton
             label="COURSE AWAY FROM SELECTED CONTACT"

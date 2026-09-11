@@ -51,7 +51,7 @@ interface CommandActionPanelProps {
   manualScanStatus: string;
   onCancelNavigation(): void;
   onBeginMove(): void;
-  onCourseTarget(mode: "target" | "away"): void;
+  onCourseTarget(mode: "target" | "away" | "face"): void;
   onTarget(): void;
   onFire(weapon: WeaponType | "all"): Promise<string | null>;
   onFleetOrder(order: string, payload?: Record<string, unknown>): void;
@@ -122,7 +122,7 @@ export function CommandActionPanel(props: CommandActionPanelProps) {
             <small>
               {navigationCommandMode === "relative"
                 ? "COURSE VECTOR"
-                : `${navigationCommandMode === "away" ? "COURSE AWAY" : "COURSE TO"} // ${(navigationTarget?.name || "TARGET LOST").toUpperCase()}`}
+                : `${navigationCommandMode === "away" ? "COURSE AWAY" : navigationCommandMode === "face" ? "FACE" : "COURSE TO"} // ${(navigationTarget?.name || "TARGET LOST").toUpperCase()}`}
             </small>
             <button type="button" onClick={onCancelNavigation}>
               <CommandIcon type="cancel" />
@@ -211,6 +211,18 @@ export function CommandActionPanel(props: CommandActionPanelProps) {
                 >
                   <CommandIcon type="to" />
                 </button>
+                {selectedShip && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    disabled={landed || commandLocked}
+                    aria-label="Face selected ship"
+                    data-tooltip="FACE"
+                    onClick={() => onCourseTarget("face")}
+                  >
+                    <CommandIcon type="face" />
+                  </button>
+                )}
                 <button
                   type="button"
                   className={styles.iconButton}
