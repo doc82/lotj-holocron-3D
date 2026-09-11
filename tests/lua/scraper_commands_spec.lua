@@ -42,20 +42,15 @@ describe("scraper renderer commands", function()
       local driver = fixture.scraper.routeNavigation
       local ship = { name = "Test Hauler", enterPath = { "n" }, exitPath = { "s" } }
       local function start(id, kind)
-        assert(
-          driver:start(
-            {
-              operation = {
-                id = id,
-                runId = "startup",
-                kind = kind,
-                destination = { name = "Corellia" },
-              },
-              ship = ship,
-            },
-            id
-          )
-        )
+        assert(driver:start({
+          operation = {
+            id = id,
+            runId = "startup",
+            kind = kind,
+            destination = { name = "Corellia" },
+          },
+          ship = ship,
+        }, id))
       end
       local function reply(text)
         for line in (text .. "\n"):gmatch("([^\n]*)\n") do
