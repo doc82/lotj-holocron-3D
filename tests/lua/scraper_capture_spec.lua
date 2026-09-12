@@ -27,6 +27,87 @@ h.after_each(function()
 end)
 
 describe("scraper capture lifecycle", function()
+  it("reconciles navstat identity during manual transit without ending animation", function()
+    local s = fixture.scraper
+    s.state.metadata.inSpace = true
+    s.state.observer.name = "Previous Ship"
+    s.handleOutgoingCommand("sysDataSendRequest", "hyper")
+    s.handleHyperspaceLine("You push forward the hyperspeed lever.")
+    s.handleHyperspaceLine("The stars become streaks of light as you enter hyperspace.")
+    fixture:capture(
+      "navstat",
+      [[Readout for JumpMaster 5000 'OL3434':
+--Location-----------------------------------------------
+(Unable to determine current location)
+--Hyperspace---------------------------------------------
+Jump System: Karthakk System
+Jump Distance: 17.2 parsecs
+Jump Time: 1m 42s]]
+    )
+    equal(s.state.observer.name, "OL3434")
+    equal(s.state.observer.class, "JumpMaster 5000")
+    equal(s.hyperspace.phase, "hyperspace")
+    equal(s.state.metadata.hyperspace.phase, "hyperspace")
+    equal(s.state.metadata.navigation.jumpSystem, "Karthakk System")
+    local generation = s.state.metadata.observerGeneration
+    fixture:capture(
+      "status",
+      [[Readout for JumpMaster 5000 'OL3434':
+--Systems------------------------------------------------
+You cannot scan your own ship for lifeforms.
+Hull: 120/120 [100%]         Ship Condition: Running
+Shields: 100/100 [100%]      Energy(fuel): 5970/6300 [94%]
+Autopilot Status: Offline]]
+    )
+    equal(s.state.metadata.observerGeneration, generation)
+    equal(s.hyperspace.phase, "hyperspace")
+    equal(s.state.metadata.hyperspace.phase, "hyperspace")
+    equal(s.state.observer.hull.current, 120)
+  end)
+
+  it("navstat realspace ship changes still clear old transit", function()
+    local s = fixture.scraper
+    s.state.metadata.inSpace = true
+    s.state.observer.name = "Previous Ship"
+    s.handleOutgoingCommand("sysDataSendRequest", "hyper")
+    s.handleHyperspaceLine("You push forward the hyperspeed lever.")
+    s.handleHyperspaceLine("The stars become streaks of light as you enter hyperspace.")
+    fixture:capture(
+      "navstat",
+      [[Readout for JumpMaster 5000 'New Ship':
+Current Coordinates: 1 2 3
+Current System: Corellian System]]
+    )
+    equal(s.state.observer.name, "New Ship")
+    equal(s.hyperspace.phase, "idle")
+    equal(s.state.observer.x, 1)
+  end)
+
+  it("destination listings after calc stop do not restart calculation polling", function()
+    local s = fixture.scraper
+    s.state.metadata.inSpace = true
+    s.handleHyperspaceLine("Hyperspace course locked. Running final jump checks...")
+    equal(s.hyperspace.phase, "calculating")
+    s.handleHyperspaceLine("[ALERT]: Aborting Hyperspace calculation. Terminal reset.")
+    local stopped = s.hyperspace.phase
+    assert(stopped ~= "calculating")
+    for i = 1, 3 do
+      s.handleOutgoingCommand("sysDataSendRequest", "calc")
+      s.handleHyperspaceLine(
+        "Using your skill with navigation you reroute energy to the hyperdrives."
+      )
+      equal(s.hyperspace.phase, stopped)
+      s.captureLine("Possible destinations:")
+      s.captureLine("Starsystem                      Parsecs   Time    Fuel")
+      s.captureLine("Corellian System                   17.1   2m 18s   32%")
+      assert(s.finishCapture("prompt"))
+      equal(s.state.metadata.hyperspace.phase, stopped)
+      equal(s.hyperspace.statusTimerId, nil)
+    end
+    s.handleHyperspaceLine("Hyperspace course locked. Running final jump checks...")
+    equal(s.hyperspace.phase, "calculating")
+  end)
+
   local function response(lines)
     for value in (lines .. "\n"):gmatch("(.-)\n") do
       fixture.scraper.captureLine(value)

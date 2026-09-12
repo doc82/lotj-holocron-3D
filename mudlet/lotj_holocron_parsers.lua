@@ -893,6 +893,13 @@ function Parsers.parseNavstat(input)
   local result = { source = "navstat" }
   local recognized = 0
   for _, line in ipairs(lines) do
+    local header = line:match("^[Rr]eadout%s+for%s+(.+):$")
+    if header then
+      local name, class, valid = parseDisplayName(header)
+      if valid and validShipName(name) then
+        result.name, result.class = name, class
+      end
+    end
     local coordinates = line:match("^[Cc]urrent%s+[Cc]oordinates:%s*(.+)$")
     local heading = line:match("^[Cc]urrent%s+[Hh]eading:%s*(.+)$")
     local speed = line:match("^[Cc]urrent%s+[Ss]peed:%s*(.+)$")

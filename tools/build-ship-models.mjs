@@ -4,6 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import extractZip from "extract-zip";
+import { decodeGlb } from "./ship-glb.mjs";
+import { createYt1000 } from "./models/yt-1000.mjs";
+import { createAurek } from "./models/aurek-light-fighter.mjs";
+import { createBulwark } from "./models/bulwark-class-cruiser.mjs";
+import { createSprint } from "./models/sprint-class-rescue-craft.mjs";
+import { createValor } from "./models/valor-class-cruiser.mjs";
+import { createGolanIII } from "./models/golan-iii-station.mjs";
+import { createPraetorian } from "./models/praetorian-frigate.mjs";
 import catalog from "../renderer/src/domain/shipModelCatalog.json" with { type: "json" };
 import {
   buildCacheIsCurrent,
@@ -107,9 +115,16 @@ async function findFile(directory, filename) {
 }
 
 async function loadGltf(gltfPath) {
-  const gltf = JSON.parse(await fs.readFile(gltfPath, "utf8"));
+  const isGlb = path.extname(gltfPath).toLowerCase() === ".glb";
+  const decoded = isGlb ? decodeGlb(await fs.readFile(gltfPath)) : null;
+  const gltf = decoded?.gltf ?? JSON.parse(await fs.readFile(gltfPath, "utf8"));
   const buffers = await Promise.all(
-    gltf.buffers.map(async (buffer) => {
+    gltf.buffers.map(async (buffer, index) => {
+      if (!buffer.uri && decoded && index === 0) {
+        const bytes = decoded.binary;
+        if (buffer.byteLength > bytes.length) throw new Error("Truncated GLB buffer.");
+        return new DataView(bytes.buffer, bytes.byteOffset, buffer.byteLength);
+      }
       if (!buffer.uri || buffer.uri.startsWith("data:")) {
         throw new Error(`${gltfPath}: embedded data buffers are not supported.`);
       }
@@ -211,14 +226,14 @@ function bounds(positions) {
   return { minimum, maximum, extents: minimum.map((value, axis) => maximum[axis] - value) };
 }
 
-function normalizeOrientation(positions) {
+function normalizeOrientation(positions, orientation) {
   const sourceBounds = bounds(positions);
   const axes = [0, 1, 2].sort(
     (left, right) => sourceBounds.extents[right] - sourceBounds.extents[left],
   );
-  const longitudinal = axes[0];
-  const vertical = axes[2];
-  const lateral = axes[1];
+  const longitudinal = orientation?.longitudinal ?? axes[0];
+  const vertical = orientation?.vertical ?? axes[2];
+  const lateral = orientation?.lateral ?? axes[1];
   const center = sourceBounds.minimum.map(
     (value, axis) => (value + sourceBounds.maximum[axis]) / 2,
   );
@@ -244,7 +259,7 @@ function normalizeOrientation(positions) {
   }
   minimumRadius /= Math.max(1, minimumCount);
   maximumRadius /= Math.max(1, maximumCount);
-  const forwardSign = minimumRadius <= maximumRadius ? -1 : 1;
+  const forwardSign = orientation?.forwardSign ?? (minimumRadius <= maximumRadius ? -1 : 1);
   const unit = length / 2;
   const normalized = [];
   for (let index = 0; index < positions.length; index += 3) {
@@ -312,7 +327,9 @@ function parseLicense(text) {
   };
 }
 
-const sourcePaths = sources.map((source) => path.join(downloadsRoot, source.source.filename));
+const sourcePaths = sources
+  .filter((source) => source.source.kind !== "generated")
+  .map((source) => path.join(downloadsRoot, source.source.filename));
 const outputFiles = [
   path.join(outputRoot, "manifest.json"),
   path.join(outputRoot, "ATTRIBUTION.md"),
@@ -320,7 +337,19 @@ const outputFiles = [
 ];
 const fingerprint = await createBuildFingerprint({
   values: { releaseBuild, downloadsRoot: path.resolve(downloadsRoot) },
-  contentFiles: [builderPath, catalogPath],
+  contentFiles: [
+    builderPath,
+    catalogPath,
+    path.join(root, "tools", "ship-glb.mjs"),
+    path.join(root, "tools", "models", "yt-1000.mjs"),
+    path.join(root, "tools", "models", "aurek-light-fighter.mjs"),
+    path.join(root, "tools", "models", "bulwark-class-cruiser.mjs"),
+    path.join(root, "tools", "models", "sprint-class-rescue-craft.mjs"),
+    path.join(root, "tools", "models", "valor-class-cruiser.mjs"),
+    path.join(root, "tools", "models", "golan-iii-station.mjs"),
+    path.join(root, "tools", "models", "praetorian-frigate.mjs"),
+    path.join(root, "tools", "models", "mesh-primitives.mjs"),
+  ],
   statFiles: sourcePaths,
 });
 if (!forceBuild && (await buildCacheIsCurrent({ cachePath, fingerprint, outputs: outputFiles }))) {
@@ -337,14 +366,52 @@ await fs.mkdir(outputRoot, { recursive: true });
 const models = [];
 
 for (const source of sources) {
-  const sourcePath = path.join(downloadsRoot, source.source.filename);
-  await fs.access(sourcePath);
+  const sourcePath =
+    source.source.kind === "generated" ? null : path.join(downloadsRoot, source.source.filename);
+  if (sourcePath) await fs.access(sourcePath);
   const sourceDirectory = path.join(vendorRoot, source.id);
   await fs.rm(sourceDirectory, { recursive: true, force: true });
   await fs.mkdir(sourceDirectory, { recursive: true });
   let originalPositions;
   let attribution;
-  if (source.source.kind === "archive") {
+  if (source.source.kind === "generated") {
+    const generator = {
+      "yt-1000-light-freighter": createYt1000,
+      "aurek-light-fighter": createAurek,
+      "bulwark-class-cruiser": createBulwark,
+      "sprint-class-rescue-craft": createSprint,
+      "valor-class-cruiser": createValor,
+      "golan-iii-station": createGolanIII,
+      "praetorian-frigate": createPraetorian,
+    }[source.id];
+    if (!generator) throw new Error(`${source.id}: unknown original model generator.`);
+    originalPositions = generator().flatMap((part) => part.positions);
+    attribution = source.attribution;
+  } else if (source.source.kind === "stl-archive") {
+    await extractZip(sourcePath, { dir: sourceDirectory });
+    const stlPath = await findFile(sourceDirectory, source.source.entry);
+    if (!stlPath) throw new Error(`${source.source.filename}: ${source.source.entry} missing.`);
+    // Select the complete hull, never combine the duplicate front/back print variants.
+    originalPositions = await loadStl(stlPath);
+    attribution = {
+      ...source.attribution,
+      license: source.attribution.license.startsWith("CC ")
+        ? source.attribution.license.replaceAll(" ", "-")
+        : source.attribution.license,
+    };
+  } else if (source.source.kind === "file" && path.extname(sourcePath).toLowerCase() === ".glb") {
+    const { gltf } = decodeGlb(await fs.readFile(sourcePath));
+    attribution = gltf.asset.extras;
+    if (
+      !attribution ||
+      attribution.source !== source.attribution.source ||
+      !attribution.author?.includes(source.attribution.author) ||
+      !attribution.license?.includes(source.attribution.license.replaceAll(" ", "-"))
+    ) {
+      throw new Error(`${source.source.filename}: embedded attribution does not match catalog.`);
+    }
+    originalPositions = await loadGltf(sourcePath);
+  } else if (source.source.kind === "archive") {
     await extractZip(sourcePath, { dir: sourceDirectory });
     const gltfPath = await findFile(sourceDirectory, "scene.gltf");
     const licensePath = await findFile(sourceDirectory, "license.txt");
@@ -373,7 +440,20 @@ for (const source of sources) {
     throw new Error(`${source.source.filename}: unsupported ship-model source format.`);
   }
 
-  const oriented = normalizeOrientation(originalPositions);
+  if (
+    !originalPositions.length ||
+    originalPositions.length % 9 ||
+    !originalPositions.every(Number.isFinite)
+  )
+    throw new Error(`${source.id}: invalid geometry.`);
+  const oriented =
+    source.source.kind === "generated"
+      ? {
+          positions: originalPositions,
+          sourceExtents: bounds(originalPositions).extents,
+          axisMapping: { lateral: 0, vertical: 1, longitudinal: 2, forwardSign: 1 },
+        }
+      : normalizeOrientation(originalPositions, source.orientation);
   const optimized = optimize(oriented.positions, source.targetTriangles);
   const floatPositions = new Float32Array(optimized.positions);
   await fs.writeFile(

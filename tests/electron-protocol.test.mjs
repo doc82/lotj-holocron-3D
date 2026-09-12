@@ -106,16 +106,32 @@ test("Electron window and preload keep privileged APIs isolated", async () => {
 
 test("packaged releases require every attributed ship mesh and exclude evaluation assets", () => {
   const expected = packagedShipAssetPaths();
-  assert.equal(expected.length, 21);
+  assert.equal(expected.length, 30);
   assert.doesNotThrow(() => validatePackagedShipEntries(expected));
   assert.throws(() => validatePackagedShipEntries(expected.slice(1)), /missing:/);
+  const praetorianPath = "/renderer/dist/ship-models/praetorian-frigate.mesh";
+  assert.ok(expected.includes(praetorianPath));
   assert.throws(
-    () =>
-      validatePackagedShipEntries([
-        ...expected,
-        "/renderer/dist/ship-models/praetorian-frigate.mesh",
-      ]),
-    /evaluation-only:/,
+    () => validatePackagedShipEntries(expected.filter((p) => p !== praetorianPath)),
+    /missing:/,
+  );
+  const bulwarkPath = "/renderer/dist/ship-models/bulwark-class-cruiser.mesh";
+  assert.ok(expected.includes(bulwarkPath));
+  const sprintPath = "/renderer/dist/ship-models/sprint-class-rescue-craft.mesh";
+  const valorPath = "/renderer/dist/ship-models/valor-class-cruiser.mesh";
+  const stationPath = "/renderer/dist/ship-models/golan-iii-station.mesh";
+  assert.ok(expected.includes(stationPath));
+  assert.throws(() => validatePackagedShipEntries(expected.filter((p) => p !== stationPath)));
+  assert.ok(expected.includes(valorPath));
+  assert.throws(() => validatePackagedShipEntries(expected.filter((p) => p !== valorPath)));
+  assert.ok(expected.includes(sprintPath));
+  assert.throws(
+    () => validatePackagedShipEntries(expected.filter((p) => p !== sprintPath)),
+    /missing:/,
+  );
+  assert.throws(
+    () => validatePackagedShipEntries(expected.filter((p) => p !== bulwarkPath)),
+    /missing:/,
   );
 });
 

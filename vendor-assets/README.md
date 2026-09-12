@@ -47,8 +47,9 @@ See `docs/third-party-assets.md` for attribution and usage restrictions.
 
 ## Ship-model evaluation
 
-Place the nineteen verified Sketchfab ZIPs and the local-evaluation Praetorian
-STL in your Downloads folder, then run `pnpm assets:ships`. The importer leaves
+Place the downloaded sources listed in the ship catalog in your Downloads
+folder, then run `pnpm assets:ships`. Original models are generated from project
+source and need no download, including Praetorian. The importer leaves
 the downloads untouched, extracts or copies complete source packages (including
 textures and licenses where supplied) under ignored `vendor-assets/ships/`, and
 creates optimized geometry-only tactical preview meshes under ignored
@@ -57,7 +58,7 @@ Firespray/Slave I archive is the more restrictive CC BY-NC-SA 4.0.
 
 For a live review, start `pnpm electron:dev`, then run `pnpm preview:ships` in a
 second terminal. That command rebuilds the local ship bundle, verifies every
-catalog model and mesh, and lays out all twenty imported ships in one tactical
+catalog model and mesh, and lays out all 28 ships and stations in one tactical
 system. Categorize model aliases in `renderer/src/domain/shipModelCatalog.json`;
 use `renderer/src/domain/shipModelAssignments.json` only for exact named-ship
 overrides and category defaults. Resolution proceeds through explicit name,
@@ -89,9 +90,9 @@ Get-FileHash -Algorithm SHA256 `
 Store the ZIP privately in Google Drive and share it only with the read-only
 release service account.
 
-The ship archive root must be `ship-models/`. Build it in release mode so the
-unlicensed Praetorian evaluation mesh is omitted, then archive the 19 Creative
-Commons meshes, manifest, and attribution notice:
+The ship archive root must be `ship-models/`. Build it in release mode, then
+archive all 28 meshes (licensed imports and original project geometry), manifest,
+and attribution notice. The unverified Praetorian STL is no longer used:
 
 ```powershell
 node tools/build-ship-models.mjs --release
@@ -101,8 +102,7 @@ Get-FileHash -Algorithm SHA256 `
   .\.codex-tmp\drive-assets\holocron-ship-runtime-v1.zip
 ```
 
-Do not manually add `praetorian-frigate.mesh`. Release validation rejects
-evaluation-only assets and any bundle whose model IDs or embedded attribution
+Release validation rejects evaluation-only assets and any bundle whose model IDs or embedded attribution
 do not match the committed catalog.
 
 The Release workflow authenticates with the `GOOGLE_DRIVE_CREDENTIALS` GitHub
@@ -116,5 +116,5 @@ secret and reads these repository variables:
 `tools/fetch-planet-assets.mjs` downloads the file through the Drive API,
 verifies the checksum before extraction, and confirms all 40 runtime files are
 present. `tools/fetch-ship-assets.mjs` applies the same checksum-first flow to
-the 19 releasable ship meshes and their attribution files. `tools/release-build.mjs`
+the 28 releasable ship meshes and their attribution files. `tools/release-build.mjs`
 then verifies both asset families reached `renderer/dist` before Forge runs.

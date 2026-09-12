@@ -286,6 +286,18 @@ export function resolveConfiguredShipModel(
   const normalizedClass = normalizeShipIdentity(shipClass);
   const normalizedCategory = normalizeShipIdentity(category);
 
+  // All recognized installations share the station model, even when their name
+  // happens to match a ship alias or a named-ship override.
+  if (normalizedCategory === "battlestation" || normalizedCategory === "platform") {
+    const stationModel = assignments.categoryFallbacks[normalizedCategory];
+    if (stationModel)
+      return {
+        modelId: stationModel,
+        match: "category-fallback",
+        matchedValue: normalizedCategory,
+      };
+  }
+
   const explicitNameModel = modelIdByExactName.get(normalizedName);
   if (explicitNameModel) {
     return { modelId: explicitNameModel, match: "explicit-name", matchedValue: normalizedName };

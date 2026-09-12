@@ -11,6 +11,7 @@ export const evaluationShipModels = catalog.models.filter(
 function expectedLicenseMarker(license) {
   if (license === "CC BY 4.0") return "CC-BY-4.0";
   if (license === "CC BY-NC-SA 4.0") return "CC-BY-NC-SA-4.0";
+  if (license === "CC BY-NC") return "CC-BY-NC";
   return null;
 }
 
@@ -59,7 +60,10 @@ export async function validateShipAssetDirectory(assetRoot) {
     if (size === 0 || size % 36 !== 0) {
       throw new Error(`${expectedFile}: mesh is empty or not composed of complete triangles.`);
     }
-    const marker = expectedLicenseMarker(expected.attribution.license);
+    const marker =
+      expected.source.kind === "generated"
+        ? expected.attribution.license
+        : expectedLicenseMarker(expected.attribution.license);
     if (
       !model.attribution ||
       model.attribution.source !== expected.attribution.source ||
