@@ -93,30 +93,30 @@ See the [documentation index](docs/README.md), including the current
 
 ### Using Holocron3D
 
-- [Current capabilities](docs/capabilities.md) describes telemetry, rendering,
+- [Current capabilities](docs/user/capabilities.md) describes telemetry, rendering,
   formation commands, navigation, and known limitations.
-- [Controls and Mudlet commands](docs/controls.md) covers the tactical view,
+- [Controls and Mudlet commands](docs/user/controls.md) covers the tactical view,
   coordinate scale, package commands, debugging, and profiling.
 - [Detailed Mudlet setup](mudlet/SETUP.md) contains the first-time walkthrough
   and troubleshooting reference.
 
 ### Contributing and development
 
-- [Development setup](docs/development.md) covers prerequisites, cloning,
+- [Development setup](docs/development/development.md) covers prerequisites, cloning,
   Muddler configuration, and the local development workflow.
-- [Building and packaging](docs/building.md) lists build commands, outputs, and
+- [Building and packaging](docs/development/building.md) lists build commands, outputs, and
   clean-setup troubleshooting.
-- [Testing](docs/testing.md) documents test selection and Lua isolation rules.
-- [Release runbook](docs/releasing.md) covers producing and verifying a release.
+- [Testing](docs/development/testing.md) documents test selection and Lua isolation rules.
+- [Release runbook](docs/releases/releasing.md) covers producing and verifying a release.
 
 ### Design and project direction
 
-- [Architecture](docs/architecture.md) explains the runtime boundaries,
+- [Architecture](docs/architecture/architecture.md) explains the runtime boundaries,
   transports, security model, and per-user files.
-- [Relay protocol](docs/protocol.md) defines messages exchanged between Mudlet,
+- [Relay protocol](docs/architecture/protocol.md) defines messages exchanged between Mudlet,
   the relay, and Electron.
 - [Product roadmap](docs/roadmap.md) tracks completed and planned milestones.
-- [Electron migration notes](docs/electron-migration.md) preserve the desktop
+- [Electron migration notes](docs/history/electron-migration.md) preserve the desktop
   migration history and distribution considerations.
 
 ## AutoPilot credits
@@ -136,5 +136,5 @@ project. The artist's usage statement and gallery are available from
 These planet textures are separately licensed assets. They are not covered by
 the Holocron source code terms, may not be extracted or redistributed as a
 standalone texture pack, and may not be used for AI training or generation.
-See [third-party asset notices](docs/third-party-assets.md) for details and
+See [third-party asset notices](docs/assets/third-party-assets.md) for details and
 source links.

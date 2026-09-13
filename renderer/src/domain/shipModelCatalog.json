@@ -2,6 +2,29 @@
   "version": 1,
   "models": [
     {
+      "id": "flashfire-starfighter",
+      "displayName": "Flashfire Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "generated", "filename": "tools/models/flashfire-starfighter.mjs" },
+      "releaseEligible": true,
+      "attribution": {
+        "title": "Holocron original Flashfire Starfighter",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/flashfire-starfighter.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Flashfire Starfighter",
+        "Flashfire-class Starfighter",
+        "Flashfire Scout",
+        "Flashfire Scout Starfighter"
+      ]
+    },
+    {
       "id": "golan-iii-station",
       "displayName": "Golan III Space Defense Platform",
       "category": "battlestation",

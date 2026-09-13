@@ -1,5 +1,9 @@
 # Windows Electron migration
 
+Historical migration notes. Use the current [development setup](../development/development.md),
+[architecture](../architecture/architecture.md), and [release runbook](../releases/releasing.md)
+for maintained instructions and supported platforms.
+
 The Windows Electron migration is complete for the MVP. The browser proof of
 concept is archived under `poc/`. Electron bundles its own Node.js runtime, so
 end users do not install Node.js separately.

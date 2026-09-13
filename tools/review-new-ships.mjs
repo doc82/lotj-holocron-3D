@@ -10,6 +10,7 @@ import { createSprint } from "./models/sprint-class-rescue-craft.mjs";
 import { createValor } from "./models/valor-class-cruiser.mjs";
 import { createGolanIII } from "./models/golan-iii-station.mjs";
 import { createPraetorian } from "./models/praetorian-frigate.mjs";
+import { createFlashfire } from "./models/flashfire-starfighter.mjs";
 import { encodeShipGlb } from "./ship-glb.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,6 +28,7 @@ const reviewIds = [
   "valor-class-cruiser",
   "golan-iii-station",
   "praetorian-frigate",
+  "flashfire-starfighter",
 ];
 if (selectedId && !reviewIds.includes(selectedId))
   throw new Error(`Unknown review model: ${selectedId}`);
@@ -39,6 +41,7 @@ const originals = {
   "valor-class-cruiser": createValor(),
   "golan-iii-station": createGolanIII(),
   "praetorian-frigate": createPraetorian(),
+  "flashfire-starfighter": createFlashfire(),
 };
 if (!selectedId || selectedId === "yt-1000-light-freighter")
   await fs.writeFile(
@@ -74,6 +77,11 @@ if (!selectedId || selectedId === "praetorian-frigate")
   await fs.writeFile(
     path.join(output, "praetorian-frigate.glb"),
     encodeShipGlb(originals["praetorian-frigate"]),
+  );
+if (!selectedId || selectedId === "flashfire-starfighter")
+  await fs.writeFile(
+    path.join(output, "flashfire-starfighter.glb"),
+    encodeShipGlb(originals["flashfire-starfighter"]),
   );
 const manifest = JSON.parse(
   // Each review requires the matching built runtime geometry.

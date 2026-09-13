@@ -71,7 +71,7 @@ After packaging, each Windows, macOS, and Linux job also opens the generated `ap
 and requires all 40 optimized maps under `renderer/dist/planet-textures`. The
 release is blocked if a map is missing or empty, or if raw `vendor-assets`,
 temporary `.codex-tmp` files, or duplicate `renderer/public` assets are present.
-Each job also requires the 28 release-eligible ship meshes, `manifest.json`, and
+Each job also requires the 29 release-eligible ship meshes, `manifest.json`, and
 `ATTRIBUTION.md` under `renderer/dist/ship-models`. It rejects missing or empty
 geometry and attribution drift. Praetorian now uses original project geometry.
 
@@ -80,7 +80,7 @@ geometry and attribution drift. Praetorian now uses original project geometry.
 Open a pull request from a branch in this repository. The
 **Private runtime asset validation** workflow authenticates with the same secret,
 downloads both Drive ZIPs, verifies their SHA-256 digests, validates all 40
-1024×512 WebPs and 28 ship meshes, builds the renderer, and confirms both asset
+1024×512 WebPs and 29 ship meshes, builds the renderer, and confirms both asset
 families reached `renderer/dist`. It does not package an installer, upload the
 assets as an Actions artifact, or publish a release.
 

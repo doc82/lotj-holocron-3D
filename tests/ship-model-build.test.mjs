@@ -7,6 +7,7 @@ import { createSprint } from "../tools/models/sprint-class-rescue-craft.mjs";
 import { createValor } from "../tools/models/valor-class-cruiser.mjs";
 import { createGolanIII } from "../tools/models/golan-iii-station.mjs";
 import { createPraetorian } from "../tools/models/praetorian-frigate.mjs";
+import { createFlashfire } from "../tools/models/flashfire-starfighter.mjs";
 import { createHash } from "node:crypto";
 import { decodeGlb, encodeShipGlb } from "../tools/ship-glb.mjs";
 import { configuredShipModelIdFor } from "../renderer/src/domain/shipModels.ts";
@@ -216,6 +217,40 @@ test("Praetorian geometry is symmetric, deterministic and correctly oriented", (
   for (const p of pods) assert.ok(p.positions.filter((_, i) => i % 3 === 2).every((z) => z > 0.7));
 });
 
+test("Flashfire aliases select original release geometry without changing fighter defaults", () => {
+  const model = catalog.models.find((m) => m.id === "flashfire-starfighter");
+  assert.deepEqual(model.source, {
+    kind: "generated",
+    filename: "tools/models/flashfire-starfighter.mjs",
+  });
+  assert.equal(model.releaseEligible, true);
+  for (const alias of [...model.aliases, " Flashfire Starfighter ", "Flashfire Starfighter:"])
+    assert.equal(configuredShipModelIdFor(alias, "Blue Flight"), model.id);
+  assert.equal(configuredShipModelIdFor("Unknown Fighter", "", "starfighter"), "x-wing");
+  for (const alias of ["NovaDive", "S-13 Sting", "IL-5 Skybolt"])
+    assert.notEqual(configuredShipModelIdFor(alias), model.id);
+});
+
+test("Flashfire is symmetric, deterministic, bounded and has forward guns and aft engines", () => {
+  const parts = createFlashfire();
+  assert.deepEqual(parts, createFlashfire());
+  assert.equal(new Set(parts.map((p) => p.name)).size, parts.length);
+  const positions = parts.flatMap((p) => p.positions);
+  assert.equal(positions.length % 9, 0);
+  assert.ok(positions.every((v) => Number.isFinite(v) && Math.abs(v) < 1.1));
+  assert.ok(positions.length / 9 > 500 && positions.length / 9 < 8000);
+  const key = (x, y, z) => [x, y, z].map((v) => Math.round(v * 1e7)).join(",");
+  const vertices = new Set();
+  for (let i = 0; i < positions.length; i += 3) vertices.add(key(...positions.slice(i, i + 3)));
+  for (let i = 0; i < positions.length; i += 3)
+    assert.ok(vertices.has(key(-positions[i], positions[i + 1], positions[i + 2])));
+  const guns = parts.filter((p) => p.name.endsWith("laser muzzle"));
+  assert.equal(guns.length, 2);
+  for (const p of guns) assert.ok(p.positions.filter((_, i) => i % 3 === 2).every((z) => z > 0.3));
+  const engine = parts.find((p) => p.name === "Axial engine aperture");
+  assert.ok(engine.positions.filter((_, i) => i % 3 === 2).every((z) => z < -0.9));
+});
+
 test("Sprint is deterministic, symmetric, unarmed and has a low wide hull", () => {
   const parts = createSprint();
   assert.deepEqual(parts, createSprint());
@@ -317,6 +352,7 @@ for (const [name, createModel] of [
   ["Valor", createValor],
   ["Golan III", createGolanIII],
   ["Praetorian", createPraetorian],
+  ["Flashfire", createFlashfire],
 ]) {
   test(`${name} GLB round trips all named parts with finite normalized normals and exact position bounds`, () => {
     const parts = createModel();

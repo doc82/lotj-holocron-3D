@@ -132,4 +132,4 @@ Jedi output. Its current capabilities include:
 - The third-party WebSocket interface is local-only and remains a compatibility
   surface rather than the primary renderer transport.
 
-Planned work is tracked in the [product roadmap](roadmap.md).
+Planned work is tracked in the [product roadmap](../roadmap.md).

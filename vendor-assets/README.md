@@ -43,7 +43,7 @@ confirmed planet in one tactical system and supplies the same catalog to the
 local and galactic hyperspace planners. A real Mudlet relay connection safely
 replaces the preview connection.
 
-See `docs/third-party-assets.md` for attribution and usage restrictions.
+See `docs/assets/third-party-assets.md` for attribution and usage restrictions.
 
 ## Ship-model evaluation
 
@@ -58,7 +58,7 @@ Firespray/Slave I archive is the more restrictive CC BY-NC-SA 4.0.
 
 For a live review, start `pnpm electron:dev`, then run `pnpm preview:ships` in a
 second terminal. That command rebuilds the local ship bundle, verifies every
-catalog model and mesh, and lays out all 28 ships and stations in one tactical
+catalog model and mesh, and lays out all 29 ships and stations in one tactical
 system. Categorize model aliases in `renderer/src/domain/shipModelCatalog.json`;
 use `renderer/src/domain/shipModelAssignments.json` only for exact named-ship
 overrides and category defaults. Resolution proceeds through explicit name,
@@ -67,7 +67,7 @@ the procedural category model.
 
 The tactical shader currently uses flat lighting and contact/disposition color,
 so downloaded textures are preserved in `vendor-assets/ships/` but are not yet
-drawn. See `docs/ship-model-sources.md` for the complete roster and attribution.
+drawn. See `docs/assets/ship-model-sources.md` for the complete roster and attribution.
 
 ## Private Google Drive release bundles
 
@@ -91,7 +91,7 @@ Store the ZIP privately in Google Drive and share it only with the read-only
 release service account.
 
 The ship archive root must be `ship-models/`. Build it in release mode, then
-archive all 28 meshes (licensed imports and original project geometry), manifest,
+archive all 29 meshes (licensed imports and original project geometry), manifest,
 and attribution notice. The unverified Praetorian STL is no longer used:
 
 ```powershell
@@ -116,5 +116,5 @@ secret and reads these repository variables:
 `tools/fetch-planet-assets.mjs` downloads the file through the Drive API,
 verifies the checksum before extraction, and confirms all 40 runtime files are
 present. `tools/fetch-ship-assets.mjs` applies the same checksum-first flow to
-the 28 releasable ship meshes and their attribution files. `tools/release-build.mjs`
+the 29 releasable ship meshes and their attribution files. `tools/release-build.mjs`
 then verifies both asset families reached `renderer/dist` before Forge runs.

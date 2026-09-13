@@ -52,7 +52,7 @@ Linux relay. `pnpm make:linux` additionally creates the portable archive at
 The archive extracts to a single `Holocron3D` directory and preserves executable
 permissions. Linux artifacts must be built on Linux.
 
-For an actual release, follow the complete [release runbook](releasing.md). It
+For an actual release, follow the complete [release runbook](../releases/releasing.md). It
 requires attaching and verifying the Windows installer, both macOS DMGs, the
 Linux archive, and the Mudlet package before the GitHub release is published.
 

@@ -6,6 +6,8 @@
 
 ## Implementation history
 
+[Autoflight review](AUTOFLIGHT_REVIEW.md) records an additional implementation review.
+
 These documents preserve earlier checkpoints and reviews. Their readiness statements and remaining-work lists may be superseded by the latest audit.
 
 - [Initial implementation checkpoint](history/where-we-are-at.md)

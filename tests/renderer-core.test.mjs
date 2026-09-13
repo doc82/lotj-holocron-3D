@@ -58,8 +58,8 @@ import {
 import shipModelCatalog from "../renderer/src/domain/shipModelCatalog.json" with { type: "json" };
 
 test("every downloaded ship model has a category and resolvable canonical name", () => {
-  assert.equal(shipModelCatalog.models.length, 28);
-  assert.equal(new Set(shipModelCatalog.models.map((model) => model.id)).size, 28);
+  assert.equal(shipModelCatalog.models.length, 29);
+  assert.equal(new Set(shipModelCatalog.models.map((model) => model.id)).size, 29);
   for (const model of shipModelCatalog.models) {
     assert.ok(model.category, `${model.id} needs a ship category`);
     assert.ok(model.aliases.length > 0, `${model.id} needs at least one name alias`);
@@ -74,7 +74,7 @@ test("every downloaded ship model has a category and resolvable canonical name",
   }
   assert.equal(
     shipModelCatalog.models.filter((model) => model.releaseEligible !== false).length,
-    28,
+    29,
   );
   assert.equal(
     shipModelCatalog.models.find((model) => model.id === "praetorian-frigate")?.releaseEligible,

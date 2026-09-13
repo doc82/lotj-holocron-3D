@@ -1,5 +1,10 @@
 # Star Wars ship model source list
 
+This page preserves dated acquisition research and earlier evaluation results.
+For current shipped models, start with the [asset index](README.md) and
+[model catalog](../../renderer/src/domain/shipModelCatalog.json). Candidate and
+"not found" lists below may have been superseded by original project models.
+
 This is the working acquisition list for replacing Holocron's procedural ship
 silhouettes. The project only needs ships in the `starfighter` category and
 larger. Prefer downloadable GLTF/GLB models with explicit redistribution terms,
@@ -115,30 +120,33 @@ explicit named-ship override.
   CC BY-NC; retain attribution and noncommercial use. The separate turret is
   not added to the base hull. Conversion is geometric, not generative AI.
 - **YT-1000:** original procedural first-pass geometry; see
-  [model review instructions](yt-1000-model.md). No Ebon Hawk substitution.
+  [model review instructions](models/yt-1000-model.md). No Ebon Hawk substitution.
 
 - **Aurek Light Fighter:** original procedural geometry with a spearhead nose,
-  rear cockpit and swept wings; see [model notes](aurek-model.md). The downloaded
+  rear cockpit and swept wings; see [model notes](models/aurek-model.md). The downloaded
   A-IR Wing substitute is not used.
 
 - **Bulwark-Class Cruiser:** original procedural geometry replaces the
   license-unverified download in both local and release builds. See
-  [Bulwark notes](bulwark-model.md) for references and review instructions.
+  [Bulwark notes](models/bulwark-model.md) for references and review instructions.
 
 - **Sprint-Class Rescue Craft:** original flat, wide Med Runner interpretation,
   included in release builds. The generic rescue-ship download is not used; see
-  [Sprint model notes](sprint-model.md).
+  [Sprint model notes](models/sprint-model.md).
 
 - **Valor-Class Cruiser:** original layered cruiser with a suspended engine cluster,
-  included in release builds. See [Valor model notes](valor-model.md).
+  included in release builds. See [Valor model notes](models/valor-model.md).
 
 - **Golan III station:** original geometry used for every battlestation and platform.
-  Included in releases; see [Golan station notes](golan-model.md).
+  Included in releases; see [Golan station notes](models/golan-model.md).
 
 - **Praetorian-class Frigate:** original geometry replaces the unverified STL;
-  the existing frigate fallback is now release eligible. See [Praetorian notes](praetorian-model.md).
+  the existing frigate fallback is now release eligible. See [Praetorian notes](models/praetorian-model.md).
 
-The catalog now contains 28 models, all included in noncommercial
+- **Flashfire Starfighter:** original Republic scout interpretation; see
+  [Flashfire notes](models/flashfire-model.md). Other scout classes are not aliases.
+
+The catalog now contains 29 models, all included in noncommercial
 release builds. The historic unverified Praetorian STL is not used. Naboo and JumpMaster have
 explicit, visually checked axis mappings because the longest-axis/narrowest-end
 heuristic misidentifies their heading. No additional category defaults changed.

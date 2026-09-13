@@ -12,6 +12,7 @@ import { createSprint } from "./models/sprint-class-rescue-craft.mjs";
 import { createValor } from "./models/valor-class-cruiser.mjs";
 import { createGolanIII } from "./models/golan-iii-station.mjs";
 import { createPraetorian } from "./models/praetorian-frigate.mjs";
+import { createFlashfire } from "./models/flashfire-starfighter.mjs";
 import catalog from "../renderer/src/domain/shipModelCatalog.json" with { type: "json" };
 import {
   buildCacheIsCurrent,
@@ -348,6 +349,7 @@ const fingerprint = await createBuildFingerprint({
     path.join(root, "tools", "models", "valor-class-cruiser.mjs"),
     path.join(root, "tools", "models", "golan-iii-station.mjs"),
     path.join(root, "tools", "models", "praetorian-frigate.mjs"),
+    path.join(root, "tools", "models", "flashfire-starfighter.mjs"),
     path.join(root, "tools", "models", "mesh-primitives.mjs"),
   ],
   statFiles: sourcePaths,
@@ -383,6 +385,7 @@ for (const source of sources) {
       "valor-class-cruiser": createValor,
       "golan-iii-station": createGolanIII,
       "praetorian-frigate": createPraetorian,
+      "flashfire-starfighter": createFlashfire,
     }[source.id];
     if (!generator) throw new Error(`${source.id}: unknown original model generator.`);
     originalPositions = generator().flatMap((part) => part.positions);

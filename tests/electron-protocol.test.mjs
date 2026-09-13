@@ -106,7 +106,13 @@ test("Electron window and preload keep privileged APIs isolated", async () => {
 
 test("packaged releases require every attributed ship mesh and exclude evaluation assets", () => {
   const expected = packagedShipAssetPaths();
-  assert.equal(expected.length, 30);
+  assert.equal(expected.length, 31);
+  const flashfirePath = "/renderer/dist/ship-models/flashfire-starfighter.mesh";
+  assert.ok(expected.includes(flashfirePath));
+  assert.throws(
+    () => validatePackagedShipEntries(expected.filter((p) => p !== flashfirePath)),
+    /missing:/,
+  );
   assert.doesNotThrow(() => validatePackagedShipEntries(expected));
   assert.throws(() => validatePackagedShipEntries(expected.slice(1)), /missing:/);
   const praetorianPath = "/renderer/dist/ship-models/praetorian-frigate.mesh";
