@@ -4,6 +4,8 @@
     "Pollution": "imperial-ii-star-destroyer"
   },
   "categoryFallbacks": {
+    "battlestation": "golan-iii-station",
+    "platform": "golan-iii-station",
     "starfighter": "x-wing",
     "freighter": "yt-2400-light-freighter",
     "gunboat": "firespray-patrol-craft",

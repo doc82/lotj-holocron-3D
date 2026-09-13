@@ -6,7 +6,7 @@ The live galactic map also reads the current player's GMAP discoveries from
 their local Mudlet profile. Keep these personal records out of the shared
 topology, generated maps, test fixtures, and release assets. Use fictional
 locations when testing discovery imports. See the
-[`galaxy_catalog` protocol](../protocol.md#galaxy_catalog) for the runtime source.
+[`galaxy_catalog` protocol](../architecture/protocol.md#galaxy_catalog) for the runtime source.
 
 - [Connection map and edge register](galaxy-hyperlane-map.md)
 - [PNG map](galaxy-hyperlane-map.png) and [SVG map](galaxy-hyperlane-map.svg)

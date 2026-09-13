@@ -143,6 +143,6 @@ installed application.
 - Use the [building and packaging guide](building.md) to create application and
   installer artifacts.
 - Use the [testing guide](testing.md) to run or extend the test suites.
-- Follow the [release runbook](releasing.md) for an actual release.
-- Consult the [architecture](architecture.md) and
-  [relay protocol](protocol.md) when changing runtime boundaries.
+- Follow the [release runbook](../releases/releasing.md) for an actual release.
+- Consult the [architecture](../architecture/architecture.md) and
+  [relay protocol](../architecture/protocol.md) when changing runtime boundaries.

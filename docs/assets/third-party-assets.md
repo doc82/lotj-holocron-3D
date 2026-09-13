@@ -36,6 +36,32 @@ for worlds without a dedicated texture.
 
 ## Ship-model assets
 
+Praetorian-class Frigate uses original Holocron geometry instead of the unverified
+STL. See [Praetorian notes](models/praetorian-model.md).
+
+Golan III station uses original Holocron procedural geometry with no third-party
+mesh or texture dependency. See [Golan notes](models/golan-model.md) for visual references.
+
+Valor-Class Cruiser uses original Holocron procedural geometry with no third-party
+mesh or texture dependency. See [Valor notes](models/valor-model.md) for visual references.
+
+Sprint-Class Rescue Craft uses original Holocron procedural geometry, with no
+third-party model or texture dependency. See [Sprint notes](models/sprint-model.md).
+
+Bulwark-Class Cruiser now uses original procedural Holocron geometry in local
+and release builds. The earlier PopFeverMiniatures STL is no longer a build
+input or runtime asset; its redistribution license remains unverified. No
+third-party mesh or texture is incorporated in the replacement. See
+[Bulwark notes](models/bulwark-model.md). Underlying Star Wars IP is not relicensed.
+
+September 2026 additions: the Naboo N-1 GLB embeds JackJohn2942's CC BY 4.0
+attribution. The JumpMaster 5000 STL archive is by PopFeverMiniatures and its
+[source page](https://cults3d.com/en/3d-model/game/jumpmaster-5000) is marked
+CC BY-NC (and No AI). Its geometry-only conversion is for this noncommercial
+application; it is not used to generate other models. Keep those restrictions
+and credits with the asset. The YT-1000 is separately authored project geometry,
+not a derivative of either download; see [its source notes](models/yt-1000-model.md).
+
 Packaged releases may include optimized geometry-only derivatives generated
 from the source archives. The original downloads, source textures, and extracted
 packages are excluded from both version control and application packages.

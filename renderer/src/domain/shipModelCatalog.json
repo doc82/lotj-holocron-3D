@@ -2,6 +2,212 @@
   "version": 1,
   "models": [
     {
+      "id": "flashfire-starfighter",
+      "displayName": "Flashfire Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "generated", "filename": "tools/models/flashfire-starfighter.mjs" },
+      "releaseEligible": true,
+      "attribution": {
+        "title": "Holocron original Flashfire Starfighter",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/flashfire-starfighter.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Flashfire Starfighter",
+        "Flashfire-class Starfighter",
+        "Flashfire Scout",
+        "Flashfire Scout Starfighter"
+      ]
+    },
+    {
+      "id": "golan-iii-station",
+      "displayName": "Golan III Space Defense Platform",
+      "category": "battlestation",
+      "scale": 4.8,
+      "targetTriangles": 18000,
+      "source": { "kind": "generated", "filename": "tools/models/golan-iii-station.mjs" },
+      "releaseEligible": true,
+      "attribution": {
+        "title": "Holocron original Golan III station",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/golan-iii-station.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Golan III",
+        "Golan 3",
+        "Golan-III Station",
+        "Golan III Space Defense NovaGun",
+        "Golan III Battle Station"
+      ]
+    },
+    {
+      "id": "valor-class-cruiser",
+      "displayName": "Valor-Class Cruiser",
+      "category": "cruiser",
+      "scale": 3.1,
+      "targetTriangles": 18000,
+      "source": { "kind": "generated", "filename": "tools/models/valor-class-cruiser.mjs" },
+      "releaseEligible": true,
+      "attribution": {
+        "title": "Holocron original Valor-Class Cruiser",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/valor-class-cruiser.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Valor-Class Cruiser",
+        "Valor Cruiser",
+        "Valor-Class Republic Cruiser",
+        "D-Class Attack Cruiser"
+      ]
+    },
+    {
+      "id": "sprint-class-rescue-craft",
+      "displayName": "Sprint-Class Rescue Craft",
+      "category": "transport",
+      "scale": 1.2,
+      "targetTriangles": 10000,
+      "source": { "kind": "generated", "filename": "tools/models/sprint-class-rescue-craft.mjs" },
+      "releaseEligible": true,
+      "attribution": {
+        "title": "Holocron original Sprint-Class Rescue Craft",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/sprint-class-rescue-craft.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Sprint-Class Rescue Craft",
+        "Sprint Rescue Craft",
+        "SoroSuub Sprint-Class Rescue Craft",
+        "Sprint-Class Medical Rescue Craft",
+        "Sprint-Class Med Runner"
+      ]
+    },
+    {
+      "id": "bulwark-class-cruiser",
+      "displayName": "Bulwark-Class Cruiser",
+      "category": "cruiser",
+      "scale": 3.1,
+      "targetTriangles": 18000,
+      "source": {
+        "kind": "generated",
+        "filename": "tools/models/bulwark-class-cruiser.mjs"
+      },
+      "releaseEligible": true,
+      "attribution": {
+        "title": "Holocron original Bulwark-Class Cruiser",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/bulwark-class-cruiser.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Bulwark-Class Cruiser",
+        "Bulwark Cruiser",
+        "Bulwark Mark I Warship",
+        "Bulwark Mark I",
+        "Bulwark-class Battleship"
+      ]
+    },
+    {
+      "id": "aurek-light-fighter",
+      "displayName": "Aurek Light Fighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "generated", "filename": "tools/models/aurek-light-fighter.mjs" },
+      "attribution": {
+        "title": "Holocron Aurek first-pass model",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/aurek-light-fighter.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": [
+        "Aurek Light Fighter",
+        "Aurek-class Tactical Strikefighter",
+        "Aurek Tactical Strikefighter",
+        "Aurek-class Starfighter",
+        "Aurek Starfighter"
+      ]
+    },
+    {
+      "id": "naboo-n1-starfighter",
+      "orientation": { "lateral": 0, "vertical": 1, "longitudinal": 2, "forwardSign": 1 },
+      "displayName": "Naboo N-1 Starfighter",
+      "category": "starfighter",
+      "scale": 0.9,
+      "targetTriangles": 8000,
+      "source": { "kind": "file", "filename": "naboo_n1-starfighter.glb" },
+      "attribution": {
+        "title": "Naboo N1-StarFighter",
+        "author": "JackJohn2942",
+        "authorUrl": "https://sketchfab.com/JackJohn2942",
+        "source": "https://sketchfab.com/3d-models/naboo-n1-starfighter-c3f7a8b0645941b5a7496fa6413eb380",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "aliases": [
+        "Naboo Fighter",
+        "Naboo N-1 Starfighter",
+        "Naboo N1 Starfighter",
+        "N-1 Starfighter"
+      ]
+    },
+    {
+      "id": "jumpmaster-5000",
+      "orientation": { "lateral": 0, "vertical": 2, "longitudinal": 1, "forwardSign": -1 },
+      "displayName": "JumpMaster 5000",
+      "category": "freighter",
+      "scale": 1.45,
+      "targetTriangles": 12000,
+      "source": {
+        "kind": "stl-archive",
+        "filename": "jumpmaster-500020210917-8165-10kust5.zip",
+        "entry": "Jumpmaster5000.STL"
+      },
+      "attribution": {
+        "title": "Jumpmaster 5000",
+        "author": "PopFeverMiniatures",
+        "authorUrl": "https://cults3d.com/en/users/PopFeverMiniatures",
+        "source": "https://cults3d.com/en/3d-model/game/jumpmaster-5000",
+        "license": "CC BY-NC",
+        "licenseUrl": "https://cults3d.com/en/licenses/cc-by-nc"
+      },
+      "aliases": ["JumpMaster 5000", "JumpMaster-5000", "JumpMaster 5000 Scout Ship"]
+    },
+    {
+      "id": "yt-1000-light-freighter",
+      "displayName": "YT-1000 Light Freighter",
+      "category": "freighter",
+      "scale": 1.45,
+      "targetTriangles": 12000,
+      "source": { "kind": "generated", "filename": "tools/models/yt-1000.mjs" },
+      "attribution": {
+        "title": "Holocron YT-1000 first-pass model",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/yt-1000.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
+        "licenseUrl": ""
+      },
+      "aliases": ["YT-1000 Light Freighter", "YT-1000 Freighter", "YT-1000", "YT1000"]
+    },
+    {
       "id": "x-wing",
       "displayName": "T-65 X-wing Starfighter",
       "category": "starfighter",
@@ -267,14 +473,14 @@
       "category": "frigate",
       "scale": 2.55,
       "targetTriangles": 18000,
-      "source": { "kind": "file", "filename": "Praetorian-class_Frigate.stl" },
-      "releaseEligible": false,
+      "source": { "kind": "generated", "filename": "tools/models/praetorian-frigate.mjs" },
+      "releaseEligible": true,
       "attribution": {
-        "title": "Praetorian-class Frigate",
-        "author": "Unknown creator",
-        "authorUrl": "",
-        "source": "https://cults3d.com/en/3d-model/tool/praetorian-class-frigate",
-        "license": "Unverified; local evaluation only",
+        "title": "Holocron original Praetorian-class Frigate",
+        "author": "LotJ Holocron project",
+        "authorUrl": "https://github.com/doc82/lotj-holocron-3D",
+        "source": "https://github.com/doc82/lotj-holocron-3D/blob/main/tools/models/praetorian-frigate.mjs",
+        "license": "Original project geometry; Star Wars IP belongs to its respective owners",
         "licenseUrl": ""
       },
       "aliases": ["Praetorian-class Frigate", "Praetorian Frigate", "Praetorian-class"]

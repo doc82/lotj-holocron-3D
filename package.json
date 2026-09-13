@@ -1,7 +1,7 @@
 {
   "name": "lotj-holocron-3d",
   "productName": "LotJ Holocron 3D",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "A real-time 3D tactical renderer for Legends of the Jedi space telemetry.",
   "author": "Veska",
   "private": true,
@@ -29,6 +29,7 @@
     "assets:ships:release:rebuild": "node tools/build-ship-models.mjs --release --force",
     "preview:planets": "node tools/preview-planet-textures.mjs",
     "preview:ships": "pnpm assets:ships && node tools/preview-ship-models.mjs",
+    "review:ships": "pnpm assets:ships && node tools/review-new-ships.mjs",
     "renderer:typecheck": "tsc --noEmit",
     "electron:dev": "node tools/electron-dev.mjs",
     "electron:smoke": "pnpm renderer:build && node tools/electron-smoke.mjs",

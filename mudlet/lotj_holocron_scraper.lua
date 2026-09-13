@@ -1058,7 +1058,7 @@ local function freshState()
   }
 end
 
-local function resetObserverContext(name, reason)
+local function resetObserverContext(name, reason, preserveManualTransit)
   if Scraper.routeNavigation then
     local active = Scraper.routeNavigation.active
     if active and trim(active.ship.name):lower() ~= trim(name):lower() then
@@ -1072,6 +1072,10 @@ local function resetObserverContext(name, reason)
   local previous = Scraper.state or freshState()
   local previousMetadata = previous.metadata or {}
   local nextState = freshState()
+  if preserveManualTransit then
+    nextState.metadata.hyperspace = copyTable(previousMetadata.hyperspace)
+    nextState.metadata.navigation = copyTable(previousMetadata.navigation or {})
+  end
   nextState.observer.name = trim(name) ~= "" and trim(name) or "Player Ship"
   for _, key in ipairs({
     "inSpace",
@@ -1177,23 +1181,25 @@ local function resetObserverContext(name, reason)
   Scraper.shields.statusPending = false
   Scraper.shields.manualIntentId = nil
   Scraper.shields.activationPending = false
-  safeKill("killTimer", Scraper.hyperspace.statusTimerId)
-  safeKill("killTimer", Scraper.hyperspace.reentryRefreshTimerId)
-  safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
-  Scraper.hyperspace.phase = "idle"
-  Scraper.hyperspace.statusTimerId = nil
-  Scraper.hyperspace.reentryRefreshTimerId = nil
-  Scraper.hyperspace.exitProbeTimerId = nil
-  Scraper.hyperspace.exitPlan = nil
-  Scraper.hyperspace.activeIntentId = nil
-  Scraper.hyperspace.pendingLocalJumpUntil = 0
-  Scraper.hyperspace.fleetJumpQueue = {}
-  Scraper.hyperspace.activeSample = nil
-  Scraper.hyperspace.pendingArrivalSample = nil
-  Scraper.hyperspace.hyperjumpCompleteObserved = false
-  Scraper.hyperspace.realspaceLurchObserved = false
-  Scraper.hyperspace.awaitingArrivalRadar = false
-  Scraper.hyperspace.reentrySystemName = nil
+  if not preserveManualTransit then
+    safeKill("killTimer", Scraper.hyperspace.statusTimerId)
+    safeKill("killTimer", Scraper.hyperspace.reentryRefreshTimerId)
+    safeKill("killTimer", Scraper.hyperspace.exitProbeTimerId)
+    Scraper.hyperspace.phase = "idle"
+    Scraper.hyperspace.statusTimerId = nil
+    Scraper.hyperspace.reentryRefreshTimerId = nil
+    Scraper.hyperspace.exitProbeTimerId = nil
+    Scraper.hyperspace.exitPlan = nil
+    Scraper.hyperspace.activeIntentId = nil
+    Scraper.hyperspace.pendingLocalJumpUntil = 0
+    Scraper.hyperspace.fleetJumpQueue = {}
+    Scraper.hyperspace.activeSample = nil
+    Scraper.hyperspace.pendingArrivalSample = nil
+    Scraper.hyperspace.hyperjumpCompleteObserved = false
+    Scraper.hyperspace.realspaceLurchObserved = false
+    Scraper.hyperspace.awaitingArrivalRadar = false
+    Scraper.hyperspace.reentrySystemName = nil
+  end
 
   if queueObserverHydration then
     queueObserverHydration()
@@ -2101,6 +2107,27 @@ function Scraper.applyResult(result, sentCommand, captureContext)
       return nil, applyError
     end
   elseif source == "navstat" then
+    local parsedName = trim(result.name)
+    local currentName = trim(Scraper.state.observer.name)
+    if parsedName ~= "" then
+      if
+        currentName ~= ""
+        and currentName:lower() ~= "player ship"
+        and currentName:lower() ~= parsedName:lower()
+      then
+        local transit = Scraper.state.metadata.hyperspace or {}
+        -- This local readout identifies the ship whose manual departure we
+        -- just observed, not a new ship boarded during that departure.
+        local preserve = transit.manuallyInitiated == true
+          and Scraper.hyperspace.phase == "hyperspace"
+          and not result.coordinates
+          and result.jumpSystem ~= nil
+          and result.jumpTimeSeconds ~= nil
+        resetObserverContext(parsedName, "navstat identified the local ship", preserve)
+      end
+      Scraper.state.observer.name = parsedName
+      Scraper.state.observer.class = result.class or Scraper.state.observer.class
+    end
     if result.coordinates then
       Scraper.state.observer.x, Scraper.state.observer.y, Scraper.state.observer.z =
         result.coordinates.x, result.coordinates.y, result.coordinates.z
@@ -4056,8 +4083,12 @@ function Scraper.handleHyperspaceLine(text)
     refreshRemoteHyperspaceCalculationEstimate()
   elseif lower:find("using your skill with navigation", 1, true) then
     markHyperspaceSample("navigator")
-    publishHyperspace("calculating", { navigatorApplied = true })
-    refreshRemoteHyperspaceCalculationEstimate()
+    -- A bare CALC destination listing emits this too. It is not evidence
+    -- that a calculation started, and must not restart status polling.
+    if Scraper.hyperspace.phase == "calculating" then
+      publishHyperspace("calculating", { navigatorApplied = true })
+      refreshRemoteHyperspaceCalculationEstimate()
+    end
   elseif lower == "could not locate destination system in your nav computer." then
     cancelHyperspaceCalculationEstimate()
     Scraper.hyperspace.initiatedByHolocron = false
